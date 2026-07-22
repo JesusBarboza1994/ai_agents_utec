@@ -1,0 +1,7 @@
+# LangChain 1.x + LangGraph + integración Ollama
+# (mismas versiones verificadas que /Examples: langchain 1.3.x, langgraph 1.2.x, langchain-ollama 1.1.x)
+langchain>=1.3.0
+langgraph>=1.2.0
+langchain-ollama>=1.1.0
+ipykernel>=6.29.0
+jupyter>=1.0.0
