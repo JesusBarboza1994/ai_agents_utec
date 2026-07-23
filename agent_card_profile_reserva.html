@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clemente Reservations — Product Profile Card</title>
+  <style>
+    :root {
+      --ink: #111;
+      --border: #202020;
+      --communication: #dfe9df;
+      --context: #b7d9f0;
+      --environment: #b9e4e7;
+      --autonomy: #fff0c9;
+      --criticality: #f7cfd3;
+      --agenttype: #e4dcf5;
+      --paper: #ffffff;
+      --page-bg: #f3f5f7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page-bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.35;
+    }
+
+    main {
+      width: min(1100px, calc(100% - 24px));
+      margin: 40px auto 50px;
+    }
+
+    .agent-sheet {
+      background: var(--paper);
+      border: 2px solid var(--border);
+      margin: 0 auto;
+      box-shadow: 0 8px 24px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+
+    .case-title {
+      padding: 22px 28px;
+      border-bottom: 2px solid var(--border);
+      background: #fff;
+      text-align: center;
+    }
+
+    .case-title h1 {
+      margin: 7px 0 0;
+      font-size: clamp(22px, 2.3vw, 34px);
+      line-height: 1.2;
+    }
+
+    .case-title .subtitle {
+      margin: 8px auto 0;
+      max-width: 900px;
+      font-size: 14.5px;
+      font-style: italic;
+      color: #333;
+    }
+
+    .case-number {
+      display: inline-block;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      background: #111;
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 999px;
+    }
+
+    .section {
+      border-bottom: 2px solid var(--border);
+      padding: 18px 18px 20px;
+    }
+
+    .section:last-child {
+      border-bottom: 0;
+    }
+
+    .section > h2 {
+      margin: 0 0 4px;
+      text-align: center;
+      font-size: clamp(22px, 2vw, 31px);
+      line-height: 1.1;
+    }
+
+    .section > h3 {
+      margin: 0 0 10px;
+      text-align: center;
+      font-size: clamp(17px, 1.45vw, 23px);
+    }
+
+    .section > h4 {
+      margin: 12px 0 2px;
+      text-align: center;
+      font-size: 18px;
+    }
+
+    .section > p {
+      margin: 5px auto;
+      text-align: center;
+      max-width: 900px;
+      font-size: 16px;
+    }
+
+    .communication {
+      background: var(--communication);
+      padding-top: 20px;
+      padding-bottom: 20px;
+    }
+
+    .context {
+      background: var(--context);
+    }
+
+    .environment {
+      background: var(--environment);
+    }
+
+    .autonomy {
+      background: var(--autonomy);
+    }
+
+    .agenttype {
+      background: var(--agenttype);
+    }
+
+    .agenttype .box p {
+      text-align: left;
+    }
+
+    .criticality {
+      background: var(--criticality);
+    }
+
+    .channels {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .channel {
+      padding: 6px 14px;
+      border: 2px solid var(--border);
+      border-radius: 999px;
+      background: var(--paper);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+      align-items: stretch;
+      margin-top: 14px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .environment-grid {
+      grid-template-columns: 1fr 1fr 1.1fr;
+    }
+
+    .memory-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .box {
+      background: rgba(255,255,255,.94);
+      border: 2px solid var(--border);
+      border-radius: 42px;
+      padding: 14px 20px 16px;
+      min-width: 0;
+    }
+
+    .box h3 {
+      text-align: center;
+      margin: 0 0 8px;
+      font-size: clamp(20px, 1.7vw, 28px);
+      line-height: 1.05;
+    }
+
+    .box p {
+      margin: 8px 0;
+      text-align: left;
+      font-size: 15px;
+    }
+
+    .box ul {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    .box li {
+      margin: 6px 0;
+      font-size: 15px;
+    }
+
+    .memory {
+      border-radius: 26px;
+    }
+
+    .critical-grid .box {
+      border-radius: 70px;
+      padding-left: 28px;
+      padding-right: 28px;
+    }
+
+    @media (max-width: 1000px) {
+      .grid.two,
+      .environment-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .critical-grid .box,
+      .box {
+        border-radius: 28px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      main {
+        width: calc(100% - 10px);
+        margin-top: 10px;
+      }
+
+      .section {
+        padding: 14px 10px 16px;
+      }
+
+      .box {
+        padding: 14px 16px;
+      }
+
+      .box li,
+      .box p,
+      .section > p {
+        font-size: 14px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      main {
+        width: 100%;
+        margin: 0;
+      }
+
+      .agent-sheet {
+        box-shadow: none;
+        margin: 0;
+      }
+
+      .box {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="agent-sheet" id="reservas" aria-label="Product profile card for Clemente Reservations">
+      <div class="case-title">
+        <span class="case-number">Product Profile Card</span>
+        <h1>Clemente Reservations</h1>
+        <p class="subtitle">Conversational agent that checks availability, confirms the reservation, and follows up until the day of the visit.</p>
+      </div>
+
+      <div class="section communication">
+        <h2>Communication Layer</h2>
+        <h3>Conversational</h3>
+        <p>Continues the conversation already started with Clemente to check availability, confirm the reservation, and follow up until the day of the visit.</p>
+        <div class="channels">
+          <span class="channel">WhatsApp</span>
+          <span class="channel">Messenger</span>
+          <span class="channel">Instagram</span>
+          <span class="channel">Webchat</span>
+        </div>
+      </div>
+
+      <div class="section context">
+        <h2>Context Definition</h2>
+        <div class="grid two">
+          <article class="box">
+            <h3>Domain Definition</h3>
+            <p>Manage reservations through a natural conversation with the customer.</p>
+          </article>
+          <article class="box">
+            <h3>Objectives Definition</h3>
+            <p>Capture intent, offer available time slots, confirm requests, and reduce operational workload.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="section environment">
+        <h2>Environment Definition</h2>
+        <div class="grid environment-grid">
+          <article class="box">
+            <h3>Knowledge</h3>
+            <ul><li>Restaurant hours.</li><li>Capacity, tables, and zones.</li><li>Reservation rules.</li><li>Policies for changes and cancellations.</li></ul>
+          </article>
+          <article class="box">
+            <h3>Tools</h3>
+            <ul><li>Check availability.</li><li>Propose alternatives.</li><li>Register the reservation request.</li><li>Modify, cancel, or escalate to staff.</li></ul>
+          </article>
+          <div class="memory-stack">
+            <article class="box memory">
+              <h3>Long Term Memory</h3>
+              <ul><li>Name, phone number, preferences, allergies, favorite zone, and reservation history.</li></ul>
+            </article>
+            <article class="box memory">
+              <h3>Short Term Memory</h3>
+              <ul><li>Date, time, party size, occasion, notes, and the option chosen during the conversation.</li></ul>
+            </article>
+          </div>
+        </div>
+      </div>
+
+      <div class="section agenttype">
+        <h2>Reflex Agent Type Definition</h2>
+        <h3>Utility-Based Agent</h3>
+        <p>Reservation isn't binary: when the exact slot is unavailable, several valid alternatives exist (terrace 8:00pm extra capacity vs. indoor 8:15pm exact fit) that must be ranked, not just approved. Goal-Based only answers "is it possible?"; Utility-Based answers "which option is best?", scoring by time, zone, and capacity fit — it's the only one of the 4 architectures that ranks instead of just satisfying the goal.</p>
+      </div>
+
+      <div class="section autonomy">
+        <h2>Autonomy Dimension Definition</h2>
+        <h3>Semi-autonomous</h3>
+        <div class="grid two">
+          <article class="box">
+            <h3>Evaluates and recommends</h3>
+            <p>Evaluates the venue's availability, determines whether a reservation can be created, and offers recommendations for available time slots.</p>
+          </article>
+          <article class="box">
+            <h3>Guides and escalates</h3>
+            <p>Guides the reservation and creates a pending request, but escalates special cases to the restaurant team.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="section criticality">
+        <h2>Criticality Dimension Definition</h2>
+        <div class="grid two critical-grid">
+          <article class="box">
+            <h3>Risks &amp; Limitations</h3>
+            <ul><li>Undetected difference between the recorded reservation and actual occupancy.</li><li>Allergies and medical conditions carry high criticality when the customer has them.</li><li>Possibility of invalid reservation attempts or attempts outside policy.</li><li>Communicating conditions unclearly without protecting the diner's experience (hallucination).</li></ul>
+          </article>
+          <article class="box">
+            <h3>Guardrails, Evals, LLMaaJ and Controls</h3>
+            <ul><li>Real-time availability verification before confirming any reservation.</li><li>Explicit customer confirmation before creating, updating, or canceling a reservation.</li><li>Immediate alert to the restaurant team for any event the agent cannot resolve.</li><li>Full traceability between the reservation, assigned table, and status.</li><li>After several failed attempts, escalates to a human with the accumulated conversation text.</li></ul>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
