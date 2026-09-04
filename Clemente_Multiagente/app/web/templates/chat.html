@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clemente — chat de demostración</title>
+<style>
+  :root{
+    --fondo:#0f1115; --panel:#171a21; --borde:#262b36; --texto:#e8eaed;
+    --tenue:#9aa3b2; --acento:#e0a458; --cliente:#2b3242;
+    --reservas:#4c9f70; --incidencias:#c8553d; --conocimiento:#4a7fb5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+       background:var(--fondo);color:var(--texto);height:100vh;display:flex;flex-direction:column}
+  header{padding:14px 20px;border-bottom:1px solid var(--borde);display:flex;
+         align-items:center;gap:12px;background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  header .sub{color:var(--tenue);font-size:13px}
+  header .estado{margin-left:auto;font-size:12px;color:var(--tenue)}
+  main{flex:1;display:flex;overflow:hidden}
+  #conversacion{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:min(680px,80%);padding:11px 14px;border-radius:12px;white-space:pre-wrap}
+  .msg.cliente{align-self:flex-end;background:var(--cliente)}
+  .msg.clemente{align-self:flex-start;background:var(--panel);border:1px solid var(--borde)}
+  .etiqueta{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+            margin-bottom:5px;font-weight:600}
+  .reservas{color:var(--reservas)} .incidencias{color:var(--incidencias)}
+  .conocimiento{color:var(--conocimiento)} .orquestador{color:var(--tenue)}
+  .motivo{font-size:12px;color:var(--tenue);margin-top:7px;font-style:italic}
+  aside{width:290px;border-left:1px solid var(--borde);background:var(--panel);
+        padding:18px;overflow-y:auto;font-size:13px}
+  aside h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+           color:var(--tenue);margin:0 0 10px}
+  aside ul{list-style:none;padding:0;margin:0 0 22px}
+  aside li{padding:7px 0;border-bottom:1px solid var(--borde);color:var(--tenue)}
+  aside li b{color:var(--texto);font-weight:600}
+  .ejemplo{display:block;width:100%;text-align:left;background:transparent;color:var(--texto);
+           border:1px solid var(--borde);border-radius:8px;padding:8px 10px;margin-bottom:7px;
+           cursor:pointer;font:inherit;font-size:13px}
+  .ejemplo:hover{border-color:var(--acento)}
+  form{display:flex;gap:10px;padding:16px 20px;border-top:1px solid var(--borde);background:var(--panel)}
+  input{flex:1;background:var(--fondo);border:1px solid var(--borde);color:var(--texto);
+        border-radius:9px;padding:11px 13px;font:inherit}
+  input:focus{outline:none;border-color:var(--acento)}
+  button[type=submit]{background:var(--acento);color:#1a1200;border:0;border-radius:9px;
+                      padding:11px 20px;font-weight:600;cursor:pointer}
+  button[disabled]{opacity:.5;cursor:default}
+</style>
+</head>
+<body>
+<header>
+  <h1>Clemente</h1>
+  <span class="sub">chat de demostración · Grupo 02</span>
+  <span class="estado" id="estado">conectando…</span>
+</header>
+
+<main>
+  <div id="conversacion">
+    <div class="msg clemente">
+      <div class="etiqueta conocimiento">Clemente</div>
+      Hola, soy Clemente, del restaurante. ¿En qué te ayudo?
+    </div>
+  </div>
+
+  <aside>
+    <h2>Los tres agentes</h2>
+    <ul>
+      <li><b class="reservas">Reservas y capacidad</b><br>consulta, reserva, cambia, cancela</li>
+      <li><b class="incidencias">Incidencias y experiencia</b><br>lo que ya salió mal</li>
+      <li><b class="conocimiento">Conocimiento</b><br>horarios, carta, políticas (RAG)</li>
+    </ul>
+    <h2>Prueba el ruteo</h2>
+    <button class="ejemplo">¿A qué hora abren el domingo?</button>
+    <button class="ejemplo">¿Tienen mesa para 4 el sábado a las 20:00?</button>
+    <button class="ejemplo">Ayer esperé 40 minutos con reserva confirmada</button>
+    <button class="ejemplo">Somos 14, ¿entramos?</button>
+  </aside>
+</main>
+
+<form id="formulario">
+  <input id="entrada" placeholder="Escribe como lo haría un cliente…" autocomplete="off" autofocus>
+  <button type="submit" id="enviar">Enviar</button>
+</form>
+
+<script>
+const conversacion = document.getElementById('conversacion');
+const formulario = document.getElementById('formulario');
+const entrada = document.getElementById('entrada');
+const boton = document.getElementById('enviar');
+const sesionId = 'demo-' + Math.random().toString(36).slice(2, 10);
+
+fetch('/api/salud').then(r => r.json())
+  .then(d => document.getElementById('estado').textContent = `modelo: ${d.modelo}`)
+  .catch(() => document.getElementById('estado').textContent = 'servidor no disponible');
+
+function burbuja(texto, quien, agente, motivo) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + quien;
+  if (quien === 'clemente') {
+    const etiqueta = document.createElement('div');
+    etiqueta.className = 'etiqueta ' + (agente || 'conocimiento');
+    etiqueta.textContent = 'Clemente · ' + (agente || '…');
+    div.appendChild(etiqueta);
+  }
+  div.appendChild(document.createTextNode(texto));
+  if (motivo) {
+    const m = document.createElement('div');
+    m.className = 'motivo';
+    m.textContent = '↳ ruteo: ' + motivo;
+    div.appendChild(m);
+  }
+  conversacion.appendChild(div);
+  conversacion.scrollTop = conversacion.scrollHeight;
+  return div;
+}
+
+async function enviar(texto) {
+  burbuja(texto, 'cliente');
+  const pensando = burbuja('…', 'clemente', 'orquestador');
+  boton.disabled = true;
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mensaje: texto, sesion_id: sesionId, canal: 'webchat'})
+    });
+    const d = await r.json();
+    pensando.remove();
+    burbuja(d.respuesta || d.error, 'clemente', d.agente, d.motivo_ruta);
+  } catch (e) {
+    pensando.remove();
+    burbuja('No se pudo contactar al servidor: ' + e.message, 'clemente', 'orquestador');
+  } finally {
+    boton.disabled = false;
+    entrada.focus();
+  }
+}
+
+formulario.addEventListener('submit', e => {
+  e.preventDefault();
+  const texto = entrada.value.trim();
+  if (!texto) return;
+  entrada.value = '';
+  enviar(texto);
+});
+
+document.querySelectorAll('.ejemplo').forEach(b =>
+  b.addEventListener('click', () => enviar(b.textContent)));
+</script>
+</body>
+</html>
