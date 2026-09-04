@@ -1,0 +1,16 @@
+{
+  "restaurante": "Clemente (demo Grupo 02)",
+  "mesas": [
+    {"id": "M01", "zona": "salon",   "capacidad": 2},
+    {"id": "M02", "zona": "salon",   "capacidad": 2},
+    {"id": "M03", "zona": "salon",   "capacidad": 4},
+    {"id": "M04", "zona": "salon",   "capacidad": 4},
+    {"id": "M05", "zona": "salon",   "capacidad": 6},
+    {"id": "T01", "zona": "terraza", "capacidad": 2},
+    {"id": "T02", "zona": "terraza", "capacidad": 4},
+    {"id": "T03", "zona": "terraza", "capacidad": 6},
+    {"id": "B01", "zona": "barra",   "capacidad": 2},
+    {"id": "B02", "zona": "barra",   "capacidad": 3},
+    {"id": "S01", "zona": "salon",   "capacidad": 8}
+  ]
+}

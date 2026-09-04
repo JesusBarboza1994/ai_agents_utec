@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Clemente -- dependencias del proyecto final (Grupo 02)
+# Instalar SIEMPRE desde aqui, para que los cinco corramos lo mismo:
+#     python -m venv .venv
+#     .venv\Scripts\activate      (Windows)   |   source .venv/bin/activate (mac/linux)
+#     pip install -r requirements.txt
+# ---------------------------------------------------------------------------
+
+# --- Capa web (Flask): expone el agente por HTTP y sirve el chat de demo ---
+flask
+flask-cors
+python-dotenv
+
+# --- Agentes y orquestacion (Sesiones 12, 14 y 15) ---
+langchain>=1.0
+langgraph
+pydantic
+
+# --- Proveedores de LLM: el razonamiento corre sobre API (acuerdo del equipo) ---
+langchain-anthropic       # AGENT_MODEL=claude
+langchain-openai          # AGENT_MODEL=openai
+langchain-ollama          # respaldo local sin conexion + embeddings del RAG
+
+# --- RAG del Agente de Conocimiento (Sesion 13) ---
+langchain-chroma
+chromadb
+langchain-text-splitters
+pypdf
+python-docx
+
+# --- Observabilidad (Sesiones 19-20) ---
+langsmith
+
+# --- Pruebas ---
+pytest

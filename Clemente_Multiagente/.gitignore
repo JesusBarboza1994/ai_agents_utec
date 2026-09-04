@@ -1,0 +1,10 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+*.log
+app/agentes/rag/chroma_index/
+app/reservas/datos/reservas.json
+app/incidencias/datos/incidencias.json
+.pytest_cache/
