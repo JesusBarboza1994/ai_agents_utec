@@ -19,8 +19,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
-# Los tres agentes del Entregable 01, mas el fallback del orquestador.
-Ruta = Literal["reservas", "incidencias", "conocimiento"]
+# A donde puede ir un paso del plan del orquestador.
+#
+# CAMBIO ACORDADO EN LA ASESORIA DEL 2026-09-07 (Boris). Este archivo se toca
+# entre todos, asi que queda dicho por que: la ruta `conocimiento` desaparecio
+# porque desaparecio ese agente, y en su lugar esta `informacion`, que NO es un
+# agente sino el propio orquestador respondiendo (ver
+# `app/orquestador/informacion.py`). Quien consuma `RespuestaClemente.agente`
+# -- comunicacion, observabilidad, el panel -- debe contemplar el valor nuevo.
+Ruta = Literal["reservas", "incidencias", "informacion"]
 
 
 # --------------------------------------------------------------------------
@@ -134,11 +141,22 @@ class ServicioIncidencias(Protocol):
 
     def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]: ...
 
+    def anotar(self, incidencia_id: str, texto: str) -> bool:
+        """
+        Agrega un dato a una incidencia ya abierta, sin cambiarle el estado.
+
+        Existe porque un mismo caso puede recibir informacion en varios turnos:
+        el cliente reclama, y dos mensajes despues da su telefono. Sin esto, la
+        unica forma de guardar ese telefono era abrir un segundo ticket -- y el
+        staff terminaba con dos tarjetas del mismo problema.
+        """
+        ...
+
     def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None: ...
 
 
 # --------------------------------------------------------------------------
-# 4. Agente de Conocimiento  <->  RAG
+# 4. Orquestador  <->  RAG del catalogo
 # --------------------------------------------------------------------------
 
 @dataclass

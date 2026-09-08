@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "clemente": "./studio.py:grafo"
+  },
+  "env": ".env"
+}

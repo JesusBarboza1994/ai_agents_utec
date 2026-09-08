@@ -1,0 +1,222 @@
+{
+  "descripcion": "Dataset de evaluacion de Clemente. Cada guion es una conversacion completa en su propia sesion. Los casos salen de la prueba de estres del 2026-09-06 y de los fallos documentados del 2026-09-03 (README seccion 9), que se conservan como regresiones. Actualizado el 2026-09-07 tras la asesoria con Boris: la ruta 'conocimiento' se renombro a 'informacion' porque ese agente se elimino y su alcance lo atiende ahora el propio orquestador (ver ASESORIA_01_BORIS_ACUERDOS.md, Acuerdo 1).",
+  "guiones": [
+    {
+      "id": "informacion-horarios",
+      "origen": "estres 2026-09-06",
+      "turnos": [
+        {
+          "mensaje": "A que hora abren el domingo?",
+          "ruta_esperada": "informacion",
+          "debe_contener": [
+            "12:00",
+            "17:00"
+          ],
+          "respuesta_esperada": "Los domingos abrimos de 12:00 a 17:00, solo almuerzo; no hay cena ese dia. La cocina toma el ultimo pedido 45 minutos antes del cierre."
+        }
+      ]
+    },
+    {
+      "id": "informacion-estacionamiento",
+      "origen": "regresion del 2026-09-03: llama3.2 invento 'en la calle principal, gratuito'",
+      "turnos": [
+        {
+          "mensaje": "hola, tienen estacionamiento?",
+          "ruta_esperada": "informacion",
+          "debe_contener": [
+            "Grau 410"
+          ],
+          "no_debe_contener": [
+            "gratuito",
+            "calle principal"
+          ],
+          "respuesta_esperada": "Tenemos convenio con la playa de estacionamiento de Av. Grau 410. Son dos horas liberadas presentando el ticket de consumo."
+        }
+      ]
+    },
+    {
+      "id": "informacion-cancelacion",
+      "origen": "Entregable 01",
+      "turnos": [
+        {
+          "mensaje": "hasta cuando puedo cancelar sin perder nada?",
+          "ruta_esperada": "informacion",
+          "debe_contener": [
+            "3 horas"
+          ],
+          "respuesta_esperada": "La cancelacion es libre y sin costo hasta 3 horas antes del turno reservado."
+        }
+      ]
+    },
+    {
+      "id": "informacion-vegetariano",
+      "origen": "Entregable 01",
+      "turnos": [
+        {
+          "mensaje": "tienen opciones vegetarianas?",
+          "ruta_esperada": "informacion",
+          "debe_contener": [
+            "quinua",
+            "risotto"
+          ],
+          "modo_contiene": "alguno",
+          "respuesta_esperada": "Si: ensalada de quinua, risotto de hongos, tallarin saltado de verduras y causa vegetariana. Si tienes alguna alergia, hay que declararla al reservar y repetirla al mozo al llegar."
+        }
+      ]
+    },
+    {
+      "id": "reservas-disponibilidad",
+      "origen": "estres 2026-09-06",
+      "turnos": [
+        {
+          "mensaje": "Tienes mesa para 6 el 2026-09-12 a las 20:00?",
+          "ruta_esperada": "reservas"
+        }
+      ]
+    },
+    {
+      "id": "reservas-informacion-no-habla-de-cupo",
+      "origen": "regresion del 2026-09-06: el enrutador mando una consulta de mesa a Conocimiento, que ademas nego disponibilidad",
+      "turnos": [
+        {
+          "mensaje": "hay mesa para 4 el 2026-09-12 a las 20:00?",
+          "ruta_esperada": "reservas"
+        }
+      ]
+    },
+    {
+      "id": "reservas-continuidad-del-hilo",
+      "origen": "regresion del 2026-09-06: 4 de 6 turnos se fueron al agente equivocado",
+      "turnos": [
+        {
+          "mensaje": "quiero cambiar mi reserva",
+          "ruta_esperada": "reservas"
+        },
+        {
+          "mensaje": "y sino tengo el telefono?",
+          "ruta_esperada": "reservas"
+        },
+        {
+          "mensaje": "pero tengo mi codigo de reserva!! aqui esta: R-51BA96",
+          "ruta_esperada": "reservas",
+          "nota": "requiere que exista esa reserva; si no, cambiar el codigo por uno real"
+        },
+        {
+          "mensaje": "numero de personas",
+          "ruta_esperada": "reservas"
+        }
+      ]
+    },
+    {
+      "id": "reservas-grupo-grande-escala",
+      "origen": "Entregable 01: mas de 10 personas no se cierran por chat",
+      "nota": "Corregido el 2026-09-07. La primera version esperaba el escalamiento en un solo turno y lo marcaba como fallo: el agente reconocia el limite y pedia nombre y telefono, que es lo correcto -- escalar sin datos de contacto le deja al staff un caso que no puede atender. La decision del equipo es que el escalamiento ocurre DESPUES de recoger el contacto, asi que el guion son dos turnos. Contrapartida asumida: si el cliente abandona en el primer turno, no queda nada registrado. Segunda correccion, 2026-09-08: la lista de frases prohibidas incluia la palabra suelta 'confirmada', y eso marcaba como fallo la respuesta CORRECTA -- el agente tiene que decir que la mesa TODAVIA no esta confirmada, y esa frase contiene la palabra. Se cambio por frases completas que solo pueden aparecer en una respuesta equivocada. Que este caso pasara al 100% antes fue suerte: el modelo no habia usado esa palabra.",
+      "turnos": [
+        {
+          "mensaje": "somos 14, entramos el sabado a las 20:00?",
+          "ruta_esperada": "reservas",
+          "escalado_esperado": false,
+          "debe_contener": [
+            "staff"
+          ],
+          "no_debe_contener": [
+            "te la reservo",
+            "ya esta lista",
+            "reserva confirmada",
+            "mesa confirmada",
+            "quedo confirmada",
+            "esta confirmada"
+          ]
+        },
+        {
+          "mensaje": "soy Christian Cajusol, mi telefono es 956789900",
+          "ruta_esperada": "reservas",
+          "escalado_esperado": true
+        }
+      ]
+    },
+    {
+      "id": "incidencias-espera",
+      "origen": "regresion del 2026-09-03: llama3.2 invento el codigo CI-1234 sin registrar nada",
+      "turnos": [
+        {
+          "mensaje": "ayer espere 40 minutos con una reserva confirmada y nadie me atendio",
+          "ruta_esperada": "incidencias",
+          "debe_contener": [
+            "I-"
+          ],
+          "no_debe_contener": [
+            "descuento",
+            "cortesia",
+            "promocion"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incidencias-gana-sobre-reserva",
+      "origen": "Entregable 01: la prioridad del reclamo sobre la reserva. Reescrito el 2026-09-07 tras la asesoria con Boris.",
+      "turnos": [
+        {
+          "mensaje": "reserve para 4 y encima espere 40 minutos, ahora quiero mesa para el sabado",
+          "ruta_esperada": "incidencias",
+          "plan_esperado": [
+            "incidencias",
+            "reservas"
+          ]
+        }
+      ],
+      "nota": "Este es el caso que motivo pasar de router a orquestador. El mensaje trae DOS pedidos. Con el router anterior la regla de prioridad mandaba todo a incidencias y la reserva se caia del turno: el cliente quedaba con el reclamo atendido y su mesa sin responder. Ahora se espera un plan de dos pasos, en ese orden -- lo que ya salio mal se atiende antes que lo que viene."
+    },
+    {
+      "id": "incidencias-no-ofrece-compensacion",
+      "origen": "Entregable 01: donde se detiene el Agente de Incidencias",
+      "turnos": [
+        {
+          "mensaje": "el plato llego frio y nadie se acerco, que me van a dar a cambio?",
+          "ruta_esperada": "incidencias",
+          "no_debe_contener": [
+            "descuento",
+            "cortesia",
+            "gratis",
+            "invita la casa"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "memoria-cliente-conocido",
+      "origen": "falla reportada el 2026-09-06: el agente no recordaba la reserva tras reiniciar",
+      "sesion_fija": "whatsapp-956789900",
+      "nota": "requiere que exista una reserva con el telefono 956789900",
+      "turnos": [
+        {
+          "mensaje": "hola, a que hora era mi reserva?",
+          "ruta_esperada": "reservas",
+          "debe_contener": [
+            "R-"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "plan-informacion-antes-de-reservar",
+      "origen": "asesoria Boris 2026-09-07 [11:41]: el horario condiciona lo que se puede reservar",
+      "nota": "El ejemplo que dio el propio docente: el horario lo sabe una parte del sistema y el cupo otra. Boris [11:56]: 'el primero es el que te frena, es la puerta, el filtro'. Se responde el dato y recien despues se ve la mesa.",
+      "turnos": [
+        {
+          "mensaje": "hasta que hora atienden el sabado? queria reservar para las 21:00",
+          "ruta_esperada": "informacion",
+          "plan_esperado": [
+            "informacion",
+            "reservas"
+          ],
+          "debe_contener": [
+            "00:00"
+          ],
+          "modo_contiene": "alguno"
+        }
+      ]
+    }
+  ]
+}

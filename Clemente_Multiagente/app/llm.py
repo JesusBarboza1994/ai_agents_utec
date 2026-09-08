@@ -10,10 +10,29 @@ Decision del equipo (acordada en reunion): el razonamiento corre sobre API de
 **Anthropic** u **OpenAI**. Los modelos locales de Ollama quedan como plan B
 para trabajar sin conexion o sin gastar credito -- en la prueba del 2026-09-03
 `llama3.2` invento datos del catalogo, invento un codigo de incidencia y una
-vez escribio la llamada a una herramienta como texto (ver README, seccion 6).
+vez escribio la llamada a una herramienta como texto (ver README, seccion 10).
 """
 
 import os
+
+# Los modelos Claude 4.6 en adelante (opus-5, sonnet-5, opus-4-8/4-7/4-6,
+# sonnet-4-6) ELIMINARON los parametros de muestreo: mandar `temperature`
+# devuelve 400 "`temperature` is deprecated for this model". Solo los
+# anteriores lo aceptan, asi que la temperatura se envia solo para esos.
+CLAUDE_ACEPTA_TEMPERATURE = ("claude-haiku-4-5", "claude-sonnet-4-5", "claude-3")
+
+# Embeddings del RAG. `bge-m3` es multilingue; `nomic-embed-text`, con el que
+# empezo el proyecto, esta entrenado casi solo en ingles y NO discrimina en
+# espanol: el 2026-09-07 se midio que para "tienen estacionamiento?" dejaba el
+# fragmento con la palabra "estacionamiento" escrita dos veces en el puesto 7
+# de 13, por debajo de la politica de cancelaciones. Las distancias de todos los
+# fragmentos caian en la misma franja: no habia senal.
+#
+# Si alguna vez se vuelve a `nomic-embed-text`, hay que anteponer sus prefijos de
+# tarea ("search_query: " a la consulta y "search_document: " a cada fragmento);
+# el modelo los exige y `OllamaEmbeddings` no los agrega. Aun asi rinde peor que
+# `bge-m3` en espanol.
+MODELO_EMBEDDINGS_OLLAMA = "bge-m3"
 
 # Modelos locales via Ollama. Se quedan como respaldo, no como default.
 MODELOS_OLLAMA = {
@@ -23,10 +42,117 @@ MODELOS_OLLAMA = {
     "qwen3": "qwen3:0.6b",
 }
 
+# Los modelos de razonamiento de OpenAI (gpt-5 en adelante, gpt-6, serie o)
+# tampoco aceptan `temperature`: solo admiten el valor por defecto. Es el mismo
+# problema que ya teniamos con Claude 4.6+, en la otra casa.
+OPENAI_SIN_TEMPERATURE = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 
-def resolver_modelo(temperature: float = 0.2):
-    """Devuelve el chat model ya instanciado segun AGENT_MODEL."""
-    agent_model = os.getenv("AGENT_MODEL", "claude")
+# Precio por millon de tokens (entrada, salida), en dolares.
+#
+# Verificado el 2026-09-07 contra las paginas oficiales:
+#   Anthropic  https://platform.claude.com/docs/en/about-claude/pricing
+#   OpenAI     https://developers.openai.com/api/docs/pricing
+#
+# NO se estima ningun precio: si un modelo no esta en esta tabla, el banco de
+# pruebas reporta sus tokens y deja el costo vacio, en vez de inventar un numero.
+# Revisar esta tabla antes de citarla en el informe: los precios cambian, y el de
+# gpt-5.6-sol es promocional (anunciado al menos hasta el 2026-11-21).
+PRECIOS_POR_MILLON = {
+    # Anthropic
+    "claude-opus-5": (5.0, 25.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    # OpenAI
+    "gpt-6-astra": (10.0, 50.0),
+    "gpt-5.6-sol": (4.0, 20.0),
+    "gpt-5.6-terra": (2.0, 12.0),
+    "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-5.5": (5.0, 30.0),
+    "gpt-5.4": (2.50, 15.0),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+
+
+def precio_de(modelo: str) -> tuple[float, float] | None:
+    """Precio (entrada, salida) por millon de tokens, o None si no lo conocemos."""
+    if modelo in PRECIOS_POR_MILLON:
+        return PRECIOS_POR_MILLON[modelo]
+    # Los IDs con sufijo de fecha ("gpt-5.4-2026-03-05") cuestan lo mismo que su
+    # alias sin fecha, asi que se acepta el prefijo mas largo que coincida.
+    coincidencias = [k for k in PRECIOS_POR_MILLON if modelo.startswith(k)]
+    return PRECIOS_POR_MILLON[max(coincidencias, key=len)] if coincidencias else None
+
+
+def costo(modelo: str, tokens_entrada: int, tokens_salida: int) -> float | None:
+    """Costo en dolares de una corrida, o None si el modelo no tiene precio conocido."""
+    tarifa = precio_de(modelo)
+    if tarifa is None:
+        return None
+    entrada, salida = tarifa
+    return (tokens_entrada * entrada + tokens_salida * salida) / 1_000_000
+
+
+def modelo_activo() -> str:
+    """
+    ID del modelo que se usaria ahora mismo. Lo usan el banco y los informes.
+
+    Respeta `AGENT_MODEL`: si el backend es openai, devuelve el modelo de OpenAI
+    aunque `ANTHROPIC_MODEL` este definida. Parece obvio y no lo era: el registro
+    de conversaciones leia `ANTHROPIC_MODEL or OPENAI_MODEL` y escribia el modelo
+    equivocado en cada turno cuando el `.env` tenia las dos.
+    """
+    backend = os.getenv("AGENT_MODEL", "claude")
+    if backend == "claude":
+        return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+    if backend == "openai":
+        return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    return MODELOS_OLLAMA.get(backend, backend)
+
+
+def proveedor_de(modelo: str) -> str:
+    """
+    De que casa es un ID de modelo. Sin adivinar: prefijos conocidos.
+
+    Lo necesitan el juez y el banco, que reciben un modelo concreto por linea de
+    comandos y tienen que saber a que API mandarlo, sin depender de como este el
+    `.env` en ese momento.
+    """
+    if modelo.startswith("claude"):
+        return "claude"
+    if modelo.startswith(("gpt", "o1", "o3", "o4")):
+        return "openai"
+    if modelo in MODELOS_OLLAMA:
+        return modelo
+    raise ValueError(
+        f"No se de que proveedor es {modelo!r}. Usa un ID que empiece con "
+        f"'claude' o con 'gpt'/'o', o uno de: {', '.join(MODELOS_OLLAMA)}."
+    )
+
+
+def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str | None = None):
+    """
+    Devuelve el chat model ya instanciado segun AGENT_MODEL.
+
+    `rol` permite que el enrutador use un modelo distinto al de los agentes.
+    Tiene sentido porque hacen trabajos distintos: el enrutador clasifica con
+    salida estructurada -- una decision, sin herramientas -- pero corre en CADA
+    turno; los agentes encadenan llamadas a tools y redactan la respuesta que ve
+    el cliente. Si `ANTHROPIC_MODEL_ENRUTADOR` no esta definida, los dos usan el
+    mismo modelo y no cambia nada.
+
+    `modelo` fuerza un ID concreto y **gana sobre el `.env`**, incluida la casa:
+    pedir `claude-opus-5` con `AGENT_MODEL=openai` devuelve Opus, no un GPT.
+
+    Ese parametro no estaba, y su ausencia causo un error serio: el juez de las
+    evaluaciones calculaba bien su nombre pero construia el modelo leyendo el
+    `.env`, asi que el informe DECLARABA `claude-opus-5` y en realidad juzgaba
+    con el mismo modelo que estaba evaluando. Es exactamente el sesgo de
+    auto-preferencia contra el que advierte ese mismo informe. La prueba
+    `tests/test_llm.py` compara el modelo REAL, no el nombre, para que no pueda
+    volver a pasar en silencio.
+    """
+    agent_model = proveedor_de(modelo) if modelo else os.getenv("AGENT_MODEL", "claude")
 
     if agent_model == "claude":
         from langchain_anthropic import ChatAnthropic
@@ -34,22 +160,24 @@ def resolver_modelo(temperature: float = 0.2):
         # IDs validos (sin sufijo de fecha): claude-opus-5 (1M de contexto,
         # 5 y 25 dolares por millon de tokens de entrada y salida),
         # claude-sonnet-5 (1M, 2 y 10) y claude-haiku-4-5 (200K, 1 y 5).
-        return ChatAnthropic(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-opus-5"),
-            temperature=temperature,
-            timeout=60,
-            max_retries=2,
-        )
+        elegido = modelo or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+        if modelo is None and rol == "enrutador":
+            elegido = os.getenv("ANTHROPIC_MODEL_ENRUTADOR") or elegido
+        parametros = {"model": elegido, "timeout": 60, "max_retries": 2}
+        if elegido.startswith(CLAUDE_ACEPTA_TEMPERATURE):
+            parametros["temperature"] = temperature
+        return ChatAnthropic(**parametros)
 
     if agent_model == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            temperature=temperature,
-            timeout=60,
-            max_retries=2,
-        )
+        elegido = modelo or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        if modelo is None and rol == "enrutador":
+            elegido = os.getenv("OPENAI_MODEL_ENRUTADOR") or elegido
+        parametros = {"model": elegido, "timeout": 60, "max_retries": 2}
+        if not elegido.startswith(OPENAI_SIN_TEMPERATURE):
+            parametros["temperature"] = temperature
+        return ChatOpenAI(**parametros)
 
     if agent_model in MODELOS_OLLAMA:
         from langchain_ollama import ChatOllama
@@ -97,7 +225,7 @@ def resolver_embeddings():
         from langchain_ollama import OllamaEmbeddings
 
         return OllamaEmbeddings(
-            model=os.getenv("OLLAMA_EMBEDDINGS_MODEL", "nomic-embed-text"),
+            model=os.getenv("OLLAMA_EMBEDDINGS_MODEL", MODELO_EMBEDDINGS_OLLAMA),
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         )
 
@@ -109,7 +237,7 @@ def nombre_embeddings() -> str:
     backend = os.getenv("EMBEDDINGS_BACKEND", "ollama")
     if backend == "openai":
         return os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
-    return os.getenv("OLLAMA_EMBEDDINGS_MODEL", "nomic-embed-text")
+    return os.getenv("OLLAMA_EMBEDDINGS_MODEL", MODELO_EMBEDDINGS_OLLAMA)
 
 
 def extraer_texto(mensaje) -> str:
