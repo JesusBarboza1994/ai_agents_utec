@@ -8,3 +8,15 @@ app/agentes/rag/chroma_index/
 app/reservas/datos/reservas.json
 app/incidencias/datos/incidencias.json
 .pytest_cache/
+app/observabilidad/datos/
+tests/eval/resultados/
+
+# Estado del servidor local de LangGraph Studio (langgraph dev)
+.langgraph_api/
+clemente.egg-info/
+grafo_clemente.png
+grafo_clemente.mmd
+
+# Red teaming: contiene los ataques que SI funcionaron. Material sensible.
+tests/seguridad/deepteam-results/
+.deepeval*
