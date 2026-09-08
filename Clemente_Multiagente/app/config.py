@@ -46,7 +46,7 @@ class Config:
     def desde_entorno(cls) -> "Config":
         agent_model = os.getenv("AGENT_MODEL", "claude")
         modelos = {
-            "claude": os.getenv("ANTHROPIC_MODEL", "claude-opus-5"),
+            "claude": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
             "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         }
         return cls(

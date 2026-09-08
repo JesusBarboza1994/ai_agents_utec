@@ -1,0 +1,26 @@
+# Herramientas de desarrollo y evaluacion. NO hacen falta para que Clemente
+# responda: el servidor solo necesita requirements.txt.
+#
+#     pip install -r requirements-dev.txt
+
+# --- Inspeccion del grafo (LangGraph Studio) ---------------------------------
+# Levanta el servidor LangGraph local que Studio necesita para dibujar el grafo
+# (`langgraph dev`). El extra [inmem] permite correrlo sin Docker ni base de datos.
+langgraph-cli[inmem]
+
+# --- Evaluacion (Sesion 22) --------------------------------------------------
+# DeepEval aporta GEval (juicio con LLM sobre criterios propios) y las metricas
+# de RAG. OJO: por defecto juzga con GPT-4 de OpenAI; en este proyecto se le pasa
+# nuestro juez de Anthropic desde `tests/eval/juez.py`.
+deepeval
+
+# --- Seguridad / red teaming (Sesion 23) -------------------------------------
+# DeepTeam genera ataques (inyeccion, escalamiento de permisos, manipulacion
+# emocional) y los mapea al OWASP Top 10 para LLM. Leer `tests/seguridad/LEEME.md`
+# antes de ejecutarlo: hay un aviso etico que aplica.
+deepteam
+
+# DeepTeam 1.0.9 importa sentry_sdk en su modulo de telemetria pero NO lo declara
+# como dependencia: sin esta linea, `red_team()` falla al arrancar con
+# ModuleNotFoundError. No lo usa el proyecto para nada mas.
+sentry-sdk

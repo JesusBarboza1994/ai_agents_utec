@@ -21,12 +21,21 @@ langchain-anthropic       # AGENT_MODEL=claude
 langchain-openai          # AGENT_MODEL=openai
 langchain-ollama          # respaldo local sin conexion + embeddings del RAG
 
-# --- RAG del Agente de Conocimiento (Sesion 13) ---
+# --- RAG del catalogo, hoy en manos del orquestador (Sesion 13) ---
 langchain-chroma
 chromadb
 langchain-text-splitters
 pypdf
 python-docx
+
+# --- Tickets de incidencia: MCP + Trello (Sesion 16, APIs y MCP) ---
+# Trello es donde el staff trabaja el caso y desde donde le llega la
+# notificacion; `mcp_trello.py` pone el protocolo MCP delante, y ese servidor
+# es el que impone el limite de permisos (no publica ninguna herramienta de
+# cierre). Sin TRELLO_API_KEY el proyecto corre igual contra el JSON local.
+fastmcp                   # servidor y cliente MCP
+mcp                       # tipos del protocolo
+requests                  # cliente HTTP de la API de Trello
 
 # --- Observabilidad (Sesiones 19-20) ---
 langsmith

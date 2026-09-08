@@ -16,7 +16,7 @@ def cliente(monkeypatch):
     def orquestador_falso(entrante, historial=None):
         return RespuestaClemente(
             texto=f"eco: {entrante.texto}",
-            agente="conocimiento",
+            agente="informacion",
             sesion_id=entrante.sesion_id,
             motivo_ruta="prueba",
         )
@@ -52,7 +52,7 @@ def test_chat_devuelve_agente_y_sesion(cliente):
     datos = respuesta.get_json()
     assert respuesta.status_code == 200
     assert datos["respuesta"] == "eco: hola"
-    assert datos["agente"] == "conocimiento"
+    assert datos["agente"] == "informacion"
     assert datos["sesion_id"] == "s1"
 
 
@@ -85,3 +85,22 @@ def test_langsmith_no_se_activa_sin_clave(monkeypatch):
 
     create_app()
     assert os.environ["LANGSMITH_TRACING"] == "false"
+
+
+def test_la_conversacion_queda_registrada_en_disco(tmp_path, monkeypatch):
+    """El texto de cada turno sobrevive al reinicio del servidor y a LangSmith caido."""
+    from app.observabilidad import trazas
+
+    monkeypatch.setattr(trazas, "ARCHIVO_CONVERSACIONES", tmp_path / "conversaciones.jsonl")
+
+    trazas.registrar_conversacion(
+        sesion_id="whatsapp-51999", mensaje="¿tienen estacionamiento?",
+        respuesta="Sí, con convenio en Av. Grau 410.", agente="informacion",
+        canal="whatsapp", motivo_ruta="pide un dato general", duracion_ms=1234.5,
+    )
+
+    turnos = trazas.leer_conversaciones()
+    assert len(turnos) == 1
+    assert turnos[0]["mensaje"] == "¿tienen estacionamiento?"
+    assert turnos[0]["agente"] == "informacion"
+    assert turnos[0]["canal"] == "whatsapp"

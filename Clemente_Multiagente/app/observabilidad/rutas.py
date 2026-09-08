@@ -4,13 +4,14 @@ Endpoints de observabilidad. Los consume el panel interno y la demo final.
     GET /api/salud                -- el sistema esta arriba y con que modelo
     GET /api/trazas?sesion_id=..  -- ultimas trazas (que agente respondio y por que)
     GET /api/metricas             -- metricas agregadas para el informe
+    GET /api/conversaciones       -- texto de los turnos registrados en disco
 """
 
 from dataclasses import asdict
 
 from flask import Blueprint, current_app, jsonify, request
 
-from .trazas import metricas, ultimas_trazas
+from .trazas import leer_conversaciones, metricas, ultimas_trazas
 
 bp = Blueprint("observabilidad", __name__, url_prefix="/api")
 
@@ -39,3 +40,10 @@ def trazas():
 @bp.get("/metricas")
 def ver_metricas():
     return jsonify(metricas())
+
+
+@bp.get("/conversaciones")
+def conversaciones():
+    """Turnos con su texto, tal como quedaron en disco. Sobreviven al reinicio."""
+    limite = int(request.args.get("limite", 100))
+    return jsonify(leer_conversaciones(limite, request.args.get("sesion_id")))

@@ -1,0 +1,16 @@
+# Metadata minima del proyecto. No cambia como se instala nada -- las
+# dependencias siguen viviendo en requirements.txt -- pero el CLI de LangGraph
+# la necesita para reconocer esta carpeta como una aplicacion instalable
+# cuando `langgraph.json` declara la dependencia local ".".
+[project]
+name = "clemente"
+version = "0.1.0"
+description = "Asistente multiagente del restaurante Clemente -- Grupo 02, UTEC"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]

@@ -58,6 +58,22 @@ class ServicioIncidenciasJSON:
             if estado is None or i["estado"] == estado
         ]
 
+    def anotar(self, incidencia_id: str, texto: str) -> bool:
+        """
+        Agrega un dato a una incidencia abierta, sin tocarle el estado.
+
+        La nota va al final de la descripcion, fechada. En este backend no hay
+        hilo de comentarios como en Trello, asi que la descripcion es el unico
+        lugar donde el dato queda pegado al caso.
+        """
+        registro = self._leer()
+        for i in registro:
+            if i["id"] == incidencia_id:
+                i["descripcion"] += f"\n[nota {datetime.now():%Y-%m-%d %H:%M}] {texto}"
+                self._escribir(registro)
+                return True
+        return False
+
     def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None:
         """Solo para el panel del staff: ningun agente tiene tool para esto."""
         registro = self._leer()
