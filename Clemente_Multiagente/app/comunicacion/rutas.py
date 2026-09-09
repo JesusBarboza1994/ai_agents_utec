@@ -16,14 +16,22 @@ existe solo para desarrollar y demostrar sin depender de Twilio.
 """
 
 import uuid
+import secrets
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, render_template, request, session
 
 from ..contratos import MensajeEntrante
 from ..orquestador import responder as responder_orquestador
 from .sesiones import limpiar_sesion, obtener_sesion
 
 bp = Blueprint("comunicacion", __name__)
+
+
+def sesion_del_navegador():
+    """Identidad opaca firmada por Flask; nunca viene del JSON del cliente."""
+    if "clemente_sesion" not in session:
+        session["clemente_sesion"] = f"web-{uuid.uuid4().hex}"
+    return session["clemente_sesion"]
 
 
 def _atender(entrante: MensajeEntrante):
@@ -44,6 +52,7 @@ def _atender(entrante: MensajeEntrante):
 
 @bp.get("/")
 def chat_demo():
+    sesion_del_navegador()
     return render_template("chat.html")
 
 
@@ -54,10 +63,13 @@ def chat():
     if not texto:
         return jsonify(error="El campo 'mensaje' es obligatorio"), 400
 
+    sesion_id = sesion_del_navegador()
+    if datos.get("sesion_id") and datos["sesion_id"] != sesion_id:
+        return jsonify(error="La sesión no pertenece a este navegador."), 403
     entrante = MensajeEntrante(
-        sesion_id=datos.get("sesion_id") or f"web-{uuid.uuid4().hex[:8]}",
+        sesion_id=sesion_id,
         texto=texto,
-        canal=datos.get("canal", "webchat"),
+        canal="webchat",
         nombre_cliente=datos.get("nombre"),
         telefono=datos.get("telefono"),
     )
@@ -82,6 +94,13 @@ def webhook(canal: str):
     (`application/x-www-form-urlencoded`) con `From` (ej. `whatsapp:+51999...`),
     `Body`, `ProfileName` y `MessageSid`.
     """
+    # Adaptador generico de desarrollo, NO sustituye la firma de Twilio.
+    # Hasta integrar Twilio, solo un adaptador interno autenticado puede usarlo.
+    token = current_app.config["CLEMENTE"].webhook_token
+    if not token:
+        return jsonify(error="Webhook pendiente de configurar autenticación."), 503
+    if not secrets.compare_digest(request.headers.get("Authorization", ""), f"Bearer {token}"):
+        return jsonify(error="No autorizado"), 401
     datos = request.get_json(silent=True) or {}
     entrante = _normalizar(canal, datos)
     if entrante is None:
@@ -111,5 +130,9 @@ def _normalizar(canal: str, datos: dict) -> MensajeEntrante | None:
 
 @bp.post("/api/sesiones/<sesion_id>/reset")
 def reset(sesion_id: str):
+    if sesion_id != session.get("clemente_sesion"):
+        return jsonify(error="No autorizado"), 403
     limpiar_sesion(sesion_id)
+    from ..orquestador.grafo import olvidar_sesion
+    olvidar_sesion(sesion_id)
     return jsonify(estado="reiniciada", sesion_id=sesion_id)

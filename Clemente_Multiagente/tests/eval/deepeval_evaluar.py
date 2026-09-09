@@ -100,6 +100,18 @@ def _tools_del_turno(sesion_id: str, desde: int):
                 description="inyectada por el sistema al inicio del turno, no llamada por el modelo",
                 output=t.detalle.get("ficha", ""),
             ))
+        elif t.evento == "escalado":
+            llamadas.append(ToolCall(
+                name="cierre_orquestador",
+                description="Evento del servidor posterior a las tools: ticket efectivamente registrado, no invocado por el modelo",
+                output=json.dumps(t.detalle, ensure_ascii=False),
+            ))
+        elif t.evento == "operacion":
+            llamadas.append(ToolCall(
+                name="confirmacion_servidor",
+                description="Operacion validada y ejecutada por el servidor tras confirmacion explicita",
+                output=json.dumps(t.detalle, ensure_ascii=False),
+            ))
     return llamadas
 
 
@@ -155,7 +167,21 @@ def evaluar(guiones: list[dict], metricas: dict) -> dict:
             juicios = {}
             for nombre in nombres:
                 metrica = metricas[nombre]
-                metrica.measure(caso)
+                try:
+                    metrica.measure(caso)
+                except Exception as error:
+                    # Conservar un fallo del juez como error, nunca como aprobado.
+                    # Si el control de costo rechazo una llamada, detener la etapa.
+                    from tests.seguridad.presupuesto import PresupuestoAgotado
+                    causa = error
+                    while causa is not None:
+                        if isinstance(causa, PresupuestoAgotado):
+                            raise
+                        causa = causa.__cause__
+                    juicios[nombre] = {"error": type(error).__name__, "aprobo": False,
+                                      "razon": "El juez no produjo un resultado valido; requiere revision"}
+                    print(f"      ERROR {nombre}: {type(error).__name__}")
+                    continue
                 aprobo = metrica.score >= metrica.threshold
                 juicios[nombre] = {
                     "score": round(metrica.score, 3),
@@ -220,9 +246,8 @@ def escribir_informe(informe: dict, destino: Path) -> None:
         "corrida, asi que los puntajes estan probablemente inflados. Repetir con "
         "`--juez` apuntando a otro modelo antes de citar estos numeros."
         if informe["modelo_juez"] == informe["modelo_evaluado"] else
-        "Juez y modelo evaluado son distintos, que es lo correcto. Queda un sesgo "
-        "residual de familia: los dos son modelos Claude. Eliminarlo del todo "
-        "requeriria un juez de otro proveedor.",
+        "Juez y modelo evaluado son distintos. Esto no elimina los sesgos ni "
+        "los errores de evaluacion; los resultados requieren revision contra evidencia.",
         "",
         "## Resultados por metrica",
         "",
@@ -245,8 +270,9 @@ def escribir_informe(informe: dict, destino: Path) -> None:
     if not fallas:
         lineas.append("Ninguno.")
     for turno, nombre, juicio in fallas:
+        puntuacion = f"{juicio['score']:.2f}" if "score" in juicio else f"error del juez ({juicio['error']})"
         lineas += [
-            f"### `{turno['guion']}` — {nombre}: {juicio['score']:.2f}",
+            f"### `{turno['guion']}` — {nombre}: {puntuacion}",
             "",
             f"**Mensaje del cliente:** {turno['mensaje']}",
             "",

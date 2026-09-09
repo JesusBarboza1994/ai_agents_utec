@@ -9,7 +9,7 @@ Endpoints de observabilidad. Los consume el panel interno y la demo final.
 
 from dataclasses import asdict
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
 from .trazas import leer_conversaciones, metricas, ultimas_trazas
 
@@ -33,7 +33,9 @@ def salud():
 @bp.get("/trazas")
 def trazas():
     limite = int(request.args.get("limite", 50))
-    sesion_id = request.args.get("sesion_id")
+    sesion_id = session.get("clemente_sesion")
+    if not sesion_id or request.args.get("sesion_id", sesion_id) != sesion_id:
+        return jsonify(error="No autorizado"), 403
     return jsonify([asdict(t) for t in ultimas_trazas(limite, sesion_id)])
 
 
@@ -46,4 +48,7 @@ def ver_metricas():
 def conversaciones():
     """Turnos con su texto, tal como quedaron en disco. Sobreviven al reinicio."""
     limite = int(request.args.get("limite", 100))
-    return jsonify(leer_conversaciones(limite, request.args.get("sesion_id")))
+    sesion_id = session.get("clemente_sesion")
+    if not sesion_id or request.args.get("sesion_id", sesion_id) != sesion_id:
+        return jsonify(error="No autorizado"), 403
+    return jsonify(leer_conversaciones(limite, sesion_id))

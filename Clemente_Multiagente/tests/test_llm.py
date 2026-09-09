@@ -87,6 +87,58 @@ def test_el_modelo_del_enrutador_no_pisa_al_modelo_pedido(monkeypatch):
     assert id_real(resolver_modelo(rol="enrutador", modelo="claude-opus-5")) == "claude-opus-5"
 
 
+def _reasoning_effort_de(cliente):
+    return cliente.model_kwargs.get("reasoning_effort") or getattr(cliente, "reasoning_effort", None)
+
+
+def test_los_modelos_gpt56_permiten_herramientas(monkeypatch):
+    """
+    Regresion del 2026-09-08: los cuatro modelos de OpenAI fallaban 0/17 en el
+    banco de modelos, siempre con el mismo error generico del orquestador. La
+    causa, reproducida con una sola llamada real: la API rechaza un turno con
+    herramientas de funcion si el razonamiento extendido esta activo --
+
+        "Function tools with reasoning_effort are not supported for
+         gpt-5.6-terra in /v1/chat/completions. ... or set reasoning_effort
+         to 'none'."
+
+    Los tres nodos del proyecto usan herramientas, asi que sin esto NINGUN
+    turno con OpenAI llegaba a responder. Aqui se comprueba que el cliente
+    queda construido con `reasoning_effort="none"`, sin gastar en una llamada.
+    """
+    monkeypatch.setenv("AGENT_MODEL", "openai")
+
+    for modelo in ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"):
+        assert _reasoning_effort_de(resolver_modelo(modelo=modelo)) == "none", (
+            f"{modelo} deberia construirse con reasoning_effort='none'"
+        )
+
+    # Un modelo que no es de razonamiento no debe llevar el parametro: no lo
+    # acepta y no lo necesita.
+    normal = resolver_modelo(modelo="gpt-4o-mini")
+    assert _reasoning_effort_de(normal) is None
+
+
+def test_gpt6_astra_no_recibe_reasoning_effort_none(monkeypatch):
+    """
+    Segunda vuelta de la misma regresion, con un giro: mandarle 'none' a
+    gpt-6-astra NO lo arregla, lo rompe distinto. La API responde:
+
+        "Unsupported value: 'reasoning_effort' does not support 'none' with
+         this model. Supported values are: 'low', 'medium', 'high', 'xhigh'."
+
+    Y probando esos cuatro valores con herramientas, vuelve el error original
+    de arriba. Es un limite real de la API (gpt-6 exige razonamiento y no lo
+    deja apagar, pero con razonamiento activo no admite tools en este
+    endpoint), no algo que un parametro resuelva -- por eso el codigo NO le
+    manda 'none': lo deja tal cual, para no reemplazar un error claro por uno
+    que despista.
+    """
+    monkeypatch.setenv("AGENT_MODEL", "openai")
+
+    assert _reasoning_effort_de(resolver_modelo(modelo="gpt-6-astra")) is None
+
+
 def test_modelo_activo_respeta_el_backend(monkeypatch):
     """
     Con las dos variables definidas en el `.env` -- que es lo normal -- hay que

@@ -15,7 +15,7 @@ from langchain.tools import ToolRuntime, tool
 from . import con_traza
 
 from ...reservas import obtener_servicio as servicio_reservas
-from ..memoria import recordar
+from .. import autorizacion
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
@@ -54,8 +54,9 @@ def crear_reserva(
     nombre: str, telefono: str, fecha: str, hora: str, personas: int,
     runtime: ToolRuntime, zona: str = "", notas: str = "",
 ) -> str:
-    """Registra la reserva. Llamar SOLO despues de que el cliente confirmo explicitamente
-    fecha, hora, numero de personas y su nombre.
+    """Prepara un resumen de reserva; NO escribe la reserva.
+    Usar cuando se conocen los datos. El cliente debe enviar despues CONFIRMO
+    con el codigo devuelto; solo el servidor ejecuta esa confirmacion.
 
     Args:
         nombre: nombre del cliente.
@@ -66,41 +67,21 @@ def crear_reserva(
         zona: opcional, zona preferida.
         notas: alergias, ocasion especial u otra indicacion del cliente.
     """
-    if personas > LIMITE_GRUPO_AUTONOMO:
-        return f"No registrada: {personas} personas requiere coordinacion con el staff."
-
-    try:
-        reserva = servicio_reservas().crear_reserva(
-            nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
-            personas=personas, zona=zona or "", notas=notas,
-        )
-    except ValueError as error:
-        return f"No se pudo registrar: {error}"
-
-    # Memoria de largo plazo: a partir de aqui el restaurante conoce a este cliente
-    # aunque se reinicie el servidor o cambie de conversacion.
-    recordar(runtime.context.sesion_id, nombre=nombre, telefono=telefono)
-    runtime.context.datos["reserva"] = reserva.__dict__
-
-    return (
-        f"Reserva {reserva.id} confirmada: {reserva.nombre}, {reserva.personas} personas, "
-        f"{reserva.fecha} {reserva.hora}, zona {reserva.zona} (mesa {reserva.mesa_id})."
-    )
+    return autorizacion.proponer(runtime.context, "crear", {
+        "nombre": nombre, "telefono": telefono, "fecha": fecha, "hora": hora,
+        "personas": personas, "zona": zona, "notas": notas,
+    }, servicio_reservas())
 
 
 @tool
 @con_traza
 def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
     """Lista las reservas asociadas a un telefono. Usar antes de modificar o cancelar."""
-    reservas = servicio_reservas().buscar_reservas_de(telefono)
+    reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
+                if r.telefono == telefono]
     if not reservas:
-        return f"No hay reservas registradas con el telefono {telefono}."
-
-    recordar(runtime.context.sesion_id, telefono=telefono, nombre=reservas[-1].nombre)
-    return "; ".join(
-        f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}"
-        for r in reservas
-    )
+        return autorizacion.DENEGADO
+    return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
 
 
 @tool
@@ -108,13 +89,14 @@ def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
 def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
     """Busca una reserva por su codigo (por ejemplo R-51BA96), cuando el cliente lo da
     en vez del telefono. Usar antes de modificar o cancelar si solo tienes el codigo."""
-    reserva = servicio_reservas().obtener_reserva(reserva_id.strip().upper())
+    codigo = reserva_id.strip().upper()
+    if not autorizacion.es_propietario(runtime.context.sesion_id, codigo):
+        return autorizacion.DENEGADO
+    reserva = servicio_reservas().obtener_reserva(codigo)
     if reserva is None:
-        return f"No existe ninguna reserva con el codigo {reserva_id}."
-    return (
-        f"{reserva.id}: {reserva.nombre}, {reserva.personas} personas, {reserva.fecha} "
-        f"{reserva.hora}, zona {reserva.zona} (mesa {reserva.mesa_id}), estado {reserva.estado}."
-    )
+        return autorizacion.DENEGADO
+    return (f"{reserva.id}: {reserva.nombre}, {reserva.personas} personas, {reserva.fecha} "
+            f"{reserva.hora}, zona {reserva.zona}, estado {reserva.estado}.")
 
 
 @tool
@@ -122,7 +104,8 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
 def modificar_reserva(
     reserva_id: str, runtime: ToolRuntime, fecha: str = "", hora: str = "", personas: int = 0
 ) -> str:
-    """Cambia fecha, hora o numero de personas de una reserva existente.
+    """Prepara un cambio de una reserva propia, sin ejecutarlo.
+    El servidor exige despues CONFIRMO con el codigo del resumen.
 
     Args:
         reserva_id: codigo de la reserva (por ejemplo R-A1B2C3).
@@ -130,29 +113,19 @@ def modificar_reserva(
         hora: nueva hora HH:MM, vacio si no cambia.
         personas: nuevo numero de personas, 0 si no cambia.
     """
-    try:
-        reserva = servicio_reservas().modificar_reserva(
-            reserva_id.strip().upper(), fecha or None, hora or None, personas or None
-        )
-    except ValueError as error:
-        return f"No se pudo modificar: {error}"
-
-    if reserva is None:
-        return f"No existe la reserva {reserva_id}."
-    return (
-        f"Reserva {reserva.id} actualizada: {reserva.fecha} {reserva.hora}, "
-        f"{reserva.personas} personas, zona {reserva.zona} (mesa {reserva.mesa_id})."
-    )
+    return autorizacion.proponer(runtime.context, "modificar", {
+        "reserva_id": reserva_id.strip().upper(), "fecha": fecha or None,
+        "hora": hora or None, "personas": personas or None,
+    }, servicio_reservas())
 
 
 @tool
 @con_traza
 def cancelar_reserva(reserva_id: str, runtime: ToolRuntime) -> str:
-    """Cancela una reserva. Requiere que el cliente lo haya pedido explicitamente."""
-    reserva = servicio_reservas().cancelar_reserva(reserva_id.strip().upper())
-    if reserva is None:
-        return f"No existe la reserva {reserva_id}."
-    return f"Reserva {reserva.id} del {reserva.fecha} {reserva.hora} cancelada."
+    """Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo."""
+    return autorizacion.proponer(runtime.context, "cancelar", {
+        "reserva_id": reserva_id.strip().upper(),
+    }, servicio_reservas())
 
 
 @tool

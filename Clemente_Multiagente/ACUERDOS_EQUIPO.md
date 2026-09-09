@@ -1,5 +1,10 @@
 # Acuerdos de trabajo — Grupo 02 (Clemente)
 
+> **Registro histórico de acuerdos iniciales.** Conserva la arquitectura de tres agentes y las
+> tareas definidas antes del cambio acordado el 2026-09-07. Para conocer la arquitectura de dos
+> agentes especialistas con orquestador, y el estado implementado y medido más reciente, consulte el
+> [`README.md`](README.md) y los informes de [`docs/`](docs/).
+
 Cómo trabajamos los cinco sobre el mismo código sin pisarnos. Lo de la sección 1 ya está
 acordado; lo de la sección 7 es lo que falta cerrar.
 

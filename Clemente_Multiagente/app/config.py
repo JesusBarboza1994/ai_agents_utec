@@ -7,6 +7,7 @@ vistazo de que depende Clemente para arrancar.
 """
 
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,10 +16,13 @@ from dotenv import load_dotenv
 RAIZ = Path(__file__).resolve().parent.parent
 
 load_dotenv(RAIZ / ".env")
+_CLAVE_SESION_PROCESO = secrets.token_hex(32)
 
 
 @dataclass(frozen=True)
 class Config:
+    secret_key: str = _CLAVE_SESION_PROCESO
+    webhook_token: str = ""
     # LLM: por acuerdo del equipo, el razonamiento corre sobre API
     # (claude u openai). Ollama queda como respaldo sin conexion.
     agent_model: str = "claude"
@@ -50,6 +54,8 @@ class Config:
             "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         }
         return cls(
+            secret_key=os.getenv("CLEMENTE_SECRET_KEY") or _CLAVE_SESION_PROCESO,
+            webhook_token=os.getenv("CLEMENTE_WEBHOOK_TOKEN", ""),
             agent_model=agent_model,
             modelo=modelos.get(agent_model, agent_model),
             embeddings_backend=os.getenv("EMBEDDINGS_BACKEND", "ollama"),
