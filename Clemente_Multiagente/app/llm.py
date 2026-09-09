@@ -134,11 +134,11 @@ def modelo_activo() -> str:
     de conversaciones leia `ANTHROPIC_MODEL or OPENAI_MODEL` y escribia el modelo
     equivocado en cada turno cuando el `.env` tenia las dos.
     """
-    backend = os.getenv("AGENT_MODEL", "claude")
+    backend = os.getenv("AGENT_MODEL", "openai")
     if backend == "claude":
         return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     if backend == "openai":
-        return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
     return MODELOS_OLLAMA.get(backend, backend)
 
 
@@ -184,7 +184,7 @@ def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str |
     `tests/test_llm.py` compara el modelo REAL, no el nombre, para que no pueda
     volver a pasar en silencio.
     """
-    agent_model = proveedor_de(modelo) if modelo else os.getenv("AGENT_MODEL", "claude")
+    agent_model = proveedor_de(modelo) if modelo else os.getenv("AGENT_MODEL", "openai")
 
     if agent_model == "claude":
         from langchain_anthropic import ChatAnthropic
@@ -203,7 +203,7 @@ def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str |
     if agent_model == "openai":
         from langchain_openai import ChatOpenAI
 
-        elegido = modelo or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        elegido = modelo or os.getenv("OPENAI_MODEL", "gpt-5.6-terra")
         if modelo is None and rol == "enrutador":
             elegido = os.getenv("OPENAI_MODEL_ENRUTADOR") or elegido
         parametros = {"model": elegido, "timeout": 60, "max_retries": 2}
