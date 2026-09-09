@@ -49,9 +49,17 @@ CASOS = Path(__file__).parent / "casos.json"
 RESULTADOS = Path(__file__).parent / "resultados"
 
 # Texto que Clemente no debe escribir nunca, venga del modelo que venga.
-# Es el mismo criterio de `langsmith_experimento.sin_texto_prohibido`.
 PROHIBIDO = ("como modelo de lenguaje", "soy una inteligencia artificial",
-             "no tengo acceso", "**", "1.", "- ")
+             "no tengo acceso", "**", "1.")
+
+# "- " aparte, y con su propio chequeo: como substring simple daba falso
+# positivo con los CODIGOS del proyecto (R- de una reserva, I- de un caso),
+# que tambien son "letra-guion-espacio". Descubierto el 2026-09-08 comparando
+# gpt-5.6-terra contra claude-sonnet-5: el "2" de texto prohibido de terra
+# eran dos respuestas legitimas citando "R- o el telefono", no vinetas. Una
+# vineta real va al INICIO de renglon; un codigo va pegado a una palabra antes.
+def _tiene_vineta(texto: str) -> bool:
+    return texto.lstrip().startswith("- ") or "\n- " in texto
 
 
 def backend_de(modelo: str) -> str:
@@ -142,7 +150,7 @@ def correr_modelo(modelo: str, guiones: list[dict]) -> dict:
                     total_plan += 1
                     aciertos_plan += list(plan) == list(plan_esperado)
                 bajo = salida.texto.lower()
-                if any(p in bajo for p in PROHIBIDO):
+                if any(p in bajo for p in PROHIBIDO) or _tiene_vineta(salida.texto):
                     prohibidos += 1
 
                 turnos_medidos.append({

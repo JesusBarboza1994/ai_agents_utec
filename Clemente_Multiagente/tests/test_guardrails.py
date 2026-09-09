@@ -127,8 +127,8 @@ def test_el_telefono_sale_del_identificador_de_whatsapp():
     assert telefono_de("web-a1b2c3") is None
 
 
-def test_la_ficha_recuerda_al_cliente_entre_conversaciones(tmp_path, monkeypatch):
-    """Memoria de largo plazo: sobrevive al reinicio y a un sesion_id nuevo."""
+def test_un_telefono_en_el_id_no_autoriza_la_ficha(tmp_path, monkeypatch):
+    """Una identidad declarada no permite recuperar datos personales antiguos."""
     from app.agentes import memoria
 
     monkeypatch.setattr(memoria, "ARCHIVO", tmp_path / "clientes.json")
@@ -137,7 +137,7 @@ def test_la_ficha_recuerda_al_cliente_entre_conversaciones(tmp_path, monkeypatch
 
     # Otra sesion, otro dia, mismo telefono: el restaurante ya lo conoce.
     ficha = memoria.ficha_del_cliente("whatsapp-956789900")
-    assert "Christian" in ficha and "956789900" in ficha
+    assert ficha == ""
     assert memoria.ficha_del_cliente("web-desconocido") == ""
 
 

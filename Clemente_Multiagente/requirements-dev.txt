@@ -18,7 +18,7 @@ deepeval
 # DeepTeam genera ataques (inyeccion, escalamiento de permisos, manipulacion
 # emocional) y los mapea al OWASP Top 10 para LLM. Leer `tests/seguridad/LEEME.md`
 # antes de ejecutarlo: hay un aviso etico que aplica.
-deepteam
+deepteam==1.0.9
 
 # DeepTeam 1.0.9 importa sentry_sdk en su modulo de telemetria pero NO lo declara
 # como dependencia: sin esta linea, `red_team()` falla al arrancar con

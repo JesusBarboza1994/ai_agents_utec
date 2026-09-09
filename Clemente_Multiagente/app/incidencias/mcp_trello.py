@@ -160,7 +160,9 @@ def comentar_ticket(ticket_id: str, texto: str) -> str:
 
     servicio = _backend()
     if not isinstance(servicio, ServicioIncidenciasTrello):
-        return f"Nota registrada localmente en {ticket_id} (el tablero no esta conectado)."
+        if servicio.anotar(ticket_id.strip().upper(), texto):
+            return f"Nota agregada al ticket {ticket_id.strip().upper()}."
+        return "No se pudo registrar la nota: el caso no existe."
 
     try:
         servicio._cargar_tablero()

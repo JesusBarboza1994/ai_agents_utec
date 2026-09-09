@@ -47,6 +47,38 @@ MODELOS_OLLAMA = {
 # problema que ya teniamos con Claude 4.6+, en la otra casa.
 OPENAI_SIN_TEMPERATURE = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 
+# Descubierto el 2026-09-08 con una reproduccion minima (ver bitacora): estos
+# mismos modelos, en `/v1/chat/completions`, RECHAZAN un turno que traiga
+# herramientas de funcion si el razonamiento extendido esta activo:
+#
+#   "Function tools with reasoning_effort are not supported for gpt-5.6-terra
+#    in /v1/chat/completions. To use function tools, use /v1/responses or set
+#    reasoning_effort to 'none'."
+#
+# Los tres nodos del proyecto usan herramientas -- hasta el orquestador
+# respondiendo informacion tiene dos --, asi que sin esto ningun turno con
+# OpenAI llegaba a responder: caia siempre en el error generico del orquestador
+# (ver `grafo.responder`).
+#
+# OJO, esto NO cubre a gpt-6: se probo por separado (gpt-6-astra) y la API
+# devuelve un segundo error distinto --
+#
+#   "Unsupported value: 'reasoning_effort' does not support 'none' with this
+#    model. Supported values are: 'low', 'medium', 'high', and 'xhigh'."
+#
+# -- y forzando cualquiera de esos cuatro valores vuelve el error original de
+# arriba. Es un callejon sin salida real de la propia API: gpt-6 exige
+# razonamiento, no admite apagarlo, y con razonamiento activo no admite
+# herramientas de funcion en este endpoint. NO hay combinacion de parametros
+# que lo resuelva; la unica salida seria migrar a `/v1/responses`, fuera del
+# alcance de esta correccion. Por eso gpt-6 NO esta en esta lista: mandarle
+# "none" solo cambia un error por otro, y dejarlo sin el parametro reproduce
+# el error original, que al menos es el mas claro de los dos.
+#
+# o1/o3/o4 quedan igual que antes por prefijo (no se verificaron: el proyecto
+# no usa esos IDs en ningun lado, se listan solo por si alguien los prueba).
+OPENAI_SIN_RAZONAMIENTO = ("gpt-5", "o1", "o3", "o4")
+
 # Precio por millon de tokens (entrada, salida), en dolares.
 #
 # Verificado el 2026-09-07 contra las paginas oficiales:
@@ -177,6 +209,11 @@ def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str |
         parametros = {"model": elegido, "timeout": 60, "max_retries": 2}
         if not elegido.startswith(OPENAI_SIN_TEMPERATURE):
             parametros["temperature"] = temperature
+        if elegido.startswith(OPENAI_SIN_RAZONAMIENTO):
+            # Sin esto, cualquier turno con herramientas de funcion (los tres
+            # nodos del proyecto las usan) devuelve 400 de la API. Ver el
+            # comentario de OPENAI_SIN_RAZONAMIENTO mas arriba.
+            parametros["reasoning_effort"] = "none"
         return ChatOpenAI(**parametros)
 
     if agent_model in MODELOS_OLLAMA:

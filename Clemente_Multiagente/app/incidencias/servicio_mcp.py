@@ -145,8 +145,8 @@ class ServicioIncidenciasMCP:
     def anotar(self, incidencia_id: str, texto: str) -> bool:
         """Pasa por `comentar_ticket`, que es la cuarta herramienta del servidor."""
         try:
-            self.llamar("comentar_ticket", ticket_id=incidencia_id, texto=texto)
-            return True
+            resultado = self.llamar("comentar_ticket", ticket_id=incidencia_id, texto=texto)
+            return resultado == f"Nota agregada al ticket {incidencia_id.strip().upper()}."
         except Exception as error:
             log.warning("no se pudo anotar en %s por MCP (%s)", incidencia_id, error)
             return self.espejo.anotar(incidencia_id, texto)

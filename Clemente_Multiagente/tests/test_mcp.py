@@ -93,6 +93,13 @@ def test_consultar_un_ticket_que_no_existe_no_revienta(servicio_mcp):
     assert "error" in respuesta
 
 
+def test_comentar_por_mcp_persiste_la_nota_y_no_finge_exito(servicio_mcp):
+    ticket = servicio_mcp.crear_incidencia("sesion-prueba", "Caso ficticio")
+    assert servicio_mcp.anotar(ticket.id, "dato adicional ficticio")
+    assert "dato adicional ficticio" in servicio_mcp.listar_incidencias()[0].descripcion
+    assert not servicio_mcp.anotar("I-INEXISTENTE", "no debe perderse en silencio")
+
+
 # --------------------------------------------------------------------------
 # Que pasa cuando el protocolo falla
 # --------------------------------------------------------------------------

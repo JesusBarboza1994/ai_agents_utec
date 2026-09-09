@@ -156,7 +156,7 @@ const conversacion = document.getElementById('conversacion');
 const formulario = document.getElementById('formulario');
 const entrada = document.getElementById('entrada');
 const boton = document.getElementById('enviar');
-const sesionId = 'demo-' + Math.random().toString(36).slice(2, 10);
+let sesionId = null;
 
 fetch('/api/salud').then(r => r.json())
   .then(d => document.getElementById('estado').textContent = `modelo: ${d.modelo}`)
@@ -194,6 +194,7 @@ async function enviar(texto) {
       body: JSON.stringify({mensaje: texto, sesion_id: sesionId, canal: 'webchat'})
     });
     const d = await r.json();
+    if (d.sesion_id) sesionId = d.sesion_id;
     pensando.remove();
     burbuja(d.respuesta || d.error, 'clemente', d.agente, d.motivo_ruta);
   } catch (e) {

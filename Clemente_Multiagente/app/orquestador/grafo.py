@@ -52,6 +52,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from ..agentes import AGENTES
+from ..agentes import autorizacion
+from ..reservas import obtener_servicio as servicio_reservas
 from ..agentes.contexto import ContextoConversacion
 from ..contratos import MensajeEntrante, RespuestaClemente
 from ..incidencias import obtener_servicio as servicio_incidencias
@@ -254,7 +256,8 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
         # Un planificador caido no puede tumbar la conversacion: se cae al agente
         # que venia atendiendo, y si no habia, al mas barato de equivocarse.
         plan = [estado.get("ultimo_agente") or "informacion"]
-        motivo = f"fallback por error de planificacion: {error}"
+        registrar("error", _sesion_de(estado), detalle={"error": f"planificacion: {error}"})
+        motivo = "fallback por error de planificacion"
 
     if not plan:
         plan, motivo = ["informacion"], f"{motivo} (plan vacio, se atiende como consulta)"
@@ -351,7 +354,8 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
 
     abierto = _escalado_de.get(sesion)
     if abierto:
-        servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}")
+        if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
+            raise RuntimeError("No se pudo actualizar el caso existente")
         contexto.datos["incidencia"] = {"id": abierto, "actualizada": True}
         return abierto
 
@@ -384,21 +388,39 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
     if not respuestas:
         return {"respuesta": SIN_MENSAJE, "ruta": "informacion", "contexto": contexto}
 
-    texto = _sintetizar(respuestas, sesion)
+    pendiente = contexto.datos.get("confirmacion_pendiente")
+    # El resumen autorizado lo escribe el servidor, nunca lo reescribe el LLM.
+    if pendiente:
+        otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
+        texto = " ".join(otros + [pendiente])
+    else:
+        texto = _sintetizar(respuestas, sesion)
 
     # Escalamiento: el agente levanto la mano, el ticket lo abre el orquestador,
     # que es el unico que tiene el turno completo delante.
     escalamiento = contexto.datos.get("escalamiento")
     if contexto.escalado and escalamiento:
-        codigo = _escalar(sesion, escalamiento, _mensaje_de(estado), contexto)
+        try:
+            codigo = _escalar(sesion, escalamiento, _mensaje_de(estado), contexto)
+        except Exception as error:
+            registrar("error", sesion, detalle={"error": f"escalamiento: {error}"})
+            contexto.escalado = False
+            texto = "No pude registrar el caso para el restaurante. No hay una mesa confirmada por este escalamiento. Contacta directamente al local."
+            return {"respuesta": texto, "ruta": respuestas[-1]["agente"], "contexto": contexto}
         registrar("escalado", sesion, agente=respuestas[-1]["agente"],
                   detalle={"incidencia": codigo, **escalamiento})
         # Solo se agrega el codigo si el agente no lo dijo ya. Antes se pegaba
         # siempre una frase completa ("tu caso quedo registrado y una persona te
         # va a contactar") encima de la del agente, que decia exactamente lo
         # mismo: el cliente leia la promesa dos veces.
-        if codigo and codigo not in texto:
-            texto = f"{texto} Tu código de caso es {codigo}."
+        # Sustituye la promesa del modelo: el codigo real existe recien aqui.
+        texto = (f"Tu solicitud quedó registrada con el código {codigo}. "
+                 "La mesa todavía no está confirmada. Puedes consultar el estado de tu caso al restaurante.")
+        otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
+        if otros:
+            texto = " ".join(otros + [texto])
+        if pendiente:
+            texto += " " + pendiente
 
     return {
         "respuesta": texto,
@@ -492,24 +514,36 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
 
     inicio = time.perf_counter()
     try:
-        final = obtener_grafo().invoke(estado_inicial)
+        confirmada = autorizacion.confirmar(entrante.sesion_id, entrante.texto, servicio_reservas())
+        if confirmada is not None:
+            texto, datos = confirmada
+            contexto.datos.update(datos)
+            final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": "confirmacion validada por el servidor", "plan": ["reservas"]}
+            registrar("plan", entrante.sesion_id, agente="reservas", detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
+            registrar("operacion", entrante.sesion_id, agente="reservas", detalle={"salida": texto, **datos})
+        else:
+            # Un nuevo pedido invalida el resumen anterior; no se confirma algo
+            # que quedo atras en la conversacion. Las tools pueden proponer otro.
+            autorizacion.descartar(entrante.sesion_id)
+            final = obtener_grafo().invoke(estado_inicial)
     except Exception as error:
         registrar("error", entrante.sesion_id, detalle={"error": str(error)})
         texto_error = (
             "Disculpa, no puedo procesar tu mensaje en este momento. "
-            "Un integrante del equipo del restaurante te va a responder."
+            "No puedo asegurar que la operación se haya completado. "
+            "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso."
         )
         registrar_conversacion(
             sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=texto_error,
             agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {error}",
-            escalado=True, duracion_ms=(time.perf_counter() - inicio) * 1000,
+            escalado=False, duracion_ms=(time.perf_counter() - inicio) * 1000,
         )
         return RespuestaClemente(
             texto=texto_error,
             agente="orquestador",
             sesion_id=entrante.sesion_id,
-            motivo_ruta=f"error: {error}",
-            escalado=True,
+            motivo_ruta="error de procesamiento",
+            escalado=False,
         )
 
     plan = final.get("plan") or []
@@ -544,6 +578,7 @@ def olvidar_sesion(sesion_id: str) -> None:
     """
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
+    autorizacion.descartar(sesion_id)
 
 
 def diagrama_mermaid() -> str:

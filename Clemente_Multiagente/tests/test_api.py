@@ -48,12 +48,12 @@ def test_salud_avisa_cuando_falta_la_clave(monkeypatch):
 
 
 def test_chat_devuelve_agente_y_sesion(cliente):
-    respuesta = cliente.post("/api/chat", json={"mensaje": "hola", "sesion_id": "s1"})
+    respuesta = cliente.post("/api/chat", json={"mensaje": "hola"})
     datos = respuesta.get_json()
     assert respuesta.status_code == 200
     assert datos["respuesta"] == "eco: hola"
     assert datos["agente"] == "informacion"
-    assert datos["sesion_id"] == "s1"
+    assert datos["sesion_id"].startswith("web-")
 
 
 def test_chat_sin_mensaje_es_error(cliente):
@@ -61,8 +61,11 @@ def test_chat_sin_mensaje_es_error(cliente):
 
 
 def test_webhook_normaliza_el_canal(cliente):
+    from dataclasses import replace
+    cliente.application.config["CLEMENTE"] = replace(cliente.application.config["CLEMENTE"], webhook_token="token-de-prueba")
     respuesta = cliente.post(
-        "/api/webhook/whatsapp", json={"from": "51999111222", "text": "hola"}
+        "/api/webhook/whatsapp", json={"from": "51999111222", "text": "hola"},
+        headers={"Authorization": "Bearer token-de-prueba"},
     )
     assert respuesta.status_code == 200
     assert respuesta.get_json()["respuesta"] == "eco: hola"
@@ -71,9 +74,34 @@ def test_webhook_normaliza_el_canal(cliente):
 def test_el_historial_se_acumula_en_la_sesion(cliente):
     from app.comunicacion.sesiones import obtener_sesion
 
-    cliente.post("/api/chat", json={"mensaje": "hola", "sesion_id": "s2"})
-    cliente.post("/api/chat", json={"mensaje": "y el domingo?", "sesion_id": "s2"})
-    assert len(obtener_sesion("s2").historial) == 4   # 2 turnos de cliente + 2 de Clemente
+    sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]
+    cliente.post("/api/chat", json={"mensaje": "y el domingo?", "sesion_id": sid})
+    assert len(obtener_sesion(sid).historial) == 4   # 2 turnos de cliente + 2 de Clemente
+
+
+def test_otro_navegador_no_puede_suplantar_leer_o_resetear(cliente):
+    sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]
+    otro = cliente.application.test_client()
+    assert otro.post("/api/chat", json={"mensaje": "hola", "sesion_id": sid}).status_code == 403
+    assert otro.post(f"/api/sesiones/{sid}/reset").status_code == 403
+    assert otro.get(f"/api/trazas?sesion_id={sid}").status_code == 403
+    assert otro.get(f"/api/conversaciones?sesion_id={sid}").status_code == 403
+
+
+def test_webhook_sin_autenticacion_no_acepta_identidad(cliente):
+    assert cliente.post("/api/webhook/whatsapp", json={"from": "900000001", "text": "hola"}).status_code == 503
+    from dataclasses import replace
+    cliente.application.config["CLEMENTE"] = replace(cliente.application.config["CLEMENTE"], webhook_token="secreto-de-prueba")
+    assert cliente.post("/api/webhook/whatsapp", json={"from": "900000001", "text": "hola"}).status_code == 401
+
+
+def test_las_conversaciones_solo_devuelven_el_hilo_propio(cliente):
+    from app.observabilidad.trazas import registrar_conversacion
+    sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]
+    for sesion_id, texto in ((sid, "propio"), ("otro", "privado")):
+        registrar_conversacion(sesion_id=sesion_id, mensaje=texto, respuesta="ok", agente="informacion", canal="webchat", motivo_ruta="test", duracion_ms=0)
+    filas = cliente.get("/api/conversaciones").get_json()
+    assert [f["mensaje"] for f in filas] == ["propio"]
 
 
 def test_langsmith_no_se_activa_sin_clave(monkeypatch):

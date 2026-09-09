@@ -1,5 +1,34 @@
 # Clemente — asistente multiagente para restaurantes
 
+> **Actualización de seguridad — 2026-09-09.** Esta nota prevalece sobre las
+> descripciones históricas de acceso y confirmación de este README.
+> Validación actual: **94 pruebas aprobadas**, sin llamadas a modelos ni a Trello.
+> Informe: [revisión y correcciones de los pasos 1–3](docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md).
+>
+> Las tools de crear, modificar y cancelar ahora **preparan** una operación. El
+> servidor muestra el resumen exacto y exige otro mensaje `CONFIRMO <código>`:
+> permiso de un uso, ligado a la sesión, con vigencia de 10 minutos. La ejecución
+> de esa confirmación no pasa por el modelo. Un mensaje distinto invalida la
+> propuesta anterior; un cambio en la reserva exige un resumen nuevo.
+>
+> Las reservas se vinculan a la sesión que las creó. Saber un teléfono o código
+> no permite recuperar reservas ajenas ni antiguas sin vínculo. La recuperación
+> entre dispositivos necesita verificación por el restaurante; todavía no hay
+> un flujo automatizado de recuperación de identidad.
+>
+> El webchat usa una cookie firmada: iniciar `/api/chat` sin `sesion_id` y
+> conservar la cookie; usar después el identificador devuelto por el servidor.
+> Las trazas, conversaciones y reinicios HTTP se limitan a esa sesión. El webhook
+> genérico permanece deshabilitado salvo que se configure `CLEMENTE_WEBHOOK_TOKEN`
+> para un adaptador interno; la integración y firma de Twilio siguen pendientes.
+> Configurar `CLEMENTE_SECRET_KEY` estable evita invalidar cookies al reiniciar.
+>
+> `app/agentes/datos/autorizaciones.sqlite3` guarda permisos y propuestas, no las
+> reservas. El gestor de reservas continúa en JSON y aún necesita la mejora de
+> concurrencia prevista. Los escalamientos informan el código efectivamente
+> guardado sin garantizar una notificación no comprobada; los errores no fingen
+> atención humana. El juez recibe también la evidencia del cierre del orquestador.
+
 Proyecto final del **Programa en Diseño e Implementación de Agentes IA** (UTEC Posgrado) — **Grupo 02**.
 Implementa la arquitectura declarada en el *Entregable 01*: **tres agentes especializados**
 coordinados por un orquestador, expuestos por un único canal conversacional.
@@ -19,7 +48,8 @@ los dos agentes especializados si hay que tocar algo— y devuelve **una sola re
 mismo canal. Todo el camino queda trazado.
 
 > **Cambio de arquitectura del 2026-09-07.** Hasta esa fecha esto era un *router* de tres
-> agentes. Tras la asesoría con Boris (ver [ASESORIA_01_BORIS_ACUERDOS.md](../ASESORIA_01_BORIS_ACUERDOS.md))
+> agentes. Tras la asesoría con Boris (registrada en el documento externo
+> `ASESORIA_01_BORIS_ACUERDOS.md`)
 > el enrutador pasó a orquestador con plan de resolución, el Agente de Conocimiento se eliminó
 > y su alcance subió al orquestador, y los tickets de incidencias pasaron a Trello. Cada
 > decisión de este README que cambió por eso está marcada con la cita y el minuto del video.
@@ -303,12 +333,12 @@ la misma tabla vive en código, en `PRECIOS_POR_MILLON` de `app/llm.py`.
 
 | `AGENT_MODEL` | Modelo | Precio | Para qué |
 |---|---|---|---|
-| `claude` | `claude-sonnet-5` | $2 / $10 | **el predeterminado del proyecto** |
+| `openai` | `gpt-5.6-terra` | $2 / $12 | **el predeterminado del proyecto desde el 2026-09-08** — ver más abajo |
+| `claude` | `claude-sonnet-5` | $2 / $10 | default anterior; empatado en calidad, 54% más caro (banco, sección 3.4) |
 | `claude` | `claude-opus-5` | $5 / $25 | corrida final del informe y demostración |
 | `claude` | `claude-haiku-4-5` | $1 / $5 | evaluaciones en lote; candidato para el planificador |
-| `openai` | `gpt-6-astra` | $10 / $50 | el techo de OpenAI, y **el más caro de toda la tabla** |
+| `openai` | `gpt-6-astra` | $10 / $50 | el techo de OpenAI, y **el más caro de toda la tabla** — no usable con *tools*, ver sección 3.4 |
 | `openai` | `gpt-5.6-sol` | $4 / $20 | equivalente de gama alta a Opus 5 |
-| `openai` | `gpt-5.6-terra` | $2 / $12 | equivalente a Sonnet 5 |
 | `openai` | `gpt-5.6-luna` | $0.20 / $1.20 | **el más barato con diferencia**; candidato al planificador |
 | `llama3.2` | Ollama local | gratis | trabajar sin conexión o sin gastar crédito |
 
@@ -361,12 +391,39 @@ Tres lecturas que salen de esta tabla:
 razona mucho gasta pocos tokens *caros* pero **muchos tokens**. La tabla ordena candidatos; no
 cierra la decisión. Eso lo hace el banco de la sección 3.4, corriendo nuestro dataset.
 
-**Por qué Sonnet y no Opus como predeterminado.** Lo que este sistema le pide al modelo es
-planificar en uno o dos pasos, elegir la herramienta correcta y redactar tres frases con lo que
-la herramienta devolvió. No hay razonamiento largo de varios pasos, que es donde Opus se separa:
-los límites duros de Clemente son estructurales —qué *tools* existen y cuáles no— y no dependen
-de la capacidad del modelo. Opus queda para la corrida final, donde el costo es una sola vez y
-conviene el techo más alto.
+**Por qué Opus no es el predeterminado.** Lo que este sistema le pide al modelo es planificar en
+uno o dos pasos, elegir la herramienta correcta y redactar tres frases con lo que la herramienta
+devolvió. No hay razonamiento largo de varios pasos, que es donde Opus se separa: los límites
+duros de Clemente son estructurales —qué *tools* existen y cuáles no— y no dependen de la
+capacidad del modelo. Opus queda para la corrida final, donde el costo es una sola vez y conviene
+el techo más alto.
+
+**Por qué `gpt-5.6-terra` y no `claude-sonnet-5` como predeterminado (cambio del 2026-09-08).**
+El banco de la sección 3.4, corriendo el dataset completo contra los dos:
+
+| | Ruteo | Plan completo | Formato | Costo | Mediana | Peor turno |
+|---|---|---|---|---|---|---|
+| `gpt-5.6-terra` | 17/17 | 2/2 | limpio | **$0.1181** | **4.4s** | **8.39s** |
+| `claude-sonnet-5` | 17/17 | 2/2 | limpio | $0.2552 | 5.02s | 12.43s |
+
+**Empatados en cada métrica de calidad, y `gpt-5.6-terra` sale 54% más barato**, con mediana y
+peor caso más rápidos. En este proyecto, para este trabajo concreto, no hay nada que la diferencia
+de precio esté comprando. El cambio quedó en el `.env` (`AGENT_MODEL=openai`,
+`OPENAI_MODEL=gpt-5.6-terra`); volver a Anthropic sigue siendo una línea.
+
+Dos advertencias antes de repetir esta conclusión en el informe:
+
+1. **Requirió un arreglo real, no solo medir.** Los cuatro modelos de OpenAI fallaban 0/17 al
+   primer intento: la API rechaza combinar herramientas de función con razonamiento extendido en
+   `/v1/chat/completions`. `app/llm.py` ahora construye estos modelos con `reasoning_effort="none"`
+   — el costo es que dejan de razonar en varios pasos antes de responder, que es justamente lo que
+   este trabajo no necesita (ver el párrafo de arriba). El detalle completo, reproducido con la API
+   real, está en la bitácora.
+2. **`gpt-6-astra` no entra en esta comparación.** Con reintentos confirmados (`none`, `low`),
+   la propia API se contradice: exige razonamiento activo y no lo deja apagar, pero con
+   razonamiento activo rechaza las herramientas de función en este endpoint. No es un parámetro
+   que falte, es un límite real de `/v1/chat/completions` para este modelo; la única salida sería
+   `/v1/responses`, fuera del alcance de esta corrección.
 
 **Un modelo distinto para el planificador.** El planificador corre en **cada turno**, no usa
 herramientas y su salida es una lista de etiquetas con `with_structured_output`. Es el candidato
@@ -557,6 +614,40 @@ python -m tests.eval.banco_modelos --modelos claude-haiku-4-5,claude-sonnet-5,cl
 porque compara un modelo a la vez: agentes con `gpt-5.6-terra` y planificador con `gpt-5.6-luna`.
 Se configura en el `.env` (`OPENAI_MODEL` y `OPENAI_MODEL_ENRUTADOR`) y se mide con el
 experimento de LangSmith, no con el banco.
+
+### Resultado medido (2026-09-08)
+
+Los 13 guiones / 17 turnos del dataset, un modelo a la vez:
+
+| Modelo | Ruteo | Plan | Formato | Tokens in | Tokens out | Costo | Mediana | Peor turno |
+|---|---|---|---|---|---|---|---|---|
+| `gpt-5.6-terra` | 17/17 | 2/2 | limpio | 47,924 | 1,858 | $0.1181 | 4.4s | 8.39s |
+| `claude-sonnet-5` | 17/17 | 2/2 | limpio | 101,755 | 5,173 | $0.2552 | 5.02s | 12.43s |
+| `claude-haiku-4-5` | 16/17 | 2/2 | limpio | 86,106 | 3,211 | $0.1022 | 3.71s | 9.99s |
+| `gpt-5.6-luna` | 16/17 | 2/2 | limpio | — | — | $0.0122 | 4.84s | 11.97s |
+| `gpt-5.6-sol` | 17/17 | 2/2 | limpio | 46,923 | 1,817 | $0.2240 | 5.72s | 9.65s |
+| `claude-opus-5` | 17/17 | 2/2 | limpio | 105,118 | 6,102 | $0.6781 | 7.73s | 18.28s |
+| `gpt-6-astra` | — | — | — | — | — | — | — | falla 17/17, ver aviso abajo |
+
+**"Formato" partió con falsos positivos y se corrigió el mismo día.** El detector original
+marcaba `"- "` (guion-espacio) en cualquier parte del texto, pensado para pescar viñetas de
+lista. Chocaba con los propios **códigos del proyecto** (`R-` de una reserva, `I-` de un caso):
+una respuesta legítima como *"pásame tu código que empieza con R- o el teléfono"* contaba como
+viñeta. Con eso corregido —viñeta real es la que abre renglón, no cualquier guion seguido de
+espacio— los siete modelos dieron **limpio**: nadie usó negritas, listas ni viñetas. `_tiene_vineta()`
+en `tests/eval/banco_modelos.py` tiene el detalle y tres casos de prueba en el propio módulo.
+
+Tokens de `gpt-5.6-luna` sin medir: la corrida que los generó no guardó `usage_metadata` para ese
+modelo (posible cambio de formato entre versiones de la librería); el costo sale de una corrida
+posterior con precio ya conocido, no de esos tokens.
+
+**`gpt-6-astra` no es un dato faltante, es un límite real de la API.** Reproducido con llamadas
+directas, sin pasar por el banco: la API exige razonamiento activo en este modelo, no lo deja
+apagar (`reasoning_effort` no acepta `'none'`, a diferencia de `gpt-5.6-*`), y con razonamiento
+activo rechaza las herramientas de función en `/v1/chat/completions`. Cualquier valor de
+`reasoning_effort` que sí acepta (`low`, `medium`, `high`, `xhigh`) devuelve el mismo rechazo por
+la otra vía. No hay combinación de parámetros que lo resuelva desde este endpoint; el modelo más
+caro de la tabla queda, hoy, fuera de uso para este proyecto.
 
 Qué mide y por qué así:
 
@@ -1065,7 +1156,7 @@ no existe esa herramienta, no porque el *prompt* se lo prohíba. Si el red team 
 de esos límites, no se arregla con una frase más: significa que faltaba una barrera.
 
 ```bash
-python -m tests.seguridad.red_team_reservas --probar-objetivo   # 1 pregunta, 2 céntimos
+python -m tests.seguridad.red_team_reservas --probar-objetivo   # comprobación mínima del objetivo
 python -m tests.seguridad.red_team_reservas --humo              # 1 vulnerabilidad × 1 ataque
 ```
 
@@ -1089,15 +1180,16 @@ ataques que **sí** funcionaron — es material sensible y está en el `.gitigno
 | Pieza | Estado |
 |---|---|
 | Esqueleto Flask, contratos, pruebas | listo |
-| Orquestador (enrutador supervisor) | funcional; falta medir el ruteo con un set de casos |
-| Los 3 agentes con sus tools | funcionales; falta iterar *prompts* y evaluarlos |
-| RAG del Agente de Conocimiento | funcional sobre el catálogo de demostración |
-| Gestor de reservas | referencia en JSON — Miguel la reemplaza |
+| Orquestador (planificador supervisor) | funcional y medido con 13 guiones; ejecuta planes de uno o dos pasos |
+| Agentes de Reservas e Incidencias | funcionales; evaluados con pruebas deterministas y evaluación funcional |
+| RAG del orquestador | funcional sobre el catálogo de demostración |
+| Gestor de reservas | referencia en JSON con autorización por sesión y confirmación de operaciones |
 | Observabilidad | trazas, métricas y registro de conversaciones; LangSmith activable por `.env` |
 | Inspección del grafo (LangGraph Studio) | **lista** — `langgraph dev`, sección 3.2 |
-| Dataset de evaluación (`tests/eval/`) | listo — 12 guiones, 15 turnos; falta la corrida medida |
-| Evaluación con DeepEval y experimento de LangSmith | escrito — **sin ejecutar todavía** |
-| Red teaming con DeepTeam (OWASP Top 10 LLM) | escrito — **sin ejecutar todavía** |
+| Dataset de evaluación (`tests/eval/`) | listo — 13 guiones y 17 turnos |
+| Evaluación funcional con DeepEval/GEval | ejecutada el 2026-09-09 — 34 juicios: 29 aprobados, 4 bajo umbral y 1 error del juez |
+| Red teaming con DeepTeam (mapeo OWASP para LLM) | ejecutado el 2026-09-09 — 24 escenarios; resultados y errores revisados por caso |
+| Integración con Trello por MCP | validada el 2026-09-09 — creación, consulta y comentario en una tarjeta real |
 | Ética (Sesión 24) | pendiente, sin responsable asignado |
 | Conexión WhatsApp (Twilio) | pendiente — Jesús |
 | Memoria de largo plazo (perfil del cliente) | **hecha** — perfil por teléfono en disco, ficha inyectada por turno |
@@ -1247,7 +1339,7 @@ Verificación literal del arreglo del escalamiento, turno 2 del guion de grupo g
 **Advertencia honesta para el informe:** un 100% aquí significa *"pasa los turnos que se nos
 ocurrieron"*, no *"el sistema es correcto"*. El dataset todavía no cubre cancelación, intentos de
 manipulación sostenidos ni conversaciones largas, y el red team solo corrió en modo humo. Está
-anotado en la sección 12 de [`PRUEBA_DE_ESTRES_2026-09-06.md`](../PRUEBA_DE_ESTRES_2026-09-06.md)
+anotado en la sección 12 del documento externo `PRUEBA_DE_ESTRES_2026-09-06.md`
 como lo que falta estresar.
 
 ### Primera medición de la arquitectura nueva (2026-09-08, `claude-sonnet-5`)
@@ -1298,9 +1390,10 @@ pueden aparecer en una respuesta equivocada.
 
 ### El giro de arquitectura del 2026-09-07 (asesoría con Boris)
 
-Todos los números de arriba se midieron sobre la arquitectura **anterior**: tres agentes y un
-router. Ese mismo día, la asesoría con el docente cambió el diseño, así que **hay que volver a
-medir**. Lo honesto para el informe es decir las dos cosas: qué se midió y sobre qué versión.
+Los números de la sección “Estado medido al cierre del 2026-09-07” corresponden a la
+arquitectura **anterior**: tres agentes y un router. La sección “Primera medición de la
+arquitectura nueva” y los reportes fechados el 2026-09-09 corresponden al orquestador actual.
+Se conservan ambas mediciones para no mezclar resultados de versiones distintas.
 
 Qué cambió, y qué se espera de cada cambio:
 
@@ -1316,24 +1409,20 @@ Lo que **no** cambió y sigue valiendo: los hallazgos del RAG (`bge-m3` contra `
 el sesgo del juez, y las tres correcciones de instrumentación de la sección anterior. Esos eran
 problemas de medición, no de arquitectura.
 
-**Qué falta correr, en este orden:**
+**Estado de verificación al 2026-09-09:**
 
-1. `pytest -q` — hecho, **60 en verde** (eran 27). Cubren el plan, el encadenamiento, el punto
-   único de salida, el protocolo MCP —incluida la que verifica que el servidor **no** publique
-   ninguna herramienta de cierre— y la resolución de modelo.
-1b. El experimento de LangSmith — **hecho**, ver arriba: todo en 100% tras corregir tres
-   defectos que la propia corrida destapó.
-2. `python -m tests.eval.langsmith_experimento --subir` y luego el experimento, con etiqueta
-   `orquestador-v1`, para comparar contra `clemente-sonnet-v2` sobre el mismo dataset.
-3. `python -m tests.eval.deepeval_evaluar` — las métricas de límites, ahora que el orquestador
-   responde información. **Obligatorio, no opcional**: las de la sección anterior se midieron con
-   un juez que no era el declarado, así que hoy el proyecto no tiene números de `GEval` válidos.
-   Con clave de los dos proveedores conviene correrlo cruzado (`AGENT_MODEL=claude` +
-   `JUEZ_MODEL=gpt-5.6-sol`) para que el juez no sea de la familia del evaluado.
-4. `python -m tests.eval.banco_modelos` — la comparación de modelos que pidió el equipo.
-5. La batería completa de red team, que hasta ahora solo corrió en modo humo.
-6. La vuelta espejo sobre OpenAI (`AGENT_MODEL=openai`), para que la comparación de costo y
-   velocidad del informe tenga las dos mitades y no una sola.
+1. Las pruebas locales cubren el plan, el encadenamiento, el punto único de salida, el
+   protocolo MCP, la autorización de reservas y la resolución del modelo.
+2. El experimento de LangSmith de la arquitectura nueva quedó registrado como antecedente.
+3. La evaluación funcional se repitió con DeepEval/GEval, usando `gpt-5.6-terra` como objetivo
+   y `claude-sonnet-5` como juez. Los resultados están en
+   [`docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md`](docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md).
+4. DeepTeam ejecutó 24 escenarios contra Clemente. La implementación y las salvedades están en
+   [`docs/EVALUACION_TECNICA_SEGURIDAD_MULTIAGENTE.md`](docs/EVALUACION_TECNICA_SEGURIDAD_MULTIAGENTE.md).
+5. Trello se validó por MCP mediante creación, consulta y comentario de una tarjeta real; véase
+   [`docs/VALIDACION_INTEGRACION_TRELLO.md`](docs/VALIDACION_INTEGRACION_TRELLO.md).
+6. Quedan como ampliaciones una muestra mayor, la evaluación completa de cada paso en planes
+   compuestos y repeticiones para medir variabilidad entre corridas y modelos.
 
 ## 12. Estructura del repositorio
 
@@ -1353,8 +1442,8 @@ problemas de medición, no de arquitectura.
 | **La integración directa con Trello** (respaldo, sin MCP) | `app/incidencias/servicio_trello.py` |
 | **El dataset de evaluación** | `tests/eval/casos.json` |
 | **Los criterios de "buena respuesta"** | `tests/eval/metricas.py` |
-| **Lo que pidió el docente y por qué** | [`../ASESORIA_01_BORIS_ACUERDOS.md`](../ASESORIA_01_BORIS_ACUERDOS.md) |
-| **La transcripción de la asesoría** | [`../ASESORIA_01_BORIS_TRANSCRIPCION.md`](../ASESORIA_01_BORIS_TRANSCRIPCION.md) |
+| **Lo que pidió el docente y por qué** | documento externo `ASESORIA_01_BORIS_ACUERDOS.md` |
+| **La transcripción de la asesoría** | documento externo `ASESORIA_01_BORIS_TRANSCRIPCION.md` |
 | **Quién califica en las evaluaciones** | `tests/eval/juez.py` |
 | **Los ataques de seguridad** | `tests/seguridad/red_team_reservas.py` |
 | **La comparación de modelos** (costo, velocidad) | `tests/eval/banco_modelos.py` |
@@ -1494,24 +1583,36 @@ es la fuente de verdad del restaurante y su historial de cambios importa.
 
 ## 13. Documentos del proyecto
 
-**Dentro de `clemente/`**
+**Dentro de `Clemente_Multiagente/`**
 
 | Documento | Qué contiene |
 |---|---|
 | [`README.md`](README.md) | este archivo: arquitectura, puesta en marcha, comandos, evaluación |
-| [`ACUERDOS_EQUIPO.md`](ACUERDOS_EQUIPO.md) | reparto de frentes, reglas de ramas y decisiones abiertas |
+| [`ACUERDOS_EQUIPO.md`](ACUERDOS_EQUIPO.md) | registro histórico del reparto de frentes, reglas de ramas y acuerdos iniciales |
 | [`tests/seguridad/LEEME.md`](tests/seguridad/LEEME.md) | aviso ético del *red teaming* |
 | [`app/web/static/img/LEEME.md`](app/web/static/img/LEEME.md) | cómo reemplazar la foto del webchat |
+| [`docs/EVALUACION_TECNICA_SEGURIDAD_MULTIAGENTE.md`](docs/EVALUACION_TECNICA_SEGURIDAD_MULTIAGENTE.md) | implementación, ejecución y auditoría de DeepTeam |
+| [`docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md`](docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md) | resultados de la evaluación funcional con DeepEval/GEval |
+| [`docs/EVALUACION_TECNICA_FUNCIONAL_LLM_COMO_JUEZ.md`](docs/EVALUACION_TECNICA_FUNCIONAL_LLM_COMO_JUEZ.md) | diseño técnico del LLM como juez |
+| [`docs/VALIDACION_INTEGRACION_TRELLO.md`](docs/VALIDACION_INTEGRACION_TRELLO.md) | evidencia de la prueba real de Trello por MCP |
+| [`docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md`](docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md) | registro histórico de la integración y las correcciones iniciales |
+| [`app/agentes/rag/documentos/01_horarios_y_ubicacion.md`](app/agentes/rag/documentos/01_horarios_y_ubicacion.md) | fuente de conocimiento del RAG sobre horarios, dirección y zonas del restaurante |
+| [`app/agentes/rag/documentos/02_carta_y_servicios.md`](app/agentes/rag/documentos/02_carta_y_servicios.md) | fuente de conocimiento del RAG sobre carta, opciones alimentarias y servicios |
+| [`app/agentes/rag/documentos/03_politicas.md`](app/agentes/rag/documentos/03_politicas.md) | fuente de conocimiento del RAG sobre reservas, cancelaciones, reclamos y datos personales |
 
-**En `Entregable_Final/`**
+**Documentos de contexto conservados fuera de este repositorio**
+
+Los siguientes archivos pertenecen al material de trabajo del curso. No se incluyen en este
+repositorio grupal y por eso se registran como referencias de texto, sin enlaces que GitHub no
+pueda resolver.
 
 | Documento | Qué contiene |
 |---|---|
-| [`../ASESORIA_01_BORIS_ACUERDOS.md`](../ASESORIA_01_BORIS_ACUERDOS.md) | **lo que pidió el docente el 2026-09-07**, con cita y minuto, y el plan de cambios |
-| [`../ASESORIA_01_BORIS_TRANSCRIPCION.md`](../ASESORIA_01_BORIS_TRANSCRIPCION.md) | la transcripción completa de esa asesoría, con marcas de tiempo |
-| [`../BITACORA_AGENTES_Y_ORQUESTADOR.md`](../BITACORA_AGENTES_Y_ORQUESTADOR.md) | **el registro día a día**: decisiones, errores y lecciones |
-| [`../PRUEBA_DE_ESTRES_2026-09-06.md`](../PRUEBA_DE_ESTRES_2026-09-06.md) | las 15 consultas del estrés, con el agente que atendió cada una |
-| [`../AVANCE_AGENTES_PARA_JEAN.md`](../AVANCE_AGENTES_PARA_JEAN.md) | resumen enviado a Jean y qué de su guía entró al código |
-| [`../GUIA_IMPLEMENTACION_AGENTES_JEAN.md`](../GUIA_IMPLEMENTACION_AGENTES_JEAN.md) | la guía de diseño que escribió Jean |
+| `ASESORIA_01_BORIS_ACUERDOS.md` | **lo que pidió el docente el 2026-09-07**, con cita y minuto, y el plan de cambios |
+| `ASESORIA_01_BORIS_TRANSCRIPCION.md` | la transcripción completa de esa asesoría, con marcas de tiempo |
+| `BITACORA_AGENTES_Y_ORQUESTADOR.md` | **el registro día a día**: decisiones, errores y lecciones |
+| `PRUEBA_DE_ESTRES_2026-09-06.md` | las 15 consultas del estrés, con el agente que atendió cada una |
+| `AVANCE_AGENTES_PARA_JEAN.md` | resumen enviado a Jean y qué de su guía entró al código |
+| `GUIA_IMPLEMENTACION_AGENTES_JEAN.md` | la guía de diseño que escribió Jean |
 | `../Entregable N° 01 - GRUPO 02.docx` | definición del problema y de los tres agentes |
 | `../../Idea - Clemente para Restaurantes Caso de Estudio.md` | caso de estudio original |

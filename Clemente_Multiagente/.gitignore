@@ -20,3 +20,6 @@ grafo_clemente.mmd
 # Red teaming: contiene los ataques que SI funcionaron. Material sensible.
 tests/seguridad/deepteam-results/
 .deepeval*
+.deepteam/
+app/agentes/datos/
+.test_tmp*/

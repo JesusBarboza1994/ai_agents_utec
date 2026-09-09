@@ -81,27 +81,14 @@ def ficha_del_cliente(sesion_id: str) -> str:
     Resumen de una linea que se inyecta en el turno del agente: quien es el
     cliente y que reservas vigentes tiene. Cadena vacia si no lo conocemos.
     """
-    perfil = perfil_de(sesion_id)
-    telefono = (perfil or {}).get("telefono") or telefono_de(sesion_id)
-    if not perfil and not telefono:
+    # No inferir identidad del prefijo whatsapp ni de un telefono dicho al LLM.
+    # Solo se inyectan reservas vinculadas por el servidor a esta sesion.
+    from .autorizacion import reservas_propias
+    from ..reservas import obtener_servicio
+    reservas = [r for r in reservas_propias(sesion_id, obtener_servicio()) if r.estado != "cancelada"]
+    if not reservas:
         return ""
-
-    partes = []
-    if perfil and perfil.get("nombre"):
-        partes.append(f"nombre: {perfil['nombre']}")
-    if telefono:
-        partes.append(f"telefono: {telefono}")
-    if perfil and perfil.get("preferencias"):
-        partes.append(f"preferencias: {perfil['preferencias']}")
-
-    if telefono:
-        from ..reservas import obtener_servicio
-
-        vigentes = [r for r in obtener_servicio().buscar_reservas_de(telefono) if r.estado != "cancelada"]
-        if vigentes:
-            detalle = "; ".join(
-                f"{r.id} el {r.fecha} a las {r.hora} para {r.personas} en {r.zona}" for r in vigentes[-3:]
-            )
-            partes.append(f"reservas vigentes: {detalle}")
-
-    return " | ".join(partes)
+    return "; ".join(
+        f"{r.id}: {r.nombre}, {r.fecha} a las {r.hora}, {r.personas} personas, zona {r.zona}"
+        for r in reservas[-3:]
+    )

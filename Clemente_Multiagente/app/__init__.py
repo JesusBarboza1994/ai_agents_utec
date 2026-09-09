@@ -11,7 +11,6 @@ prueba) sin duplicar codigo.
 """
 
 from flask import Flask
-from flask_cors import CORS
 
 from .config import Config
 
@@ -25,7 +24,8 @@ def create_app(config: Config | None = None) -> Flask:
         static_folder="web/static",
     )
     app.config["CLEMENTE"] = config
-    CORS(app)
+    app.config.update(SECRET_KEY=config.secret_key, SESSION_COOKIE_HTTPONLY=True,
+                      SESSION_COOKIE_SAMESITE="Lax", MAX_CONTENT_LENGTH=16 * 1024)
 
     # Observabilidad primero: asi cualquier cosa que ocurra despues ya queda trazada.
     from .observabilidad.trazas import configurar_observabilidad
