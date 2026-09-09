@@ -25,7 +25,7 @@ class Config:
     webhook_token: str = ""
     # LLM: por acuerdo del equipo, el razonamiento corre sobre API
     # (claude u openai). Ollama queda como respaldo sin conexion.
-    agent_model: str = "claude"
+    agent_model: str = "openai"
     modelo: str = ""                       # ID concreto del modelo activo
     embeddings_backend: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
@@ -48,10 +48,10 @@ class Config:
 
     @classmethod
     def desde_entorno(cls) -> "Config":
-        agent_model = os.getenv("AGENT_MODEL", "claude")
+        agent_model = os.getenv("AGENT_MODEL", "openai")
         modelos = {
             "claude": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
-            "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            "openai": os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
         }
         return cls(
             secret_key=os.getenv("CLEMENTE_SECRET_KEY") or _CLAVE_SESION_PROCESO,

@@ -316,13 +316,21 @@ copy .env.example .env            # mac/linux: cp .env.example .env
 **Configuración mínima del `.env`**
 
 ```ini
-AGENT_MODEL=claude                # o: openai
+AGENT_MODEL=openai                # Clemente responde con OpenAI
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.6-terra
 ANTHROPIC_API_KEY=...
 ANTHROPIC_MODEL=claude-sonnet-5
+JUEZ_MODEL=claude-sonnet-5        # juez independiente de DeepEval/DeepTeam
 LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=...
 LANGSMITH_PROJECT=clemente-grupo02
 ```
+
+`AGENT_MODEL` elige al proveedor que atiende al cliente. Las variables de
+Anthropic permanecen en el ejemplo porque `claude-sonnet-5` actúa como juez en
+las evaluaciones; no hacen que Clemente responda con Claude mientras
+`AGENT_MODEL=openai`.
 
 ### 3.1 Elección de modelo
 

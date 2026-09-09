@@ -23,6 +23,7 @@ import json
 
 import pytest
 
+from app.config import Config
 from app.llm import modelo_activo, proveedor_de, resolver_modelo
 
 
@@ -35,6 +36,19 @@ def credenciales_falsas(monkeypatch):
 def id_real(cliente) -> str:
     """El modelo con el que quedo configurado el cliente, no el que dice el nombre."""
     return cliente.model_name if hasattr(cliente, "model_name") else cliente.model
+
+
+def test_terra_es_el_modelo_predeterminado(monkeypatch):
+    """README, Config y el constructor deben coincidir incluso sin `.env`."""
+    monkeypatch.delenv("AGENT_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+
+    config = Config.desde_entorno()
+
+    assert config.agent_model == "openai"
+    assert config.modelo == "gpt-5.6-terra"
+    assert modelo_activo() == "gpt-5.6-terra"
+    assert id_real(resolver_modelo()) == "gpt-5.6-terra"
 
 
 # --------------------------------------------------------------------------
