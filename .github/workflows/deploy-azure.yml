@@ -1,8 +1,14 @@
 name: CI/CD Clemente -> Azure Container Apps
 
+# Este repo es un monorepo del curso: Clemente_Multiagente/ es el proyecto grupal,
+# pero conviven ejercicios individuales de otros companeros en la raiz. El filtro
+# "paths" de abajo evita que un PR ajeno a este proyecto dispare este workflow.
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "Clemente_Multiagente/**"
+      - ".github/workflows/deploy-azure.yml"
   release:
     types: [published]
   workflow_dispatch:
@@ -13,12 +19,19 @@ on:
         default: latest
 
 permissions:
-  id-token: write  
+  id-token: write
   contents: read
 
 concurrency:
   group: deploy-clemente-${{ github.ref }}
   cancel-in-progress: false   # nunca cancelar un despliegue a mitad de camino
+
+defaults:
+  run:
+    # El Dockerfile y todo el codigo de Clemente viven en esta subcarpeta del
+    # monorepo, no en la raiz del repo -- sin esto, "docker build ." construiria
+    # desde la raiz y no encontraria el Dockerfile.
+    working-directory: Clemente_Multiagente
 
 jobs:
   validar-pr:
