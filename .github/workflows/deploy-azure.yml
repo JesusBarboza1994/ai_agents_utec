@@ -1,22 +1,16 @@
 name: CI/CD Clemente -> Azure Container Apps
 
-# Este repo es un monorepo del curso: Clemente_Multiagente/ es el proyecto grupal,
-# pero conviven ejercicios individuales de otros companeros en la raiz. El filtro
-# "paths" de abajo evita que un PR ajeno a este proyecto dispare este workflow.
 on:
   pull_request:
     branches: [main]
     paths:
       - "Clemente_Multiagente/**"
       - ".github/workflows/deploy-azure.yml"
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: "Tag de imagen a (re)desplegar en Container Apps"
-        required: false
-        default: latest
+      tag:
+        description: "Tag a desplegar (ver pestana Tags del repo, ej. v0.2.0)"
+        required: true
 
 permissions:
   id-token: write
@@ -47,16 +41,14 @@ jobs:
 
   build-and-deploy:
     name: Build y despliegue a Azure
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Checkout
+      - name: Checkout del tag elegido
         uses: actions/checkout@v4
         with:
-          # En un evento "release", el ref por defecto ya apunta al tag publicado.
-          # En workflow_dispatch, se usa la rama/ref desde la que se disparo a mano.
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.inputs.tag }}
 
       - name: Login en Azure (OIDC, sin secreto de cliente)
         uses: azure/login@v2
@@ -65,28 +57,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Determinar el tag de la imagen
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Construir la imagen y subirla a ACR
         run: |
           az acr login --name ${{ vars.AZURE_ACR_NAME }}
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
-             az acr repository show --name ${{ vars.AZURE_ACR_NAME }} \
-               --image clemente:${{ steps.tag.outputs.tag }} >/dev/null 2>&1; then
-            echo "clemente:${{ steps.tag.outputs.tag }} ya existe en ACR, se reusa sin reconstruir."
+          if az acr repository show --name ${{ vars.AZURE_ACR_NAME }} \
+               --image clemente:${{ github.event.inputs.tag }} >/dev/null 2>&1; then
+            echo "clemente:${{ github.event.inputs.tag }} ya existe en ACR, se reusa sin reconstruir (ej. un rollback)."
           else
             docker build \
-              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }} \
+              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }} \
               -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest \
               .
-            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }}
+            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }}
             docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest
           fi
 
@@ -95,5 +77,5 @@ jobs:
           az containerapp update \
             --name ${{ vars.AZURE_CONTAINERAPP_NAME }} \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }}
+            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }}
 

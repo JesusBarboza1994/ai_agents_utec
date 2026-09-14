@@ -1,0 +1,41 @@
+name: Auto-tag Clemente en cada merge a main
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Clemente_Multiagente/**"
+
+permissions:
+  contents: write   # necesita crear y pushear un tag
+
+jobs:
+  auto-tag:
+    name: Crear tag semver
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (historial completo, para ver todos los tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calcular y crear el tag nuevo
+        id: tag
+        run: |
+          git fetch --tags --force
+          ULTIMO=$(git tag --list 'v*.*.*' | sort -V | tail -n1)
+          if [ -z "$ULTIMO" ]; then
+            NUEVO="v0.1.0"
+          else
+            IFS='.' read -r MAYOR MENOR PARCHE <<< "${ULTIMO#v}"
+            NUEVO="v${MAYOR}.${MENOR}.$((PARCHE + 1))"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NUEVO" -m "Auto-tag: $NUEVO (commit ${{ github.sha }})"
+          git push origin "$NUEVO"
+
+          echo "tag=$NUEVO" >> "$GITHUB_OUTPUT"
+          echo "### Tag creado: \`$NUEVO\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Para desplegarlo: Actions -> 'CI/CD Clemente -> Azure Container Apps' -> Run workflow -> tag: \`$NUEVO\`" >> "$GITHUB_STEP_SUMMARY"
