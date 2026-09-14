@@ -216,6 +216,26 @@ def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str |
             parametros["reasoning_effort"] = "none"
         return ChatOpenAI(**parametros)
 
+    if agent_model == "azure":
+        from langchain_openai import AzureChatOpenAI
+
+        # El deployment de Azure se nombra igual que el modelo base (convencion
+        # de este proyecto), asi que los mismos prefijos de OPENAI_SIN_TEMPERATURE
+        # y OPENAI_SIN_RAZONAMIENTO aplican sin cambios.
+        elegido = modelo or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-luna")
+        parametros = {
+            "azure_deployment": elegido,
+            "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
+            "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+            "timeout": 60,
+            "max_retries": 2,
+        }
+        if not elegido.startswith(OPENAI_SIN_TEMPERATURE):
+            parametros["temperature"] = temperature
+        if elegido.startswith(OPENAI_SIN_RAZONAMIENTO):
+            parametros["reasoning_effort"] = "none"
+        return AzureChatOpenAI(**parametros)
+
     if agent_model in MODELOS_OLLAMA:
         from langchain_ollama import ChatOllama
 
@@ -237,7 +257,7 @@ def resolver_modelo(temperature: float = 0.2, rol: str = "agente", modelo: str |
         )
 
     raise ValueError(
-        f"AGENT_MODEL desconocido: {agent_model!r}. Opciones: claude, openai, "
+        f"AGENT_MODEL desconocido: {agent_model!r}. Opciones: claude, openai, azure, "
         f"{', '.join(MODELOS_OLLAMA)}, gemma-lmstudio"
     )
 

@@ -44,6 +44,11 @@ class Config:
             return "ANTHROPIC_API_KEY"
         if self.agent_model == "openai" and not os.getenv("OPENAI_API_KEY"):
             return "OPENAI_API_KEY"
+        if self.agent_model == "azure":
+            if not os.getenv("AZURE_OPENAI_API_KEY"):
+                return "AZURE_OPENAI_API_KEY"
+            if not os.getenv("AZURE_OPENAI_ENDPOINT"):
+                return "AZURE_OPENAI_ENDPOINT"
         return ""
 
     @classmethod
@@ -52,6 +57,7 @@ class Config:
         modelos = {
             "claude": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
             "openai": os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
+            "azure": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-luna"),
         }
         return cls(
             secret_key=os.getenv("CLEMENTE_SECRET_KEY") or _CLAVE_SESION_PROCESO,
