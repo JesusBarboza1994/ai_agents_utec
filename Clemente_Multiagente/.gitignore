@@ -23,3 +23,6 @@ tests/seguridad/deepteam-results/
 .deepteam/
 app/agentes/datos/
 .test_tmp*/
+
+.DS_Store
+.claude/

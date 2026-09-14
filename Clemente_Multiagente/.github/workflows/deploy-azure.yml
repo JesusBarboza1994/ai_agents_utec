@@ -1,0 +1,86 @@
+name: CI/CD Clemente -> Azure Container Apps
+
+on:
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen a (re)desplegar en Container Apps"
+        required: false
+        default: latest
+
+permissions:
+  id-token: write  
+  contents: read
+
+concurrency:
+  group: deploy-clemente-${{ github.ref }}
+  cancel-in-progress: false   # nunca cancelar un despliegue a mitad de camino
+
+jobs:
+  validar-pr:
+    name: Validar PR (build de la imagen, sin desplegar)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Construir la imagen (solo valida que el Dockerfile compila)
+        run: docker build -t clemente:pr-${{ github.event.pull_request.number }} .
+
+  build-and-deploy:
+    name: Build y despliegue a Azure
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # En un evento "release", el ref por defecto ya apunta al tag publicado.
+          # En workflow_dispatch, se usa la rama/ref desde la que se disparo a mano.
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Login en Azure (OIDC, sin secreto de cliente)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Determinar el tag de la imagen
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construir la imagen y subirla a ACR
+        run: |
+          az acr login --name ${{ vars.AZURE_ACR_NAME }}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             az acr repository show --name ${{ vars.AZURE_ACR_NAME }} \
+               --image clemente:${{ steps.tag.outputs.tag }} >/dev/null 2>&1; then
+            echo "clemente:${{ steps.tag.outputs.tag }} ya existe en ACR, se reusa sin reconstruir."
+          else
+            docker build \
+              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }} \
+              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest \
+              .
+            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }}
+            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest
+          fi
+
+      - name: Desplegar la nueva revision en Container Apps
+        run: |
+          az containerapp update \
+            --name ${{ vars.AZURE_CONTAINERAPP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ steps.tag.outputs.tag }}
+
