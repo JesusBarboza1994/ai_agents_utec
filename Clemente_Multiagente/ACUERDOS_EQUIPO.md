@@ -132,20 +132,18 @@ Una pieza está terminada cuando:
 
 ## 7. Lo que falta cerrar
 
-### 7.1 Persistencia — recomendación: **SQLite**
+### 7.1 Persistencia — **SQLite, cerrado**
 
-Hoy el gestor de reservas guarda en archivos JSON. Sirve para desarrollar solo, pero tiene un
-problema real para la demostración: **dos escrituras simultáneas se pisan** (el webhook de
-WhatsApp y el webchat pueden llegar a la vez, y el proceso de Flask atiende varias peticiones).
+`ServicioReservasSQLite` (`app/reservas/servicio_sqlite.py`) implementa `ServicioReservas` sobre
+`sqlite3`, sin servidor ni dependencia nueva. Cada `crear_reserva`/`modificar_reserva` corre en
+una transacción `BEGIN IMMEDIATE`, que serializa a los escritores: dos reservas simultáneas sobre
+la misma mesa ya no se pisan.
 
-La recomendación es **SQLite**, no PostgreSQL:
-
-- No necesita servidor ni instalación: `sqlite3` viene con Python.
-- Da transacciones, así que dos reservas simultáneas sobre la misma mesa no se pisan.
-- Miguel implementa `ServicioReservasSQLite` detrás de la misma interfaz `ServicioReservas`, y
-  se activa con `CLEMENTE_BACKEND_RESERVAS=sqlite`. **Ningún agente se entera del cambio.**
-- El archivo `.db` **no se sube a git**: se regenera con un script `seed.py` (mesas del local +
-  reservas de ejemplo), para que la demostración sea reproducible en cualquier máquina.
+Se activa con `CLEMENTE_BACKEND_RESERVAS=sqlite` en el `.env` (por defecto sigue en `json`);
+**ningún agente se entera del cambio**, porque `app/reservas/__init__.py` es el único que decide
+la implementación. El archivo `.db` no se sube a git (`.gitignore`): se regenera con
+`python -m app.reservas.seed [--con-ejemplos]`, reproducible en cualquier máquina. Las 7 pruebas
+de `tests/test_reservas.py` corren parametrizadas contra `json` **y** `sqlite`.
 
 **Dónde vive el archivo y en qué máquina.** La base vive **siempre junto a la aplicación**, en
 la máquina donde corre Flask (`app/reservas/datos/clemente.db`):

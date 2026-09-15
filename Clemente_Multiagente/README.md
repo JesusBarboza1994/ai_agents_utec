@@ -467,6 +467,7 @@ de razonamiento de OpenAI (GPT-5 en adelante, GPT-6, serie *o*) tienen la misma 
 **Ejecución y verificación**
 
 ```bash
+python -m app.reservas.seed --con-ejemplos   # solo si usas CLEMENTE_BACKEND_RESERVAS=sqlite
 python run.py                     # http://localhost:5000
 curl http://localhost:5000/api/salud
 pytest -q                         # 58 pruebas, no llaman al modelo
@@ -892,9 +893,22 @@ dice `app/incidencias/backend_activo()` y se ve en el log de arranque.
 **Y el agente no llama a Trello directamente: lo hace a través de un servidor MCP**, que es donde
 vive el límite de lo que puede pedir. Eso tiene sección propia — ver la **sección 8**.
 
-La implementación actual del gestor de reservas es sobre archivos JSON y es **de referencia**:
-Miguel la reemplaza respetando la interfaz `ServicioReservas` (ver la decisión de persistencia
-en `ACUERDOS_EQUIPO.md`).
+Hay dos implementaciones de `ServicioReservas`, elegidas por `CLEMENTE_BACKEND_RESERVAS` en el
+`.env` — ningún agente se entera del cambio:
+
+- `json` (por defecto) — archivos planos, sirve para desarrollar sin pasos extra.
+- `sqlite` — transacciones (`BEGIN IMMEDIATE`), así que dos escrituras simultáneas sobre la misma
+  mesa no se pisan; es la recomendada para la demostración. El archivo `.db` no se sube a git: se
+  regenera con
+
+  ```bash
+  python -m app.reservas.seed                # solo las mesas del local
+  python -m app.reservas.seed --con-ejemplos  # + un par de reservas de muestra
+  ```
+
+  Las 7 pruebas de `tests/test_reservas.py` corren contra las dos implementaciones (`pytest -q`
+  muestra `[json]` y `[sqlite]` por cada una), así que cualquier backend nuevo se valida con el
+  mismo archivo de pruebas. Ver la decisión de persistencia en `ACUERDOS_EQUIPO.md`.
 
 ## 8. Los tickets por MCP (Sesión 16)
 

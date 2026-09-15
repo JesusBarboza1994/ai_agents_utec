@@ -21,6 +21,9 @@ def obtener_servicio() -> ServicioReservas:
         if backend == "json":
             from .servicio_json import ServicioReservasJSON
             _servicio = ServicioReservasJSON()
+        elif backend == "sqlite":
+            from .servicio_sqlite import ServicioReservasSQLite
+            _servicio = ServicioReservasSQLite()
         else:
             raise ValueError(f"Backend de reservas desconocido: {backend!r}")
     return _servicio

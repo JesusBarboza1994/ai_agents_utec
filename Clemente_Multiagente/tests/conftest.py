@@ -22,7 +22,7 @@ def aislar_estado(tmp_path, monkeypatch):
     from app.orquestador import grafo
     from app.reservas import servicio_json as reservas
     from app.incidencias import servicio_json as incidencias
-    from Clemente_Multiagente.app.communication.services import sesiones
+    from app.communication.services import sesiones
     import app.reservas
     import app.incidencias
     for clave in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LANGSMITH_API_KEY", "TRELLO_API_KEY", "TRELLO_TOKEN", "TRELLO_MCP_URL"):
@@ -43,11 +43,20 @@ def aislar_estado(tmp_path, monkeypatch):
     grafo.reiniciar_grafo()
 
 
-@pytest.fixture
-def servicio_reservas(tmp_path):
-    from app.reservas.servicio_json import ServicioReservasJSON
+@pytest.fixture(params=["json", "sqlite"])
+def servicio_reservas(request, tmp_path):
+    """Corre el contrato de ServicioReservas contra las dos implementaciones."""
+    if request.param == "json":
+        from app.reservas.servicio_json import ServicioReservasJSON
 
-    return ServicioReservasJSON(archivo_reservas=tmp_path / "reservas.json")
+        return ServicioReservasJSON(archivo_reservas=tmp_path / "reservas.json")
+
+    from app.reservas import seed
+    from app.reservas.servicio_sqlite import ServicioReservasSQLite
+
+    archivo_db = tmp_path / "clemente.db"
+    seed.generar_en(archivo_db, con_ejemplos=False)
+    return ServicioReservasSQLite(archivo_db=archivo_db)
 
 
 @pytest.fixture
