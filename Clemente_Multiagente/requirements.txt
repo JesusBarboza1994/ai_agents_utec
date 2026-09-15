@@ -11,6 +11,9 @@ flask
 flask-cors
 python-dotenv
 
+# --- WhatsApp webhook (Twilio): chat sessions in Postgres ---
+psycopg2-binary
+
 # --- Agentes y orquestacion (Sesiones 12, 14 y 15) ---
 langchain>=1.0
 langgraph

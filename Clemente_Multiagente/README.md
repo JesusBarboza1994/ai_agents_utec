@@ -19,8 +19,17 @@
 > El webchat usa una cookie firmada: iniciar `/api/chat` sin `sesion_id` y
 > conservar la cookie; usar después el identificador devuelto por el servidor.
 > Las trazas, conversaciones y reinicios HTTP se limitan a esa sesión. El webhook
-> genérico permanece deshabilitado salvo que se configure `CLEMENTE_WEBHOOK_TOKEN`
-> para un adaptador interno; la integración y firma de Twilio siguen pendientes.
+> de WhatsApp (`POST /api/webhook/whatsapp`) permanece deshabilitado salvo que
+> se configure `CLEMENTE_DATABASE_URL`. **La validación de la firma de Twilio
+> está apagada a propósito** (proyecto de prueba, sin tráfico real de Twilio
+> todavía): `whatsapp_service.is_valid_request` sigue ahí, probada, lista para
+> reactivarse con una línea en `whatsapp_controller.py` antes de exponer esto
+> a internet de verdad. El mensaje se guarda en Postgres (cliente, chat y
+> mensaje), y la ventana de 7 días que vería el LLM se calcula al leer, sin
+> una fila de sesión. El envío de la respuesta al cliente todavía está
+> pendiente de conectarse al LLM (`app/communication/services/llm_bridge.py`);
+> el servicio que la entregaría por WhatsApp ya existe
+> (`app/communication/services/outbound_whatsapp_service.py`).
 > Configurar `CLEMENTE_SECRET_KEY` estable evita invalidar cookies al reiniciar.
 >
 > `app/agentes/datos/autorizaciones.sqlite3` guarda permisos y propuestas, no las
@@ -675,7 +684,7 @@ muestra el total al terminar.
 |---|---|
 | `GET /` | webchat de demostración (muestra qué agente respondió y por qué) |
 | `POST /api/chat` | API interna de conversación |
-| `POST /api/webhook/<canal>` | entrada del canal externo — `whatsapp` es el que se usará con Twilio |
+| `POST /api/webhook/whatsapp` | entrada de Twilio (firma sin validar a propósito, ver sección 5; cliente/chat/mensaje en Postgres) |
 | `POST /api/sesiones/<id>/reset` | reinicia un hilo de conversación |
 | `GET /api/salud` | proveedor, modelo, *backends* y credenciales faltantes |
 | `GET /api/trazas?sesion_id=&limite=` | últimas trazas (ruteo, latencia, errores) |
@@ -707,11 +716,40 @@ muestra el total al terminar.
 
 ## 5. Qué ocurre con un mensaje, paso a paso
 
-1. **Canal** — `app/comunicacion/rutas.py` recibe el POST y `_normalizar()` traduce el formato
-   del canal a un `MensajeEntrante`. Twilio envía `From`, `Body` y `ProfileName` como formulario;
-   ese parseo es el trabajo pendiente de Jesús.
-2. **Sesión** — `app/comunicacion/sesiones.py` recupera el hilo (`sesion_id`) con su historial,
-   acotado a los últimos 20 turnos: la ventana de contexto es un recurso escaso (Sesión 9).
+1. **Canal (WhatsApp)** — el flujo real está dividido en adaptador de canal + núcleo agnóstico, para
+   que sumar Facebook mañana sea otro controller + adapter, no tocar la lógica. Antes del ack solo
+   corre trabajo en memoria, nada de I/O: `routes/` enruta `POST /api/webhook/whatsapp` al controlador;
+   `controllers/whatsapp_controller.py` valida, si está configurado, que el `AccountSid` sea el
+   esperado (`services/whatsapp_service.is_valid_account`) — la firma de Twilio se valida con
+   `services/whatsapp_service.is_valid_request`, pero el controller **no la llama a propósito**
+   (proyecto de prueba, sin tráfico real de Twilio todavía; es la única línea que falta para
+   reactivarla) — y traduce el form a un
+   `IncomingMessage` (`services/whatsapp_service.parse_inbound` — el **adaptador**: solo sabe de Twilio,
+   `chat_key` a partir de `From` — normalmente el teléfono, a veces un id interno cuando WhatsApp lo
+   enmascara, ver `format_whatsapp_address`). Con eso ya responde a Twilio (TwiML vacío): **todo lo que
+   implica I/O corre después, en un hilo aparte** (`whatsapp_controller._process_in_background`) —
+   guardar el mensaje, generar la respuesta y enviarla por Twilio, porque un LLM real puede tardar
+   ~30s y el ack no debe esperarlo. Dentro de ese hilo: `services/message_service.handle_incoming_message`
+   es el **núcleo agnóstico al canal** — recibe el `IncomingMessage`, guarda cliente/chat/mensaje y
+   devuelve el `chat_id`; `digenerate_and_store_reply` arma la respuesta desde la ventana de sesión (hoy
+   mockeada en `services/llm_bridge.generate_reply` — TODO conectar el orquestador real) y la guarda
+   como turno `assistant`; por último `services/outbound_whatsapp_service.send_whatsapp_message` la
+   entrega, reconstruyendo la dirección de Twilio desde el mismo `chat_key` (real o *business-scoped
+   id*). Contrapartida asumida: si guardar falla, ya no hay forma de devolverle un 503 a Twilio para que
+   reintente — solo queda trazado (`registrar("error", ...)`); `provider_message_id` queda guardado por
+   si hace falta deduplicar reintentos más adelante. En Postgres (conexión y migraciones
+   compartidas en `app/db/`) hay tres tablas, cada una con su repositorio en `app/db/repositories/`:
+   `customers` (nombre, teléfono y lo que se sume después), `chats` (una por `chat_key`, enlazada a su
+   cliente, con `channel_number` — el número propio por el que entró) y `messages` (cada turno, con su
+   fecha y el `provider_message_id` de Twilio para una futura deduplicación). No existe una fila de
+   "sesión": la ventana de 7 días que ve el LLM se calcula al leer, filtrando `messages` por fecha
+   (`messages_repository.get_recent_messages`).
+2. **Canal (webchat)** — `controllers/chat_controller.py` arma el `MensajeEntrante` desde el JSON,
+   `services/chat_service.py` hace de puente con el orquestador, y `app/communication/sesiones.py`
+   recupera el hilo (`sesion_id`) con su historial en memoria, acotado a los últimos 20 turnos: la
+   ventana de contexto es un recurso escaso (Sesión 9). No es un canal real (ese es WhatsApp): hoy es
+   sobre todo la superficie HTTP que ejercitan la demo y `tests/test_seguridad_reservas.py` para probar
+   el orquestador de punta a punta, así que se mantiene aunque no comparta el flujo agnóstico de arriba.
 3. **Plan** — el nodo `planificador` de `app/orquestador/grafo.py` arma la lista de pasos con
    `with_structured_output(PlanDeResolucion)`. Ve **el resumen del hilo y el agente que venía
    atendiendo**, con una regla explícita de continuidad: un dato suelto ("el sábado", "somos 4",

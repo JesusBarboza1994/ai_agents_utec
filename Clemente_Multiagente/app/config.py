@@ -22,7 +22,11 @@ _CLAVE_SESION_PROCESO = secrets.token_hex(32)
 @dataclass(frozen=True)
 class Config:
     secret_key: str = _CLAVE_SESION_PROCESO
-    webhook_token: str = ""
+    twilio_auth_token: str = ""
+    twilio_account_sid: str = ""
+    twilio_whatsapp_from: str = ""
+    database_url: str = ""
+    chat_session_days: int = 7
     # LLM: por acuerdo del equipo, el razonamiento corre sobre API
     # (claude u openai). Ollama queda como respaldo sin conexion.
     agent_model: str = "openai"
@@ -61,7 +65,11 @@ class Config:
         }
         return cls(
             secret_key=os.getenv("CLEMENTE_SECRET_KEY") or _CLAVE_SESION_PROCESO,
-            webhook_token=os.getenv("CLEMENTE_WEBHOOK_TOKEN", ""),
+            twilio_auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
+            twilio_account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
+            twilio_whatsapp_from=os.getenv("TWILIO_WHATSAPP_FROM", ""),
+            database_url=os.getenv("CLEMENTE_DATABASE_URL", ""),
+            chat_session_days=int(os.getenv("CLEMENTE_CHAT_SESSION_DAYS", "7")),
             agent_model=agent_model,
             modelo=modelos.get(agent_model, agent_model),
             embeddings_backend=os.getenv("EMBEDDINGS_BACKEND", "ollama"),

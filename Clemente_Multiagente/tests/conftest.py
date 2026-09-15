@@ -22,7 +22,7 @@ def aislar_estado(tmp_path, monkeypatch):
     from app.orquestador import grafo
     from app.reservas import servicio_json as reservas
     from app.incidencias import servicio_json as incidencias
-    from app.comunicacion import sesiones
+    from Clemente_Multiagente.app.communication.services import sesiones
     import app.reservas
     import app.incidencias
     for clave in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LANGSMITH_API_KEY", "TRELLO_API_KEY", "TRELLO_TOKEN", "TRELLO_MCP_URL"):
