@@ -1,1 +1,7 @@
 .DS_Store
+Clemente_Multiagente/.env
+
+# Virtualenvs, anywhere in the repo
+.venv/
+.venv_demo/
+venv/

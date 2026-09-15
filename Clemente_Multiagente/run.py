@@ -7,7 +7,7 @@ Punto de entrada de Clemente.
 El servidor sirve tres cosas:
   * el chat de demo (GET /)
   * la API de conversacion (POST /api/chat)  -- lo que consumen los canales
-  * los webhooks de cada canal (POST /api/webhook/<canal>)
+  * el webhook de WhatsApp (POST /api/webhook/whatsapp)
 """
 
 import os
