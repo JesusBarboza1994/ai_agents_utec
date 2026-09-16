@@ -33,6 +33,10 @@ class Config:
     modelo: str = ""                       # ID concreto del modelo activo
     embeddings_backend: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
+    # RAG del catalogo: "chroma" (local, default) o "azure_search" (push directo
+    # al indice de Azure AI Search, sin Blob Storage ni indexer -- ver
+    # app/agentes/rag/indice.py).
+    rag_backend: str = "chroma"
 
     # Backends de datos
     backend_reservas: str = "json"
@@ -53,6 +57,11 @@ class Config:
                 return "AZURE_OPENAI_API_KEY"
             if not os.getenv("AZURE_OPENAI_ENDPOINT"):
                 return "AZURE_OPENAI_ENDPOINT"
+        if self.rag_backend == "azure_search":
+            if not os.getenv("AZURE_SEARCH_ENDPOINT"):
+                return "AZURE_SEARCH_ENDPOINT"
+            if not os.getenv("AZURE_SEARCH_API_KEY"):
+                return "AZURE_SEARCH_API_KEY"
         return ""
 
     @classmethod
@@ -74,6 +83,7 @@ class Config:
             modelo=modelos.get(agent_model, agent_model),
             embeddings_backend=os.getenv("EMBEDDINGS_BACKEND", "ollama"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            rag_backend=os.getenv("RAG_BACKEND", "chroma"),
             backend_reservas=os.getenv("CLEMENTE_BACKEND_RESERVAS", "json"),
             langsmith_tracing=os.getenv("LANGSMITH_TRACING", "true").lower() == "true",
             langsmith_project=os.getenv("LANGSMITH_PROJECT", "clemente-grupo02"),

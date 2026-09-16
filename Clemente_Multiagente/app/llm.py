@@ -278,6 +278,16 @@ def resolver_embeddings():
 
         return OpenAIEmbeddings(model=os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small"))
 
+    if backend == "azure":
+        from langchain_openai import AzureOpenAIEmbeddings
+
+        return AzureOpenAIEmbeddings(
+            azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT", "text-embedding-3-small"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+        )
+
     if backend == "ollama":
         from langchain_ollama import OllamaEmbeddings
 
@@ -286,7 +296,7 @@ def resolver_embeddings():
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         )
 
-    raise ValueError(f"EMBEDDINGS_BACKEND desconocido: {backend!r}. Opciones: ollama, openai")
+    raise ValueError(f"EMBEDDINGS_BACKEND desconocido: {backend!r}. Opciones: ollama, openai, azure")
 
 
 def nombre_embeddings() -> str:
@@ -294,6 +304,8 @@ def nombre_embeddings() -> str:
     backend = os.getenv("EMBEDDINGS_BACKEND", "ollama")
     if backend == "openai":
         return os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
+    if backend == "azure":
+        return os.getenv("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT", "text-embedding-3-small")
     return os.getenv("OLLAMA_EMBEDDINGS_MODEL", MODELO_EMBEDDINGS_OLLAMA)
 
 
