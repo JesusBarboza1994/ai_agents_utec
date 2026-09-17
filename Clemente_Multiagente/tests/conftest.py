@@ -22,7 +22,7 @@ def aislar_estado(tmp_path, monkeypatch):
     from app.orquestador import grafo
     from app.reservas import servicio_json as reservas
     from app.incidencias import servicio_json as incidencias
-    from Clemente_Multiagente.app.communication.services import sesiones
+    from app.communication.services import sesiones
     import app.reservas
     import app.incidencias
     for clave in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LANGSMITH_API_KEY", "TRELLO_API_KEY", "TRELLO_TOKEN", "TRELLO_MCP_URL"):
@@ -43,11 +43,39 @@ def aislar_estado(tmp_path, monkeypatch):
     grafo.reiniciar_grafo()
 
 
-@pytest.fixture
-def servicio_reservas(tmp_path):
-    from app.reservas.servicio_json import ServicioReservasJSON
+@pytest.fixture(params=["json", "postgres"])
+def servicio_reservas(request, tmp_path):
+    """Corre el contrato de ServicioReservas contra las dos implementaciones."""
+    if request.param == "json":
+        from app.reservas.servicio_json import ServicioReservasJSON
 
-    return ServicioReservasJSON(archivo_reservas=tmp_path / "reservas.json")
+        return ServicioReservasJSON(archivo_reservas=tmp_path / "reservas.json")
+
+    database_url = os.getenv("CLEMENTE_DATABASE_URL", "")
+    if not database_url:
+        pytest.skip("CLEMENTE_DATABASE_URL no configurada: se salta el backend postgres")
+
+    import psycopg2
+
+    from app import create_app
+    from app.config import Config
+    from app.reservas import seed
+    from app.reservas.servicio_postgres import ServicioReservasPostgres
+
+    seed.generar(database_url)
+    conn = psycopg2.connect(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM reservas")
+        conn.commit()
+    finally:
+        conn.close()
+
+    app = create_app(Config(database_url=database_url))
+    ctx = app.app_context()
+    ctx.push()
+    request.addfinalizer(ctx.pop)
+    return ServicioReservasPostgres()
 
 
 @pytest.fixture

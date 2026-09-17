@@ -467,6 +467,7 @@ de razonamiento de OpenAI (GPT-5 en adelante, GPT-6, serie *o*) tienen la misma 
 **Ejecución y verificación**
 
 ```bash
+python -m app.reservas.seed          # solo si usas CLEMENTE_BACKEND_RESERVAS=postgres
 python run.py                     # http://localhost:5000
 curl http://localhost:5000/api/salud
 pytest -q                         # 58 pruebas, no llaman al modelo
@@ -892,9 +893,23 @@ dice `app/incidencias/backend_activo()` y se ve en el log de arranque.
 **Y el agente no llama a Trello directamente: lo hace a través de un servidor MCP**, que es donde
 vive el límite de lo que puede pedir. Eso tiene sección propia — ver la **sección 8**.
 
-La implementación actual del gestor de reservas es sobre archivos JSON y es **de referencia**:
-Miguel la reemplaza respetando la interfaz `ServicioReservas` (ver la decisión de persistencia
-en `ACUERDOS_EQUIPO.md`).
+Hay dos implementaciones de `ServicioReservas`, elegidas por `CLEMENTE_BACKEND_RESERVAS` en el
+`.env` — ningún agente se entera del cambio:
+
+- `json` (por defecto) — archivos planos, sirve para desarrollar sin pasos extra.
+- `postgres` — misma base que ya usan customers/chats/messages (`app/db/`, `CLEMENTE_DATABASE_URL`);
+  `SELECT ... FOR UPDATE` sobre las mesas del turno, dentro de la transacción, así que dos
+  escrituras simultáneas sobre la misma mesa no se pisan. Es la recomendada para la demostración.
+  El catálogo de mesas se sube (o actualiza) con
+
+  ```bash
+  python -m app.reservas.seed
+  ```
+
+  Las 7 pruebas de `tests/test_reservas.py` corren contra las dos implementaciones (`pytest -q`
+  muestra `[json]` y `[postgres]` por cada una; `postgres` se salta si no hay
+  `CLEMENTE_DATABASE_URL`), así que cualquier backend nuevo se valida con el mismo archivo de
+  pruebas. Ver la decisión de persistencia en `ACUERDOS_EQUIPO.md`.
 
 ## 8. Los tickets por MCP (Sesión 16)
 
