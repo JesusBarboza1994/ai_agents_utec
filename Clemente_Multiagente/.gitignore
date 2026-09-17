@@ -6,7 +6,6 @@ __pycache__/
 *.log
 app/agentes/rag/chroma_index/
 app/reservas/datos/reservas.json
-app/reservas/datos/clemente.db
 app/incidencias/datos/incidencias.json
 .pytest_cache/
 app/observabilidad/datos/

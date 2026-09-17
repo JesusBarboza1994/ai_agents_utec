@@ -132,34 +132,27 @@ Una pieza está terminada cuando:
 
 ## 7. Lo que falta cerrar
 
-### 7.1 Persistencia — **SQLite, cerrado**
+### 7.1 Persistencia — **PostgreSQL, cerrado**
 
-`ServicioReservasSQLite` (`app/reservas/servicio_sqlite.py`) implementa `ServicioReservas` sobre
-`sqlite3`, sin servidor ni dependencia nueva. Cada `crear_reserva`/`modificar_reserva` corre en
-una transacción `BEGIN IMMEDIATE`, que serializa a los escritores: dos reservas simultáneas sobre
-la misma mesa ya no se pisan.
+`ServicioReservasPostgres` (`app/reservas/servicio_postgres.py`) implementa `ServicioReservas`
+sobre la misma base Postgres que ya usan customers/chats/messages (`app/db/`, pool de
+`psycopg2` + migraciones en `app/db/migrations/`). Cada `crear_reserva`/`modificar_reserva`
+hace `SELECT ... FOR UPDATE` sobre las mesas candidatas al turno dentro de la misma transacción:
+dos reservas simultáneas sobre la misma mesa ya no se pisan.
 
-Se activa con `CLEMENTE_BACKEND_RESERVAS=sqlite` en el `.env` (por defecto sigue en `json`);
+Se activa con `CLEMENTE_BACKEND_RESERVAS=postgres` en el `.env` (por defecto sigue en `json`);
 **ningún agente se entera del cambio**, porque `app/reservas/__init__.py` es el único que decide
-la implementación. El archivo `.db` no se sube a git (`.gitignore`): se regenera con
-`python -m app.reservas.seed [--con-ejemplos]`, reproducible en cualquier máquina. Las 7 pruebas
-de `tests/test_reservas.py` corren parametrizadas contra `json` **y** `sqlite`.
+la implementación. El catálogo de mesas se sube (o actualiza) con `python -m app.reservas.seed`,
+idempotente. Las 7 pruebas de `tests/test_reservas.py` corren parametrizadas contra `json` **y**
+`postgres` (esta última se salta si no hay `CLEMENTE_DATABASE_URL` configurada).
 
-**Dónde vive el archivo y en qué máquina.** La base vive **siempre junto a la aplicación**, en
-la máquina donde corre Flask (`app/reservas/datos/clemente.db`):
-
-- **Para desarrollar**: cada uno tiene la suya, generada con el mismo `seed.py`. Nadie depende
-  de que otro tenga la computadora encendida.
-- **Para las pruebas integradas y la demostración final**: la aplicación corre en **una sola
-  máquina, la de Jesús**, porque el webhook de Twilio necesita una URL pública (por ejemplo con
-  *ngrok*) apuntando a esa máquina — y la base vive ahí, al lado de la aplicación. Consecuencia
-  práctica: esa computadora tiene que estar encendida durante la demostración, y conviene
-  ensayarlo antes, no el mismo día.
-
-*Plan B, solo si aparece la necesidad*: una base **PostgreSQL gestionada gratuita** (Neon o
-Supabase) con un `DATABASE_URL` en el `.env` de cada uno. Sirve si los cinco necesitan escribir
-sobre los mismos datos sin depender de una máquina encendida. Cuesta media hora de configuración
-y agrega dependencia de red; no vale la pena antes de que el problema exista.
+**Descartado: SQLite por archivo.** Primera versión (`ServicioReservasSQLite`, cerrada el
+15/09) usaba una base `.db` junto a la app en cada máquina, con `BEGIN IMMEDIATE` para
+serializar escritores. Se reemplazó porque el resto del sistema (customers/chats/messages del
+webhook de Twilio) ya corre sobre Postgres en la máquina de Jesús — el argumento original de
+"evitar dependencia de red" ya no aplicaba una vez que esa dependencia existe igual para el
+resto de la app. Con reservas en la misma base, los cinco escriben sobre los mismos datos sin
+un `.db` aparte que sincronizar a mano.
 
 ### 7.2 LangSmith — falta la cuenta compartida
 

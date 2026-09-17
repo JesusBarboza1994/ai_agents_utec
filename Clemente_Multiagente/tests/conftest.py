@@ -43,7 +43,7 @@ def aislar_estado(tmp_path, monkeypatch):
     grafo.reiniciar_grafo()
 
 
-@pytest.fixture(params=["json", "sqlite"])
+@pytest.fixture(params=["json", "postgres"])
 def servicio_reservas(request, tmp_path):
     """Corre el contrato de ServicioReservas contra las dos implementaciones."""
     if request.param == "json":
@@ -51,12 +51,31 @@ def servicio_reservas(request, tmp_path):
 
         return ServicioReservasJSON(archivo_reservas=tmp_path / "reservas.json")
 
-    from app.reservas import seed
-    from app.reservas.servicio_sqlite import ServicioReservasSQLite
+    database_url = os.getenv("CLEMENTE_DATABASE_URL", "")
+    if not database_url:
+        pytest.skip("CLEMENTE_DATABASE_URL no configurada: se salta el backend postgres")
 
-    archivo_db = tmp_path / "clemente.db"
-    seed.generar_en(archivo_db, con_ejemplos=False)
-    return ServicioReservasSQLite(archivo_db=archivo_db)
+    import psycopg2
+
+    from app import create_app
+    from app.config import Config
+    from app.reservas import seed
+    from app.reservas.servicio_postgres import ServicioReservasPostgres
+
+    seed.generar(database_url)
+    conn = psycopg2.connect(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM reservas")
+        conn.commit()
+    finally:
+        conn.close()
+
+    app = create_app(Config(database_url=database_url))
+    ctx = app.app_context()
+    ctx.push()
+    request.addfinalizer(ctx.pop)
+    return ServicioReservasPostgres()
 
 
 @pytest.fixture
