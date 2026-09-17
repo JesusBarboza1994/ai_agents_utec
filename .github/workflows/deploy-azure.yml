@@ -79,3 +79,69 @@ jobs:
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
             --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }}
 
+  evaluar-release:
+    name: Evaluar el release desplegado (DeepEval + LangSmith)
+    needs: build-and-deploy
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    # Solo informativo: el release ya esta desplegado cuando esto corre, asi
+    # que un score bajo no revierte nada -- queda el reporte para revisar.
+    steps:
+      - name: Checkout del tag desplegado
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias (runtime + eval)
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Correr los evaluadores contra la config real del release
+        # Mismas variables que usa caclmt01 en produccion (ver Container App):
+        # el codigo del tag corre sobre los mismos backends de Azure OpenAI y
+        # Azure Search que el release desplegado, asi que lo que miden estos
+        # evaluadores es el comportamiento real de ESTE release, no de un mock.
+        env:
+          AGENT_MODEL: azure
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT: ${{ vars.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT }}
+          RAG_BACKEND: azure_search
+          EMBEDDINGS_BACKEND: azure
+          AZURE_SEARCH_ENDPOINT: ${{ vars.AZURE_SEARCH_ENDPOINT }}
+          AZURE_SEARCH_INDEX: ${{ vars.AZURE_SEARCH_INDEX }}
+          AZURE_SEARCH_API_KEY: ${{ secrets.AZURE_SEARCH_API_KEY }}
+          # json = archivo local del checkout, efimero por corrida: no toca
+          # ningun dato compartido ni de produccion (ver nota en el README del
+          # eval sobre por que es seguro correr esto contra credenciales reales).
+          CLEMENTE_BACKEND_RESERVAS: json
+          CLEMENTE_BACKEND_INCIDENCIAS: json
+          LANGSMITH_TRACING: "true"
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        run: |
+          echo "::group::DeepEval (metricas nativas)"
+          python3 tests/evals/deepeval/evaluador_deepeval.py
+          echo "::endgroup::"
+
+          echo "::group::LangSmith (LLM-as-judge propio + enrutamiento)"
+          python3 tests/evals/langsmith/evaluador_langsmith.py
+          echo "::endgroup::"
+
+      - name: Publicar reportes como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-clemente-${{ github.event.inputs.tag }}
+          path: |
+            Clemente_Multiagente/tests/evals/deepeval/reportes/
+            Clemente_Multiagente/tests/evals/langsmith/reportes/
+          if-no-files-found: warn
+
