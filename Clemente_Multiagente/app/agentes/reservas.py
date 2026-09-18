@@ -10,7 +10,10 @@ duro de grupo antes de escalar.
 from .base import construir_agente, ejecutar, reanudar_revision
 from .contexto import ContextoConversacion
 from .prompts import PROMPT_RESERVAS
+from . import almacen
 from .tools.catalogo_tools import consultar_politica
+from .tools.cliente_tools import anotar_dato_cliente
+from .tools.fecha_tools import get_current_datetime
 from .tools.reservas_tools import (
     buscar_mis_reservas,
     cancelar_reserva,
@@ -34,6 +37,8 @@ TOOLS = [
     escalar_a_staff,
     solicitar_excepcion_grupo,
     consultar_politica,   # fuente unica de verdad: no duplicamos las politicas aqui
+    get_current_datetime,  # "manana" y "este viernes" salen del reloj de Lima, no del modelo
+    anotar_dato_cliente,   # alergias y preferencias quedan en el perfil, no solo en el chat
 ]
 
 _agente = None
@@ -50,11 +55,12 @@ def obtener_agente():
     global _agente, _checkpointer
     if _agente is None:
         import sqlite3
-        from pathlib import Path
         from langchain.agents.middleware import HumanInTheLoopMiddleware
         from langgraph.checkpoint.sqlite import SqliteSaver
 
-        archivo = Path(__file__).resolve().parent / "datos" / "hitl_checkpoints.sqlite3"
+        # El checkpoint LangGraph sigue en SQLite (no se movio a Postgres en el
+        # paso 7): CLEMENTE_DATOS_DIR permite ponerlo en un volumen persistente.
+        archivo = almacen.carpeta_datos() / "hitl_checkpoints.sqlite3"
         archivo.parent.mkdir(parents=True, exist_ok=True)
         conexion = sqlite3.connect(archivo, check_same_thread=False)
         _checkpointer = SqliteSaver(conexion)

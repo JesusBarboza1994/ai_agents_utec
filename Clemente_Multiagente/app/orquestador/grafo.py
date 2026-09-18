@@ -55,14 +55,14 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from ..agentes import AGENTES
-from ..agentes import autorizacion
+from ..agentes import abuso, almacen, autorizacion
 from ..reservas import obtener_servicio as servicio_reservas
 from ..agentes.contexto import ContextoConversacion
 from ..contratos import MensajeEntrante, RespuestaClemente
 from ..incidencias import obtener_servicio as servicio_incidencias
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import cronometro, registrar, registrar_conversacion
-from . import informacion
+from . import controles, informacion
 
 # Cuantos turnos del hilo ve el planificador. Suficiente para entender de que se
 # esta hablando, sin pagar el contexto completo en cada clasificacion.
@@ -80,27 +80,71 @@ NODOS = {"informacion": informacion.responder, **AGENTES}
 
 # Ultimo agente que atendio cada sesion. Vive en el orquestador para no cambiar
 # el contrato con la capa de comunicacion (Jesus): responder(entrante, historial).
+# Con el almacen en Postgres (almacen.es_postgres()) este diccionario no se usa:
+# la continuidad se lee y escribe en `agentes_continuidad`.
 _ultimo_agente: dict[str, str] = {}
 
 # Caso ya escalado en cada sesion: sesion_id -> codigo de la incidencia abierta.
 # Evita abrir una tarjeta nueva cada vez que el agente vuelve a levantar la mano
-# dentro del mismo hilo (ver `_escalar`).
+# dentro del mismo hilo (ver `_escalar`). Mismo criterio que `_ultimo_agente`.
 _escalado_de: dict[str, str] = {}
 
 # Revisiones pausadas por HumanInTheLoopMiddleware. El estado detallado del
 # agente vive en su checkpointer; aquí se conserva el contexto de negocio que
 # recibirá la tool cuando el staff reanude el mismo thread_id.
 _revisiones: dict[str, dict] = {}
-ARCHIVO_REVISIONES = Path(__file__).resolve().parent.parent / "agentes" / "datos" / "revisiones_hitl.json"
+ARCHIVO_REVISIONES = almacen.carpeta_datos() / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
 
-def _cargar_revisiones() -> None:
-    """Carga una sola vez las revisiones HITL persistidas al registro en memoria.
+def _ultimo_agente_de(sesion: str) -> str:
+    """Agente que venia atendiendo la sesion, del almacen compartido o del proceso."""
+    if almacen.es_postgres():
+        return almacen.leer_continuidad(sesion)["ultimo_agente"]
+    return _ultimo_agente.get(sesion, "")
 
-    Tolera archivo ausente, ilegible o JSON invalido; solo incorpora un
-    diccionario. El checkpoint detallado del agente se guarda por separado."""
+
+def _guardar_ultimo_agente(sesion: str, agente: str) -> None:
+    """Deja registrado quien cerro el turno, para la regla de continuidad del siguiente."""
+    if almacen.es_postgres():
+        almacen.guardar_continuidad(sesion, ultimo_agente=agente)
+        return
+    _ultimo_agente[sesion] = agente
+
+
+def _incidencia_abierta_de(sesion: str) -> str | None:
+    """Codigo del caso ya escalado en el hilo, si lo hay."""
+    if almacen.es_postgres():
+        return almacen.leer_continuidad(sesion)["incidencia_abierta"]
+    return _escalado_de.get(sesion)
+
+
+def _guardar_incidencia_abierta(sesion: str, codigo: str) -> None:
+    """Vincula el hilo con su caso escalado para no abrir un segundo ticket."""
+    if almacen.es_postgres():
+        almacen.guardar_continuidad(sesion, incidencia_abierta=codigo)
+        return
+    _escalado_de[sesion] = codigo
+
+
+def _cargar_revisiones() -> None:
+    """Sincroniza el registro en memoria de revisiones HITL con su almacenamiento.
+
+    Local: carga una sola vez el JSON (tolera archivo ausente o invalido).
+    Postgres: en cada llamada reemplaza el registro con la tabla
+    `agentes_revisiones`, conservando el objeto contexto de las sesiones que
+    siguen en cola; asi dos replicas ven la misma cola. El checkpoint
+    detallado del agente se guarda por separado."""
     global _revisiones_cargadas
+    if almacen.es_postgres():
+        en_tabla = almacen.pg_listar_revisiones()
+        vigentes = {sid: item for sid, item in _revisiones.items() if sid in en_tabla}
+        for sid, fila in en_tabla.items():
+            vigentes.setdefault(sid, fila)
+        _revisiones.clear()
+        _revisiones.update(vigentes)
+        _revisiones_cargadas = True
+        return
     if _revisiones_cargadas:
         return
     try:
@@ -113,10 +157,13 @@ def _cargar_revisiones() -> None:
 
 
 def _guardar_revisiones() -> None:
-    """Persiste las revisiones mediante archivo temporal y reemplazo del JSON.
+    """Persiste las revisiones locales mediante archivo temporal y reemplazo del JSON.
 
     Omite el objeto contexto, que no es serializable; los errores de escritura
-    se propagan. Los datos de negocio serializables quedan en cada revision."""
+    se propagan. En Postgres no hace nada: cada revision se persiste al
+    entrar (`_persistir_revision`) y se borra al salir (`_retirar_revision`)."""
+    if almacen.es_postgres():
+        return
     ARCHIVO_REVISIONES.parent.mkdir(parents=True, exist_ok=True)
     serializable = {
         sid: {clave: valor for clave, valor in item.items() if clave != "contexto"}
@@ -125,6 +172,24 @@ def _guardar_revisiones() -> None:
     temporal = ARCHIVO_REVISIONES.with_suffix(".tmp")
     temporal.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
     temporal.replace(ARCHIVO_REVISIONES)
+
+
+def _persistir_revision(sesion: str) -> None:
+    """Guarda la revision recien encolada de la sesion en el backend activo."""
+    item = _revisiones[sesion]
+    if almacen.es_postgres():
+        almacen.pg_guardar_revision(sesion, item.get("canal", "webchat"), item.get("solicitud", {}))
+        return
+    _guardar_revisiones()
+
+
+def _retirar_revision(sesion: str) -> None:
+    """Saca la sesion de la cola HITL en memoria y en el backend activo."""
+    _revisiones.pop(sesion, None)
+    if almacen.es_postgres():
+        almacen.pg_quitar_revision(sesion)
+        return
+    _guardar_revisiones()
 
 
 class EstadoConversacion(TypedDict, total=False):
@@ -146,6 +211,7 @@ class EstadoConversacion(TypedDict, total=False):
     plan: list[str]          # pasos en orden, p. ej. ["incidencias", "reservas"]
     paso: int                # cual de esos pasos toca ahora
     motivo_ruta: str
+    pendientes: list[str]    # pasos validos que no entraron en el plan por el tope
 
     # --- lo que producen los nodos de trabajo ---
     respuestas: list[dict]   # [{"agente": "reservas", "texto": "..."}]
@@ -223,6 +289,13 @@ _grafo = None
 # "La mesa todavia no esta confirmada" escrito por el agente.
 SIN_MENSAJE = "No me llegó ningún mensaje. Escribime qué necesitás y te ayudo."
 
+# Como se nombra al cliente cada paso que quedo fuera del plan por el tope.
+TEMA_PENDIENTE = {
+    "informacion": "tu consulta sobre el restaurante",
+    "reservas": "la reserva",
+    "incidencias": "tu reclamo",
+}
+
 
 def _sesion_de(estado: EstadoConversacion) -> str:
     """Sesion del estado, con nombre propio cuando el grafo se lanza desde Studio."""
@@ -269,6 +342,25 @@ def _limpiar_plan(pasos: list[str]) -> list[str]:
     return vistos[:PASOS_MAXIMOS]
 
 
+def _pasos_descartados(pasos: list[str], plan: list[str]) -> list[str]:
+    """Pasos validos y distintos que el tope dejo fuera del plan, en el orden pedido.
+
+    Antes se truncaban en silencio y la respuesta parecia haber atendido todo.
+    Ahora quedan en `pendientes` para que el cierre le diga al cliente que
+    falta; no es una priorizacion, es la lista de lo que NO se hizo."""
+    return [paso for paso in dict.fromkeys(pasos) if paso in NODOS and paso not in plan]
+
+
+def _aviso_pendientes(pendientes: list[str]) -> str:
+    """Frase para el cliente con lo que quedo fuera del turno; nunca afirma haberlo resuelto."""
+    temas = [TEMA_PENDIENTE.get(paso, paso) for paso in pendientes]
+    if len(temas) == 1:
+        lista = temas[0]
+    else:
+        lista = ", ".join(temas[:-1]) + " y " + temas[-1]
+    return f"Me queda pendiente {lista}: escríbeme sobre eso y lo vemos enseguida."
+
+
 # ------------------------------- nodos -------------------------------------
 
 def _nodo_planificador(estado: EstadoConversacion) -> dict:
@@ -276,8 +368,9 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
 
     Lee mensaje, historial, ultimo_agente y sesion_id. Solicita al modelo
     PlanDeResolucion, elimina pasos repetidos o desconocidos y limita el plan
-    a PASOS_MAXIMOS. Escribe plan, paso=0, motivo_ruta y respuestas=[]; registra
-    el plan para auditoria, sin responder al cliente ni ejecutar herramientas.
+    a PASOS_MAXIMOS; lo que el tope deja fuera va a `pendientes`. Escribe plan,
+    paso=0, motivo_ruta, pendientes y respuestas=[]; registra el plan para
+    auditoria, sin responder al cliente ni ejecutar herramientas.
 
     Sin mensaje devuelve un plan vacio para ir al cierre sin llamar al modelo.
     Si falla la invocacion o procesamiento de la decision, usa ultimo_agente
@@ -291,7 +384,8 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
         # por nada. El plan vacio cae directo al cierre.
         registrar("plan", _sesion_de(estado),
                   detalle={"plan": [], "motivo": "turno sin texto"})
-        return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto", "respuestas": []}
+        return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto",
+                "pendientes": [], "respuestas": []}
 
     venia_de = estado.get("ultimo_agente") or "ninguno"
     entrada = (
@@ -303,12 +397,14 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
     modelo = resolver_modelo(temperature=0.0, rol="enrutador").with_structured_output(
         PlanDeResolucion
     )
+    pendientes: list[str] = []
     try:
         decision = modelo.invoke([
             SystemMessage(content=PROMPT_PLANIFICADOR),
             HumanMessage(content=entrada),
         ])
         plan, motivo = _limpiar_plan(decision.pasos), decision.motivo
+        pendientes = _pasos_descartados(decision.pasos, plan)
     except Exception as error:
         # Un planificador caido no puede tumbar la conversacion: se cae al agente
         # que venia atendiendo, y si no habia, al mas barato de equivocarse.
@@ -321,9 +417,15 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
 
     registrar(
         "plan", _sesion_de(estado), agente=plan[0],
-        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de},
+        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de, "pendientes": pendientes},
     )
-    return {"plan": plan, "paso": 0, "motivo_ruta": motivo, "respuestas": []}
+    if pendientes:
+        # Queda como evento propio para contar cuantos turnos traen mas temas
+        # de los que el plan admite: es la evidencia del "plan sobrecargado".
+        registrar("plan_recortado", _sesion_de(estado), agente=plan[0],
+                  detalle={"plan": plan, "pendientes": pendientes})
+    return {"plan": plan, "paso": 0, "motivo_ruta": motivo,
+            "pendientes": pendientes, "respuestas": []}
 
 
 def _nodo_trabajo(nombre: str):
@@ -427,7 +529,7 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     servicio = servicio_incidencias()
     detalle = f"{escalamiento.get('motivo', '')}: {escalamiento.get('detalle', '')}"
 
-    abierto = _escalado_de.get(sesion)
+    abierto = _incidencia_abierta_de(sesion)
     if abierto:
         if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
             raise RuntimeError("No se pudo actualizar el caso existente")
@@ -442,7 +544,7 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
         ),
         tipo="reserva",
     )
-    _escalado_de[sesion] = incidencia.id
+    _guardar_incidencia_abierta(sesion, incidencia.id)
     contexto.datos["incidencia"] = incidencia.__dict__
     return incidencia.id
 
@@ -461,6 +563,10 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
     registra la traza. Sustituye promesas del modelo por el codigo devuelto,
     sin confirmar una mesa. Si falla, devuelve un aviso y desactiva escalado.
     Un codigo local no acredita entrega a Trello o notificacion al personal.
+
+    Si el planificador dejo `pendientes`, agrega al final la frase que dice
+    que quedo sin atender. Por ultimo audita el texto con `controles` (reinicio,
+    promesa no autorizada): solo traza, no lo modifica.
     La validacion de salida del canal se ejecuta despues, en _atender.
     """
     sesion = _sesion_de(estado)
@@ -503,6 +609,12 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
             texto = " ".join(otros + [texto])
         if pendiente:
             texto += " " + pendiente
+
+    pendientes = estado.get("pendientes") or []
+    if pendientes:
+        texto = f"{texto} {_aviso_pendientes(pendientes)}"
+
+    controles.auditar_salida(texto, estado.get("historial") or [], sesion, respuestas[-1]["agente"])
 
     return {
         "respuesta": texto,
@@ -594,29 +706,54 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
     errores posteriores de persistencia no estan cubiertos por ese bloque.
     El bloqueo PII y Guardrails AI del canal pertenecen a _atender: invocar
     esta funcion directamente no ejecuta esas validaciones HTTP.
+
+    Antes de todo, si la sesion supero los rechazos permitidos (abuso) devuelve
+    un texto fijo sin invocar al modelo. Al terminar, si el personal resolvio
+    una revision HITL que el cliente aun no recibio, la antepone a la respuesta
+    (entrega diferida: el panel del staff no envia mensajes por su cuenta).
     """
     contexto = ContextoConversacion(sesion_id=entrante.sesion_id, canal=entrante.canal)
+    inicio = time.perf_counter()
+
+    if abuso.degradado(entrante.sesion_id):
+        registrar_conversacion(
+            sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=abuso.MENSAJE_DEGRADADO,
+            agente="seguridad", canal=entrante.canal, motivo_ruta="degradado por intentos rechazados",
+            escalado=False, duracion_ms=(time.perf_counter() - inicio) * 1000,
+        )
+        return RespuestaClemente(
+            texto=abuso.MENSAJE_DEGRADADO, agente="seguridad", sesion_id=entrante.sesion_id,
+            motivo_ruta="degradado por intentos rechazados", escalado=False,
+            datos={"guardrail": "abuso"},
+        )
+
     estado_inicial: EstadoConversacion = {
         "sesion_id": entrante.sesion_id,
         "mensaje": entrante.texto,
         "historial": historial or [],
-        "ultimo_agente": _ultimo_agente.get(entrante.sesion_id, ""),
+        "ultimo_agente": _ultimo_agente_de(entrante.sesion_id),
         "contexto": contexto,
         "plan": [],
         "paso": 0,
+        "pendientes": [],
         "respuestas": [],
         "ruta": "",
         "motivo_ruta": "",
         "respuesta": "",
     }
 
-    inicio = time.perf_counter()
     try:
         confirmada = autorizacion.confirmar(entrante.sesion_id, entrante.texto, servicio_reservas())
         if confirmada is not None:
             texto, datos = confirmada
             contexto.datos.update(datos)
-            final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": "confirmacion validada por el servidor", "plan": ["reservas"]}
+            # Token ajeno, vencido o inventado: cuenta para la degradacion por abuso.
+            # Un cambio de disponibilidad o una escritura incierta no es culpa del cliente.
+            rechazada = texto in (autorizacion.CONFIRMACION_INVALIDA, autorizacion.DENEGADO)
+            motivo = "confirmacion rechazada por el servidor" if rechazada else "confirmacion validada por el servidor"
+            final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": motivo, "plan": ["reservas"]}
+            if rechazada:
+                abuso.registrar_rechazo(entrante.sesion_id, "confirmacion")
             registrar("plan", entrante.sesion_id, agente="reservas", detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
             registrar("operacion", entrante.sesion_id, agente="reservas", detalle={"salida": texto, **datos})
         else:
@@ -654,41 +791,62 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
             "solicitud": revision.get("solicitud", {}),
             "canal": entrante.canal,
         }
-        _guardar_revisiones()
-    _ultimo_agente[entrante.sesion_id] = final["ruta"]
+        _persistir_revision(entrante.sesion_id)
+    _guardar_ultimo_agente(entrante.sesion_id, final["ruta"])
+    if contexto.datos.get("guardrail_autorizacion"):
+        abuso.registrar_rechazo(entrante.sesion_id, "autorizacion")
+
+    texto_final = _con_resolucion_pendiente(entrante.sesion_id, final["respuesta"], contexto)
     duracion = (time.perf_counter() - inicio) * 1000
 
     registrar_conversacion(
-        sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=final["respuesta"],
+        sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=texto_final,
         agente=final["ruta"], canal=entrante.canal, motivo_ruta=final["motivo_ruta"],
         escalado=contexto.escalado, duracion_ms=duracion, plan=plan,
     )
 
     return RespuestaClemente(
-        texto=final["respuesta"],
+        texto=texto_final,
         agente=final["ruta"],
         sesion_id=entrante.sesion_id,
         motivo_ruta=final["motivo_ruta"],
         escalado=contexto.escalado,
         # El plan completo viaja en `datos` para que la evaluacion y el panel
         # puedan ver que un turno se atendio en dos pasos, no solo con quien
-        # termino.
-        datos={**contexto.datos, "plan": plan},
+        # termino -- y que quedo fuera, si el mensaje traia mas temas.
+        datos={**contexto.datos, "plan": plan, "pendientes": final.get("pendientes") or []},
     )
+
+
+def _con_resolucion_pendiente(sesion: str, texto: str, contexto: ContextoConversacion) -> str:
+    """Antepone la resolucion HITL que el personal dejo y el cliente aun no recibio.
+
+    El panel del staff devuelve el resultado pero no envia WhatsApp; el
+    siguiente turno del cliente es el momento en que se le entrega, una sola
+    vez. Deja constancia en contexto.datos["resolucion_entregada"] y en la
+    traza `hitl_entregado`."""
+    pendiente = almacen.consumir_resolucion(sesion)
+    if not pendiente:
+        return texto
+    contexto.datos["resolucion_entregada"] = pendiente["decision"]
+    registrar("hitl_entregado", sesion, agente="reservas", detalle={"decision": pendiente["decision"]})
+    return f"Sobre tu solicitud anterior: {pendiente['texto']} {texto}".strip()
 
 
 def olvidar_sesion(sesion_id: str) -> None:
     """
     Al reiniciar un hilo, el planificador deja de arrastrar el agente anterior.
 
-    Tambien se olvida el caso escalado: un hilo nuevo con el mismo identificador
-    es otra conversacion, y su escalamiento merece su propio ticket.
+    Tambien se olvida el caso escalado y cualquier resolucion HITL sin entregar:
+    un hilo nuevo con el mismo identificador es otra conversacion, y su
+    escalamiento merece su propio ticket.
     """
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
+    almacen.olvidar_continuidad(sesion_id)
     _cargar_revisiones()
-    if _revisiones.pop(sesion_id, None) is not None:
-        _guardar_revisiones()
+    if sesion_id in _revisiones:
+        _retirar_revision(sesion_id)
     autorizacion.descartar(sesion_id)
 
 
@@ -712,6 +870,8 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
 
     from ..agentes import reservas
 
+    # Tras un reinicio (o en otra replica) el contexto no sobrevive: se
+    # reconstruye con la identidad y el canal, que si estan persistidos.
     contexto = pendiente.get("contexto") or ContextoConversacion(
         sesion_id=sesion_id, canal=pendiente.get("canal", "webchat"),
     )
@@ -729,8 +889,10 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
         "contexto": contexto,
         "respuestas": [{"agente": "reservas", "texto": texto_agente}],
     })
-    _revisiones.pop(sesion_id, None)
-    _guardar_revisiones()
+    _retirar_revision(sesion_id)
+    # El personal ya decidio, pero el cliente no lo sabe: se entrega en su
+    # proximo turno (ver _con_resolucion_pendiente). El canal no envia solo.
+    almacen.guardar_resolucion(sesion_id, decision, final["respuesta"])
     registrar(
         "hitl_resuelto", sesion_id, agente="reservas",
         detalle={"decision": decision, "motivo": motivo},

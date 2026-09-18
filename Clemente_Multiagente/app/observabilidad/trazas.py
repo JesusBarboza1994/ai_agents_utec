@@ -48,7 +48,11 @@ def configurar_observabilidad(app, config) -> None:
         os.environ["LANGSMITH_TRACING"] = "true"
         os.environ["LANGCHAIN_TRACING_V2"] = "true"   # compatibilidad con langchain<1
         os.environ["LANGSMITH_PROJECT"] = config.langsmith_project
-        log.info("LangSmith activo -- proyecto %s", config.langsmith_project)
+        # A8: los spans automaticos (prompt, tools, salidas) pasan por la
+        # redaccion PII antes de salir del proceso (app/seguridad/trazado.py).
+        from ..seguridad.trazado import activar_redaccion
+        modo_redaccion = activar_redaccion()
+        log.info("LangSmith activo -- proyecto %s (redaccion: %s)", config.langsmith_project, modo_redaccion)
     elif config.langsmith_tracing:
         # Pedido pero sin clave: se apaga en vez de fallar en cada llamada.
         os.environ["LANGSMITH_TRACING"] = "false"

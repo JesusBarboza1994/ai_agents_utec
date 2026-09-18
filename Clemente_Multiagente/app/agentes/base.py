@@ -15,13 +15,13 @@ Aqui viven tres cosas transversales:
 
 import json
 import warnings
-from datetime import date
 
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import registrar
+from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
-from .prompts import AVISO_FICHA
+from .prompts import AVISO_FECHA, AVISO_FICHA
 
 # Historial que se le pasa a un agente: solo turnos de texto (user/assistant).
 # Los mensajes de tool no viajan entre agentes porque cada uno tiene tools
@@ -43,6 +43,9 @@ def construir_agente(
 
     `context_schema` es lo que permite que las tools reciban el `sesion_id` sin
     pedirselo al modelo, y que devuelvan `escalado` y `datos` al orquestador.
+
+    La fecha NO va en el system prompt: el agente se construye una vez por
+    proceso y quedaba congelada. Viaja en cada turno, ver `_armar_entrada`.
     """
     from langchain.agents import create_agent
 
@@ -50,7 +53,7 @@ def construir_agente(
 
     return create_agent(
         model=resolver_modelo(temperature=temperature),
-        system_prompt=f"{prompt_sistema}\n\nFecha de hoy: {date.today().isoformat()}.",
+        system_prompt=prompt_sistema,
         tools=tools,
         context_schema=ContextoConversacion,
         middleware=[*middleware_pii(), *(middleware or [])],
@@ -79,6 +82,19 @@ def _parece_llamada_de_tool(texto: str) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(datos, dict) and bool(_CLAVES_DE_TOOL & set(datos))
+
+
+def _armar_entrada(texto: str, ficha: str) -> str:
+    """Antepone al mensaje los datos del sistema que el modelo no debe adivinar.
+
+    Siempre la fecha y hora de Lima de este turno; la ficha del cliente solo
+    cuando existe. Van pegados al mensaje y no al system prompt para que
+    cambien turno a turno y no se paguen cuando no aplican."""
+    bloques = [f"[{AVISO_FECHA}: {fecha.describir_ahora()}]"]
+    if ficha:
+        bloques.append(f"[{AVISO_FICHA}: {ficha}]")
+    bloques.append(texto)
+    return "\n".join(bloques)
 
 
 def ejecutar(
@@ -110,7 +126,7 @@ def ejecutar(
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
     # contexto que pidio Boris en la asesoria del 2026-09-07 [08:22].
-    entrada = f"[{AVISO_FICHA}: {ficha}]\n{texto}" if ficha else texto
+    entrada = _armar_entrada(texto, ficha)
     if ficha:
         # La ficha entra por el prompt, no por una tool, asi que sin esta traza
         # el agente puede citar la reserva de un cliente y en el registro no

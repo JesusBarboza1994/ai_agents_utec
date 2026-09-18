@@ -156,6 +156,9 @@ def _id_seguro(id_crudo: str) -> str:
 
 
 def _cliente_azure_search():
+    """Crea un SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError.
+
+    Se construye en cada llamada; no reutiliza conexion ni valida que el indice exista."""
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
 
@@ -167,6 +170,10 @@ def _cliente_azure_search():
 
 
 def _empujar_a_azure_search(cliente, documentos) -> int:
+    """Vectoriza los chunks con `resolver_embeddings()` y los sube con mergeOrUpload; devuelve cuantos acepto Azure.
+
+    No borra chunks que ya no existen en el catalogo ni comprueba que la
+    dimension del vector coincida con la del indice."""
     embeddings = resolver_embeddings()
     vectores = embeddings.embed_documents([d.page_content for d in documentos])
 
@@ -214,6 +221,11 @@ def _asegurar_azure_search_indexado():
 
 
 def _buscar_azure_search(pregunta: str, k: int) -> list[Fragmento]:
+    """Busqueda vectorial en Azure AI Search; devuelve Fragmentos con fuente `documento > seccion`.
+
+    Si el indice esta vacio lo puebla primero (arranque perezoso). Vectoriza la
+    pregunta con el mismo backend de embeddings del indexado; los errores del
+    SDK se propagan al llamador."""
     from azure.search.documents.models import VectorizedQuery
 
     _asegurar_azure_search_indexado()

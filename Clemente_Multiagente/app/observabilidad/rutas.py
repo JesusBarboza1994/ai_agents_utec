@@ -21,6 +21,8 @@ def salud():
     """Devuelve configuracion activa y presencia de credencial, sin llamar a modelos o servicios.
 
     El estado ok indica esta comprobacion local, no una prueba integral de salud."""
+    from ..agentes.almacen import backends_activos
+
     config = current_app.config["CLEMENTE"]
     return jsonify(
         estado="ok" if not config.falta_credencial else "sin_credencial",
@@ -28,6 +30,10 @@ def salud():
         modelo=config.modelo,
         embeddings=config.embeddings_backend,
         backend_reservas=config.backend_reservas,
+        # Backends efectivos (reservas, incidencias, estado de agentes, RAG):
+        # para no desplegar creyendo que se escribe en Trello o Postgres
+        # cuando en realidad se escribe en un archivo local.
+        backends=backends_activos(),
         langsmith=config.langsmith_tracing,
         falta=config.falta_credencial or None,
     )

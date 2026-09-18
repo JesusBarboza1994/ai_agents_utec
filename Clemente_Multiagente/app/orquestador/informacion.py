@@ -20,11 +20,14 @@ from ..agentes.base import construir_agente, ejecutar
 from ..agentes.contexto import ContextoConversacion
 from ..agentes.prompts import PROMPT_ORQUESTADOR
 from ..agentes.tools.catalogo_tools import buscar_en_catalogo, consultar_politica
+from ..agentes.tools.fecha_tools import get_current_datetime
 
-# Las unicas dos herramientas del orquestador, y las dos son de LECTURA. Es un
+# Las unicas herramientas del orquestador, y las tres son de LECTURA. Es un
 # guardrail estructural, no una instruccion: aunque el prompt fallara, no tiene
-# con que reservar, cobrar ni cerrar un reclamo.
-TOOLS = [buscar_en_catalogo, consultar_politica]
+# con que reservar, cobrar ni cerrar un reclamo. El reloj entra para que
+# "abren hoy?" o "hasta que hora atienden manana?" se resuelvan con la fecha
+# real de Lima y no con la que el modelo suponga.
+TOOLS = [buscar_en_catalogo, consultar_politica, get_current_datetime]
 
 _agente = None
 

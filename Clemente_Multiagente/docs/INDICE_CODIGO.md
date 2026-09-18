@@ -2,7 +2,7 @@
 
 Generado por `docs/verificar_documentacion.py`. Incluye codigo propio; excluye datos, caches y dependencias.
 
-Archivos Python analizados: **96**. Elementos con descripcion: **633/633**.
+Archivos Python analizados: **112**. Elementos con descripcion: **821/821**.
 
 Esta cobertura comprueba presencia de docstrings y sintaxis; no equivale a una prueba funcional ni garantiza por si sola la exactitud de cada descripcion.
 
@@ -21,18 +21,64 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/agentes/__init__.py#L1) | Los agentes especializados de Clemente -- responsables: Christian, Jean. |
 
+## app/agentes/abuso.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/abuso.py#L1) | Degradacion por abuso -- responsables: Christian, Jean (seccion 3.2 del plan). |
+| [maximo_rechazos](../app/agentes/abuso.py#L28) | Rechazos permitidos en la ventana antes de degradar (CLEMENTE_MAX_RECHAZOS, 5). |
+| [ventana_segundos](../app/agentes/abuso.py#L33) | Tamano de la ventana de conteo en segundos (CLEMENTE_ABUSO_VENTANA, 600). |
+| [registrar_rechazo](../app/agentes/abuso.py#L38) | Anota un rechazo de la sesion y devuelve cuantos lleva en la ventana. |
+| [degradado](../app/agentes/abuso.py#L46) | True si la sesion supero el maximo de rechazos en la ventana; deja traza al degradar. |
+
+## app/agentes/almacen.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/almacen.py#L1) | Almacen compartido del estado de los agentes -- responsables: Christian, Jean. |
+| [carpeta_datos](../app/agentes/almacen.py#L43) | Carpeta de los archivos locales del estado (SQLite/JSON/checkpoints). |
+| [backend_activo](../app/agentes/almacen.py#L52) | Devuelve "postgres" o "local" segun CLEMENTE_BACKEND_AGENTES y, en auto, el backend de reservas. |
+| [es_postgres](../app/agentes/almacen.py#L60) | Atajo: True cuando el estado de los agentes se guarda en Postgres. |
+| [backends_activos](../app/agentes/almacen.py#L65) | Backends efectivos de reservas, incidencias, estado de agentes y RAG, para /api/salud. |
+| [conexion](../app/agentes/almacen.py#L85) | Presta una conexion del pool compartido de `app/db`; requiere contexto Flask. |
+| [_json](../app/agentes/almacen.py#L104) | Serializa a JSON para columnas JSONB (psycopg2 no adapta dict solo). |
+| [_dict](../app/agentes/almacen.py#L109) | Devuelve el JSONB ya decodificado por psycopg2, o lo decodifica si vino como texto. |
+| [pg_vincular](../app/agentes/almacen.py#L116) | Registra que `sesion` es duena de `reserva_id`; una reserva ya vinculada produce IntegrityError. |
+| [pg_es_propietario](../app/agentes/almacen.py#L122) | True si la tabla vincula exactamente esa reserva con esa sesion. |
+| [pg_reservas_de](../app/agentes/almacen.py#L129) | Codigos de reserva vinculados a la sesion, en orden de vinculacion. |
+| [pg_guardar_propuesta](../app/agentes/almacen.py#L138) | Deja una unica propuesta pendiente por sesion (reemplaza la anterior). |
+| [pg_consumir_propuesta](../app/agentes/almacen.py#L150) | Consume la propuesta de la sesion si el codigo coincide y no vencio; None si no. |
+| [pg_descartar_propuesta](../app/agentes/almacen.py#L172) | Elimina la propuesta pendiente de la sesion sin tocar la propiedad. |
+| [pg_leer_perfil](../app/agentes/almacen.py#L180) | Perfil JSON de la clave, o None si no existe. |
+| [pg_guardar_perfil](../app/agentes/almacen.py#L188) | Crea o reemplaza el perfil de la clave. |
+| [pg_guardar_revision](../app/agentes/almacen.py#L200) | Deja en cola la solicitud HITL de la sesion (una por sesion). |
+| [pg_quitar_revision](../app/agentes/almacen.py#L210) | Retira la solicitud HITL de la sesion de la cola. |
+| [pg_listar_revisiones](../app/agentes/almacen.py#L216) | Cola HITL completa: {sesion: {sesion_id, canal, solicitud}}, de la mas antigua a la mas nueva. |
+| [_ahora](../app/agentes/almacen.py#L236) | Reloj epoch del almacen local; las pruebas lo reemplazan. |
+| [reiniciar_local](../app/agentes/almacen.py#L241) | Vacia el estado local en memoria; lo usan las pruebas entre casos. |
+| [guardar_resolucion](../app/agentes/almacen.py#L248) | Guarda la resolucion HITL que el cliente todavia no recibio (una por sesion). |
+| [consumir_resolucion](../app/agentes/almacen.py#L261) | Devuelve y borra la resolucion pendiente de la sesion; None si no hay. |
+| [leer_continuidad](../app/agentes/almacen.py#L271) | {ultimo_agente, incidencia_abierta} de la sesion; vacios si no hay registro. |
+| [guardar_continuidad](../app/agentes/almacen.py#L283) | Actualiza solo los campos recibidos (None = no tocar). |
+| [olvidar_continuidad](../app/agentes/almacen.py#L302) | Borra continuidad y resolucion pendiente de la sesion (reinicio de hilo). |
+| [registrar_rechazo](../app/agentes/almacen.py#L313) | Anota un rechazo (autorizacion denegada, confirmacion invalida) para la ventana de abuso. |
+| [contar_rechazos](../app/agentes/almacen.py#L322) | Cuantos rechazos tuvo la sesion en los ultimos `ventana_segundos`. |
+
 ## app/agentes/autorizacion.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../app/agentes/autorizacion.py#L1) | Autorizacion local: propiedad por sesion y confirmaciones fuera del LLM. |
-| [_db](../app/agentes/autorizacion.py#L23) | Abre SQLite, crea las tablas de propiedad y propuestas si faltan y cede la conexion. |
-| [vincular](../app/agentes/autorizacion.py#L39) | Persiste la propiedad de reserva_id para sesion. |
-| [es_propietario](../app/agentes/autorizacion.py#L50) | Devuelve si SQLite vincula exactamente reserva_id con sesion; no usa el telefono. |
-| [reservas_propias](../app/agentes/autorizacion.py#L56) | Devuelve las reservas vinculadas a sesion que todavia existen en servicio. |
-| [descartar](../app/agentes/autorizacion.py#L65) | Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas. |
-| [proponer](../app/agentes/autorizacion.py#L71) | Prepara crear, modificar o cancelar sin escribir una reserva en el servicio. |
-| [confirmar](../app/agentes/autorizacion.py#L136) | Solo un mensaje completo confirma; el LLM no interpreta ni ejecuta el permiso. |
+| [modulo](../app/agentes/autorizacion.py#L1) | Autorizacion: propiedad por sesion y confirmaciones fuera del LLM. |
+| [_db](../app/agentes/autorizacion.py#L47) | Abre SQLite, crea las tablas de propiedad y propuestas si faltan y cede la conexion. |
+| [vincular](../app/agentes/autorizacion.py#L63) | Persiste la propiedad de reserva_id para sesion. |
+| [es_propietario](../app/agentes/autorizacion.py#L77) | Devuelve si el almacen vincula exactamente reserva_id con sesion; no usa el telefono. |
+| [_codigos_propios](../app/agentes/autorizacion.py#L85) | Codigos de reserva vinculados a la sesion en el backend activo. |
+| [reservas_propias](../app/agentes/autorizacion.py#L93) | Devuelve las reservas vinculadas a sesion que todavia existen en servicio. |
+| [descartar](../app/agentes/autorizacion.py#L106) | Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas. |
+| [_guardar_propuesta](../app/agentes/autorizacion.py#L115) | Deja la unica propuesta pendiente de la sesion con su token y vencimiento. |
+| [_consumir_propuesta](../app/agentes/autorizacion.py#L126) | Consume atomicamente la propuesta de la sesion si el token coincide y no vencio. |
+| [proponer](../app/agentes/autorizacion.py#L143) | Prepara crear, modificar o cancelar sin escribir una reserva en el servicio. |
+| [confirmar](../app/agentes/autorizacion.py#L227) | Solo un mensaje completo confirma; el LLM no interpreta ni ejecuta el permiso. |
 
 ## app/agentes/base.py
 
@@ -40,9 +86,10 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/agentes/base.py#L1) | Andamiaje comun de los tres agentes. |
 | [construir_agente](../app/agentes/base.py#L37) | Construye el agente LangChain con modelo, prompt y herramientas recibidos. |
-| [_parece_llamada_de_tool](../app/agentes/base.py#L65) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
-| [ejecutar](../app/agentes/base.py#L84) | Invoca al agente y devuelve solo su texto de respuesta. |
-| [reanudar_revision](../app/agentes/base.py#L157) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
+| [_parece_llamada_de_tool](../app/agentes/base.py#L68) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
+| [_armar_entrada](../app/agentes/base.py#L87) | Antepone al mensaje los datos del sistema que el modelo no debe adivinar. |
+| [ejecutar](../app/agentes/base.py#L100) | Invoca al agente y devuelve solo su texto de respuesta. |
+| [reanudar_revision](../app/agentes/base.py#L173) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
 
 ## app/agentes/contexto.py
 
@@ -52,26 +99,47 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [ContextoConversacion](../app/agentes/contexto.py#L23) | Viaja del orquestador a las tools y vuelve con lo que ellas anotaron. |
 | [telefono_de](../app/agentes/contexto.py#L34) | El telefono del cliente cuando el canal lo trae en el identificador de sesion. |
 
+## app/agentes/fecha.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/fecha.py#L1) | Reloj del restaurante: fecha, hora y dia de la semana en America/Lima. |
+| [_zona_lima](../app/agentes/fecha.py#L27) | ZoneInfo de America/Lima; sin base de zonas (Windows sin `tzdata`) cae a UTC-5 fijo. |
+| [_reloj](../app/agentes/fecha.py#L46) | Instante actual con zona horaria de Lima; las pruebas lo reemplazan por uno fijo. |
+| [ahora](../app/agentes/fecha.py#L51) | Fecha y hora actuales en America/Lima, siempre con tzinfo. |
+| [hoy](../app/agentes/fecha.py#L56) | Fecha de hoy en Lima, no la del servidor. |
+| [nombre_dia](../app/agentes/fecha.py#L61) | Nombre en espanol del dia de la semana de `fecha`. |
+| [_sin_tildes](../app/agentes/fecha.py#L66) | Minusculas sin diacriticos, para comparar lo que escribio el cliente con DIAS. |
+| [dia_declarado](../app/agentes/fecha.py#L72) | Extrae el dia de la semana mencionado en `texto` ("el Sábado", "este viernes"). |
+| [contradiccion_dia](../app/agentes/fecha.py#L81) | Mensaje para el agente si el dia declarado no cae en `fecha_iso`; None si coincide. |
+| [es_pasada](../app/agentes/fecha.py#L103) | True si `fecha_iso` es anterior a hoy en Lima. Una fecha invalida lanza ValueError. |
+| [describir_ahora](../app/agentes/fecha.py#L108) | Fecha, dia y hora de este instante, como se le muestra al modelo en cada turno. |
+| [proximos_dias](../app/agentes/fecha.py#L117) | Los proximos `cantidad` dias a partir de manana, como pares (nombre, fecha). |
+
 ## app/agentes/incidencias.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/incidencias.py#L1) | Agente de Incidencias y Experiencia. |
-| [obtener_agente](../app/agentes/incidencias.py#L29) | Construye una vez el agente de incidencias con su prompt y herramientas y lo reutiliza. |
-| [responder](../app/agentes/incidencias.py#L37) | Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio. |
-| [reiniciar](../app/agentes/incidencias.py#L51) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
+| [obtener_agente](../app/agentes/incidencias.py#L33) | Construye una vez el agente de incidencias con su prompt y herramientas y lo reutiliza. |
+| [responder](../app/agentes/incidencias.py#L41) | Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio. |
+| [reiniciar](../app/agentes/incidencias.py#L55) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
 
 ## app/agentes/memoria.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/memoria.py#L1) | Memoria de largo plazo del cliente -- responsables: Christian, Jean. |
-| [_leer](../app/agentes/memoria.py#L28) | Carga los perfiles del JSON; devuelve un diccionario vacio si falta o no puede leerse. |
-| [_escribir](../app/agentes/memoria.py#L40) | Guarda todos los perfiles en JSON UTF-8, creando la carpeta si falta. |
-| [_clave](../app/agentes/memoria.py#L51) | Un cliente se identifica por telefono; si no hay, por la sesion del webchat. |
-| [recordar](../app/agentes/memoria.py#L56) | Guarda o actualiza lo que sabemos del cliente. Se llama desde las tools. |
-| [perfil_de](../app/agentes/memoria.py#L80) | Busca el perfil por la clave derivada de sesion_id y telefono; devuelve None si falta. |
-| [ficha_del_cliente](../app/agentes/memoria.py#L86) | Resume hasta tres reservas no canceladas vinculadas por el servidor a sesion_id. |
+| [_leer_todos](../app/agentes/memoria.py#L30) | Carga los perfiles del JSON local; devuelve un diccionario vacio si falta o no puede leerse. |
+| [_escribir_todos](../app/agentes/memoria.py#L42) | Guarda todos los perfiles en JSON UTF-8; ignora OSError para no interrumpir el chat. |
+| [_clave](../app/agentes/memoria.py#L53) | Identidad del servidor: telefono autenticado del canal o la sesion; nunca un telefono declarado. |
+| [_leer_perfil](../app/agentes/memoria.py#L62) | Perfil de la clave en el backend activo, o None. |
+| [_guardar_perfil](../app/agentes/memoria.py#L69) | Crea o reemplaza el perfil de la clave en el backend activo. |
+| [_sin_repetidos](../app/agentes/memoria.py#L79) | Lista sin duplicados (ignorando mayusculas y espacios), en orden de aparicion. |
+| [recordar](../app/agentes/memoria.py#L89) | Guarda o actualiza lo que sabemos del cliente. Se llama desde las tools. |
+| [anotar](../app/agentes/memoria.py#L117) | Anota un dato declarado (alergia, preferencia o nombre) y devuelve el perfil resultante. |
+| [perfil_de](../app/agentes/memoria.py#L130) | Busca el perfil por la identidad del servidor de sesion_id; devuelve None si falta. |
+| [ficha_del_cliente](../app/agentes/memoria.py#L136) | Resume reservas vigentes vinculadas por el servidor y datos declarados del perfil. |
 
 ## app/agentes/prompts.py
 
@@ -90,20 +158,35 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/rag/indice.py#L1) | Indice vectorial (RAG) del catalogo validado del restaurante -- Sesion 13. |
-| [_extraer_texto](../app/agentes/rag/indice.py#L34) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta. |
-| [_cargar_documentos](../app/agentes/rag/indice.py#L59) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
-| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L105) | Devuelve la coleccion Chroma, construyendola la primera vez. |
-| [buscar](../app/agentes/rag/indice.py#L132) | Busqueda semantica sobre el catalogo validado del restaurante. |
+| [_extraer_texto](../app/agentes/rag/indice.py#L46) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta. |
+| [_cargar_documentos](../app/agentes/rag/indice.py#L71) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
+| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L126) | Devuelve la coleccion Chroma, construyendola la primera vez. |
+| [_id_seguro](../app/agentes/rag/indice.py#L153) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
+| [_cliente_azure_search](../app/agentes/rag/indice.py#L158) | Crea un SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
+| [_empujar_a_azure_search](../app/agentes/rag/indice.py#L172) | Vectoriza los chunks con `resolver_embeddings()` y los sube con mergeOrUpload; devuelve cuantos acepto Azure. |
+| [indexar_en_azure_search](../app/agentes/rag/indice.py#L194) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
+| [_asegurar_azure_search_indexado](../app/agentes/rag/indice.py#L207) | Primera consulta del proceso: si el indice esta vacio, lo puebla -- misma |
+| [_buscar_azure_search](../app/agentes/rag/indice.py#L223) | Busqueda vectorial en Azure AI Search; devuelve Fragmentos con fuente `documento > seccion`. |
+| [buscar](../app/agentes/rag/indice.py#L250) | Busqueda semantica sobre el catalogo validado del restaurante. |
 
 ## app/agentes/reservas.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/reservas.py#L1) | Agente de Reservas y Capacidad. |
-| [obtener_agente](../app/agentes/reservas.py#L42) | Construye y reutiliza el agente de reservas con checkpoint SQLite y middleware HITL. |
-| [responder](../app/agentes/reservas.py#L79) | Ejecuta el agente de reservas con texto, sesion, historial y contexto. |
-| [resolver_revision](../app/agentes/reservas.py#L95) | Reanuda el agente de reservas pausado en sesion_id con la decision del personal. |
-| [reiniciar](../app/agentes/reservas.py#L103) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
+| [obtener_agente](../app/agentes/reservas.py#L47) | Construye y reutiliza el agente de reservas con checkpoint SQLite y middleware HITL. |
+| [responder](../app/agentes/reservas.py#L85) | Ejecuta el agente de reservas con texto, sesion, historial y contexto. |
+| [resolver_revision](../app/agentes/reservas.py#L101) | Reanuda el agente de reservas pausado en sesion_id con la decision del personal. |
+| [reiniciar](../app/agentes/reservas.py#L109) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
+
+## app/agentes/servicios.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/servicios.py#L1) | Contrato de errores entre las tools y los servicios de negocio (A9 del plan). |
+| [ServicioNoDisponible](../app/agentes/servicios.py#L18) | El servicio de negocio fallo por infraestructura; la operacion no se hizo o no se sabe. |
+| [ServicioNoDisponible.__init__](../app/agentes/servicios.py#L21) | Guarda la operacion que fallo para que la tool arme su texto. |
+| [intentar](../app/agentes/servicios.py#L27) | Ejecuta una llamada al servicio distinguiendo regla de negocio de fallo de infraestructura. |
 
 ## app/agentes/tools/__init__.py
 
@@ -118,8 +201,25 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/tools/catalogo_tools.py#L1) | Tools del Agente de Conocimiento (FAQs y politicas). |
-| [buscar_en_catalogo](../app/agentes/tools/catalogo_tools.py#L18) | Busca en el catalogo validado del restaurante: horarios, ubicacion, carta, |
-| [consultar_politica](../app/agentes/tools/catalogo_tools.py#L38) | Consulta una politica concreta (cancelacion, anticipacion, no-show, alergias, |
+| [_sesion](../app/agentes/tools/catalogo_tools.py#L29) | Sesion del turno para la traza; 'desconocida' si el runtime no la trae. |
+| [_consultar](../app/agentes/tools/catalogo_tools.py#L34) | Llama `buscar()` y devuelve los fragmentos, o None si el indice fallo. |
+| [_citar](../app/agentes/tools/catalogo_tools.py#L48) | Formatea cada fragmento como `[fuente] texto`, que es lo que el modelo cita. |
+| [buscar_en_catalogo](../app/agentes/tools/catalogo_tools.py#L55) | Busca en el catalogo validado del restaurante: horarios, ubicacion, carta, |
+| [consultar_politica](../app/agentes/tools/catalogo_tools.py#L72) | Consulta una politica concreta (cancelacion, anticipacion, no-show, alergias, |
+
+## app/agentes/tools/cliente_tools.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/tools/cliente_tools.py#L1) | Tool de perfil del cliente (`update_customer` del plan, seccion 3.2). |
+| [anotar_dato_cliente](../app/agentes/tools/cliente_tools.py#L26) | Guarda un dato que el cliente declaro sobre si mismo para no volver a pedirselo: |
+
+## app/agentes/tools/fecha_tools.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/tools/fecha_tools.py#L1) | Tool de fecha y hora, compartida por los tres agentes. |
+| [get_current_datetime](../app/agentes/tools/fecha_tools.py#L19) | Devuelve la fecha, el dia de la semana y la hora actuales del restaurante |
 
 ## app/agentes/tools/incidencias_tools.py
 
@@ -135,14 +235,14 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/tools/reservas_tools.py#L1) | Tools del Agente de Reservas y Capacidad. |
-| [consultar_disponibilidad](../app/agentes/tools/reservas_tools.py#L26) | Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar. |
-| [crear_reserva](../app/agentes/tools/reservas_tools.py#L53) | Prepara un resumen de reserva; NO escribe la reserva. |
-| [buscar_mis_reservas](../app/agentes/tools/reservas_tools.py#L78) | Lista reservas propias de la sesion cuyo telefono coincide con el recibido. |
-| [consultar_reserva_por_codigo](../app/agentes/tools/reservas_tools.py#L94) | Consulta una reserva propia por codigo, normalizado a mayusculas. |
-| [modificar_reserva](../app/agentes/tools/reservas_tools.py#L115) | Prepara un cambio de una reserva propia, sin ejecutarlo. |
-| [cancelar_reserva](../app/agentes/tools/reservas_tools.py#L135) | Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo. |
-| [escalar_a_staff](../app/agentes/tools/reservas_tools.py#L144) | Deja el caso armado para una persona del restaurante. Usar con grupos grandes, |
-| [solicitar_excepcion_grupo](../app/agentes/tools/reservas_tools.py#L179) | Solicita al staff revisar un grupo de más de 10 personas. |
+| [consultar_disponibilidad](../app/agentes/tools/reservas_tools.py#L28) | Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar. |
+| [crear_reserva](../app/agentes/tools/reservas_tools.py#L72) | Prepara un resumen de reserva; NO escribe la reserva. |
+| [buscar_mis_reservas](../app/agentes/tools/reservas_tools.py#L99) | Lista reservas propias de la sesion cuyo telefono coincide con el recibido. |
+| [consultar_reserva_por_codigo](../app/agentes/tools/reservas_tools.py#L119) | Consulta una reserva propia por codigo, normalizado a mayusculas. |
+| [modificar_reserva](../app/agentes/tools/reservas_tools.py#L143) | Prepara un cambio de una reserva propia, sin ejecutarlo. |
+| [cancelar_reserva](../app/agentes/tools/reservas_tools.py#L165) | Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo. |
+| [escalar_a_staff](../app/agentes/tools/reservas_tools.py#L174) | Deja el caso armado para una persona del restaurante. Usar con grupos grandes, |
+| [solicitar_excepcion_grupo](../app/agentes/tools/reservas_tools.py#L209) | Solicita al staff revisar un grupo de más de 10 personas. |
 
 ## app/communication/__init__.py
 
@@ -263,8 +363,8 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/config.py#L1) | Configuracion unica del proyecto, leida del entorno (.env). |
 | [Config](../app/config.py#L23) | Configuracion inmutable de Flask, modelos, seguridad, servicios y observabilidad. |
-| [Config.falta_credencial](../app/config.py#L54) | Nombre de la variable de entorno que falta para poder llamar al modelo. |
-| [Config.desde_entorno](../app/config.py#L68) | Construye Config a partir de variables de entorno y los valores predeterminados. |
+| [Config.falta_credencial](../app/config.py#L58) | Nombre de la variable de entorno que falta para poder llamar al modelo. |
+| [Config.desde_entorno](../app/config.py#L77) | Construye Config a partir de variables de entorno y los valores predeterminados. |
 
 ## app/contratos.py
 
@@ -423,8 +523,8 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [proveedor_de](../app/llm.py#L145) | De que casa es un ID de modelo. Sin adivinar: prefijos conocidos. |
 | [resolver_modelo](../app/llm.py#L165) | Devuelve el chat model ya instanciado segun AGENT_MODEL. |
 | [resolver_embeddings](../app/llm.py#L265) | Modelo de embeddings del RAG, segun EMBEDDINGS_BACKEND. |
-| [nombre_embeddings](../app/llm.py#L292) | Etiqueta del modelo de embeddings activo, para versionar la coleccion de Chroma. |
-| [extraer_texto](../app/llm.py#L300) | Texto plano de un AIMessage, ignorando bloques de razonamiento extendido. |
+| [nombre_embeddings](../app/llm.py#L302) | Etiqueta del modelo de embeddings activo, para versionar la coleccion de Chroma. |
+| [extraer_texto](../app/llm.py#L312) | Texto plano de un AIMessage, ignorando bloques de razonamiento extendido. |
 
 ## app/observabilidad/__init__.py
 
@@ -438,9 +538,9 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/observabilidad/rutas.py#L1) | Endpoints de observabilidad. Los consume el panel interno y la demo final. |
 | [salud](../app/observabilidad/rutas.py#L20) | Devuelve configuracion activa y presencia de credencial, sin llamar a modelos o servicios. |
-| [trazas](../app/observabilidad/rutas.py#L37) | Devuelve trazas de la sesion del navegador hasta el limite solicitado. |
-| [ver_metricas](../app/observabilidad/rutas.py#L49) | Devuelve las metricas agregadas de las trazas conservadas en el proceso. |
-| [conversaciones](../app/observabilidad/rutas.py#L55) | Turnos con su texto, tal como quedaron en disco. Sobreviven al reinicio. |
+| [trazas](../app/observabilidad/rutas.py#L43) | Devuelve trazas de la sesion del navegador hasta el limite solicitado. |
+| [ver_metricas](../app/observabilidad/rutas.py#L55) | Devuelve las metricas agregadas de las trazas conservadas en el proceso. |
+| [conversaciones](../app/observabilidad/rutas.py#L61) | Turnos con su texto, tal como quedaron en disco. Sobreviven al reinicio. |
 
 ## app/observabilidad/trazas.py
 
@@ -448,12 +548,12 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/observabilidad/trazas.py#L1) | Observabilidad de Clemente -- responsable: Adrian. |
 | [configurar_observabilidad](../app/observabilidad/trazas.py#L40) | Se llama una vez desde `create_app()`. |
-| [registrar](../app/observabilidad/trazas.py#L70) | Registra un evento de negocio. Es la unica forma de escribir una traza. |
-| [cronometro](../app/observabilidad/trazas.py#L90) | Mide cuanto tarda un bloque y lo deja registrado, pase lo que pase dentro. |
-| [registrar_conversacion](../app/observabilidad/trazas.py#L109) | Escribe un turno completo (lo que dijo el cliente y lo que respondio Clemente) |
-| [leer_conversaciones](../app/observabilidad/trazas.py#L157) | Ultimos turnos registrados, del mas antiguo al mas reciente. |
-| [ultimas_trazas](../app/observabilidad/trazas.py#L176) | Devuelve las ultimas trazas en memoria, filtradas opcionalmente por sesion_id. |
-| [metricas](../app/observabilidad/trazas.py#L184) | Metricas del informe final (Modulo 8). El desglose por herramienta y los |
+| [registrar](../app/observabilidad/trazas.py#L74) | Registra un evento de negocio. Es la unica forma de escribir una traza. |
+| [cronometro](../app/observabilidad/trazas.py#L94) | Mide cuanto tarda un bloque y lo deja registrado, pase lo que pase dentro. |
+| [registrar_conversacion](../app/observabilidad/trazas.py#L113) | Escribe un turno completo (lo que dijo el cliente y lo que respondio Clemente) |
+| [leer_conversaciones](../app/observabilidad/trazas.py#L161) | Ultimos turnos registrados, del mas antiguo al mas reciente. |
+| [ultimas_trazas](../app/observabilidad/trazas.py#L180) | Devuelve las ultimas trazas en memoria, filtradas opcionalmente por sesion_id. |
+| [metricas](../app/observabilidad/trazas.py#L188) | Metricas del informe final (Modulo 8). El desglose por herramienta y los |
 
 ## app/orquestador/__init__.py
 
@@ -461,44 +561,62 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/orquestador/__init__.py#L1) | Orquestador multiagente -- responsables: Christian, Jean. |
 
+## app/orquestador/controles.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/orquestador/controles.py#L1) | Auditorias sobre la respuesta final del turno -- responsables: Christian, Jean. |
+| [parece_reinicio](../app/orquestador/controles.py#L35) | True si hay hilo previo y la respuesta saluda y se presenta como si fuera el primer mensaje. |
+| [parece_promesa_no_autorizada](../app/orquestador/controles.py#L45) | True si alguna oracion ofrece un beneficio (descuento, cortesia, regalo) sin negarlo. |
+| [auditar_salida](../app/orquestador/controles.py#L58) | Registra en la traza los controles que la respuesta dispara y devuelve sus nombres. |
+
 ## app/orquestador/grafo.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/orquestador/grafo.py#L1) | Orquestador de Clemente: grafo LangGraph con topologia *Supervisor*. |
-| [_cargar_revisiones](../app/orquestador/grafo.py#L98) | Carga una sola vez las revisiones HITL persistidas al registro en memoria. |
-| [_guardar_revisiones](../app/orquestador/grafo.py#L115) | Persiste las revisiones mediante archivo temporal y reemplazo del JSON. |
-| [EstadoConversacion](../app/orquestador/grafo.py#L130) | Estado compartido que viaja por el grafo. |
-| [PlanDeResolucion](../app/orquestador/grafo.py#L158) | Salida forzada del planificador: a quien llamar y en que orden. |
-| [_sesion_de](../app/orquestador/grafo.py#L227) | Sesion del estado, con nombre propio cuando el grafo se lanza desde Studio. |
-| [_mensaje_de](../app/orquestador/grafo.py#L232) | Texto del turno, o cadena vacia. |
-| [_resumen_del_hilo](../app/orquestador/grafo.py#L243) | Resume los ultimos TURNOS_PARA_ENRUTAR mensajes para el planificador. |
-| [_limpiar_plan](../app/orquestador/grafo.py#L257) | Deja el plan en algo ejecutable: sin repetidos, sin desconocidos y con tope. |
-| [_nodo_planificador](../app/orquestador/grafo.py#L274) | Calcula el plan ordenado de resolucion del turno y devuelve la actualizacion del estado. |
-| [_nodo_trabajo](../app/orquestador/grafo.py#L329) | Devuelve el nodo ejecutor para un nombre del registro NODOS. |
-| [_nodo_trabajo.nodo](../app/orquestador/grafo.py#L338) | Ejecuta el componente capturado por nombre y devuelve el progreso del turno. |
-| [_siguiente](../app/orquestador/grafo.py#L368) | Selecciona la transicion condicional usando plan y paso, sin llamar al modelo. |
-| [_sintetizar](../app/orquestador/grafo.py#L382) | Un solo mensaje a partir de varios. |
-| [_escalar](../app/orquestador/grafo.py#L413) | Abre el ticket del hilo, o le agrega el dato nuevo si ya habia uno. |
-| [_nodo_cierre](../app/orquestador/grafo.py#L450) | Construye la respuesta final del recorrido del grafo y gestiona escalamiento. |
-| [_construir_grafo](../app/orquestador/grafo.py#L516) | Construye y compila el StateGraph que ejecuta la orquestacion. |
-| [obtener_grafo](../app/orquestador/grafo.py#L557) | Devuelve el grafo compilado del proceso, construyendolo solo en la primera llamada. |
-| [reiniciar_grafo](../app/orquestador/grafo.py#L565) | Fuerza reconstruir el grafo y los agentes: lo usan los tests y el banco de modelos. |
-| [responder](../app/orquestador/grafo.py#L582) | Punto de entrada del orquestador: lo unico que llama la capa de comunicacion. |
-| [olvidar_sesion](../app/orquestador/grafo.py#L680) | Al reiniciar un hilo, el planificador deja de arrastrar el agente anterior. |
-| [revisiones_pendientes](../app/orquestador/grafo.py#L695) | Vista serializable para el panel/API del staff; no expone objetos internos. |
-| [resolver_revision](../app/orquestador/grafo.py#L704) | Aprueba o rechaza la ejecución pausada y termina el turno en el cierre único. |
-| [diagrama_mermaid](../app/orquestador/grafo.py#L745) | El grafo tal como LangGraph lo compilo, en texto Mermaid. |
-| [exportar_diagrama](../app/orquestador/grafo.py#L755) | Exporta el diagrama del grafo (para el informe y la presentacion final). |
+| [_ultimo_agente_de](../app/orquestador/grafo.py#L100) | Agente que venia atendiendo la sesion, del almacen compartido o del proceso. |
+| [_guardar_ultimo_agente](../app/orquestador/grafo.py#L107) | Deja registrado quien cerro el turno, para la regla de continuidad del siguiente. |
+| [_incidencia_abierta_de](../app/orquestador/grafo.py#L115) | Codigo del caso ya escalado en el hilo, si lo hay. |
+| [_guardar_incidencia_abierta](../app/orquestador/grafo.py#L122) | Vincula el hilo con su caso escalado para no abrir un segundo ticket. |
+| [_cargar_revisiones](../app/orquestador/grafo.py#L130) | Sincroniza el registro en memoria de revisiones HITL con su almacenamiento. |
+| [_guardar_revisiones](../app/orquestador/grafo.py#L159) | Persiste las revisiones locales mediante archivo temporal y reemplazo del JSON. |
+| [_persistir_revision](../app/orquestador/grafo.py#L177) | Guarda la revision recien encolada de la sesion en el backend activo. |
+| [_retirar_revision](../app/orquestador/grafo.py#L186) | Saca la sesion de la cola HITL en memoria y en el backend activo. |
+| [EstadoConversacion](../app/orquestador/grafo.py#L195) | Estado compartido que viaja por el grafo. |
+| [PlanDeResolucion](../app/orquestador/grafo.py#L224) | Salida forzada del planificador: a quien llamar y en que orden. |
+| [_sesion_de](../app/orquestador/grafo.py#L300) | Sesion del estado, con nombre propio cuando el grafo se lanza desde Studio. |
+| [_mensaje_de](../app/orquestador/grafo.py#L305) | Texto del turno, o cadena vacia. |
+| [_resumen_del_hilo](../app/orquestador/grafo.py#L316) | Resume los ultimos TURNOS_PARA_ENRUTAR mensajes para el planificador. |
+| [_limpiar_plan](../app/orquestador/grafo.py#L330) | Deja el plan en algo ejecutable: sin repetidos, sin desconocidos y con tope. |
+| [_pasos_descartados](../app/orquestador/grafo.py#L345) | Pasos validos y distintos que el tope dejo fuera del plan, en el orden pedido. |
+| [_aviso_pendientes](../app/orquestador/grafo.py#L354) | Frase para el cliente con lo que quedo fuera del turno; nunca afirma haberlo resuelto. |
+| [_nodo_planificador](../app/orquestador/grafo.py#L366) | Calcula el plan ordenado de resolucion del turno y devuelve la actualizacion del estado. |
+| [_nodo_trabajo](../app/orquestador/grafo.py#L431) | Devuelve el nodo ejecutor para un nombre del registro NODOS. |
+| [_nodo_trabajo.nodo](../app/orquestador/grafo.py#L440) | Ejecuta el componente capturado por nombre y devuelve el progreso del turno. |
+| [_siguiente](../app/orquestador/grafo.py#L470) | Selecciona la transicion condicional usando plan y paso, sin llamar al modelo. |
+| [_sintetizar](../app/orquestador/grafo.py#L484) | Un solo mensaje a partir de varios. |
+| [_escalar](../app/orquestador/grafo.py#L515) | Abre el ticket del hilo, o le agrega el dato nuevo si ya habia uno. |
+| [_nodo_cierre](../app/orquestador/grafo.py#L552) | Construye la respuesta final del recorrido del grafo y gestiona escalamiento. |
+| [_construir_grafo](../app/orquestador/grafo.py#L628) | Construye y compila el StateGraph que ejecuta la orquestacion. |
+| [obtener_grafo](../app/orquestador/grafo.py#L669) | Devuelve el grafo compilado del proceso, construyendolo solo en la primera llamada. |
+| [reiniciar_grafo](../app/orquestador/grafo.py#L677) | Fuerza reconstruir el grafo y los agentes: lo usan los tests y el banco de modelos. |
+| [responder](../app/orquestador/grafo.py#L694) | Punto de entrada del orquestador: lo unico que llama la capa de comunicacion. |
+| [_con_resolucion_pendiente](../app/orquestador/grafo.py#L821) | Antepone la resolucion HITL que el personal dejo y el cliente aun no recibio. |
+| [olvidar_sesion](../app/orquestador/grafo.py#L836) | Al reiniciar un hilo, el planificador deja de arrastrar el agente anterior. |
+| [revisiones_pendientes](../app/orquestador/grafo.py#L853) | Vista serializable para el panel/API del staff; no expone objetos internos. |
+| [resolver_revision](../app/orquestador/grafo.py#L862) | Aprueba o rechaza la ejecución pausada y termina el turno en el cierre único. |
+| [diagrama_mermaid](../app/orquestador/grafo.py#L907) | El grafo tal como LangGraph lo compilo, en texto Mermaid. |
+| [exportar_diagrama](../app/orquestador/grafo.py#L917) | Exporta el diagrama del grafo (para el informe y la presentacion final). |
 
 ## app/orquestador/informacion.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/orquestador/informacion.py#L1) | El orquestador respondiendo por si mismo: la funcion de *proxy*. |
-| [obtener_agente](../app/orquestador/informacion.py#L32) | Construye y reutiliza el agente LangChain del componente de informacion del orquestador. |
-| [responder](../app/orquestador/informacion.py#L43) | Responde una consulta general con el agente de lectura del orquestador. |
-| [reiniciar](../app/orquestador/informacion.py#L60) | Fuerza reconstruir el agente: lo usan los tests y el banco de modelos. |
+| [obtener_agente](../app/orquestador/informacion.py#L35) | Construye y reutiliza el agente LangChain del componente de informacion del orquestador. |
+| [responder](../app/orquestador/informacion.py#L46) | Responde una consulta general con el agente de lectura del orquestador. |
+| [reiniciar](../app/orquestador/informacion.py#L63) | Fuerza reconstruir el agente: lo usan los tests y el banco de modelos. |
 
 ## app/reservas/__init__.py
 
@@ -570,6 +688,15 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [redactar_pii](../app/seguridad/pii.py#L30) | Sustituye patrones de PII por marcadores en texto y estructuras anidadas. |
 | [middleware_pii](../app/seguridad/pii.py#L53) | PIIMiddleware protege correo y tarjetas en input, output y tools. |
 
+## app/seguridad/trazado.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/seguridad/trazado.py#L1) | Redaccion de lo que viaja a LangSmith (A8 / paso 8 del plan del 18/09). |
+| [ocultar](../app/seguridad/trazado.py#L26) | Funcion que LangSmith aplica a inputs y outputs de cada run antes de enviarlos. |
+| [cliente_redactado](../app/seguridad/trazado.py#L35) | Cliente de LangSmith cuyos runs pasan por `ocultar` en entrada y salida. |
+| [activar_redaccion](../app/seguridad/trazado.py#L42) | Instala el cliente redactado como el que usara LangChain; devuelve como quedo. |
+
 ## docs/verificar_documentacion.py
 
 | Elemento | Descripcion |
@@ -615,9 +742,11 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../tests/conftest.py#L1) | Configuracion comun de las pruebas: datos aislados, sin tocar los del equipo. |
-| [aislar_estado](../tests/conftest.py#L19) | Aisla archivos y registros globales por prueba y elimina credenciales del entorno. |
-| [servicio_reservas](../tests/conftest.py#L54) | Corre el contrato de ServicioReservas contra las dos implementaciones. |
-| [servicio_incidencias](../tests/conftest.py#L89) | Proporciona un gestor JSON de incidencias con archivo temporal exclusivo de la prueba. |
+| [url_postgres_de_pruebas](../tests/conftest.py#L21) | URL de Postgres apta para pruebas DESTRUCTIVAS, o cadena vacia si no hay una segura. |
+| [aislar_estado](../tests/conftest.py#L39) | Aisla archivos y registros globales por prueba y elimina credenciales del entorno. |
+| [estado_postgres](../tests/conftest.py#L85) | Estado de agentes en las tablas `agentes_*` del Postgres local de pruebas, con contexto Flask. |
+| [servicio_reservas](../tests/conftest.py#L125) | Corre el contrato de ServicioReservas contra las dos implementaciones. |
+| [servicio_incidencias](../tests/conftest.py#L163) | Proporciona un gestor JSON de incidencias con archivo temporal exclusivo de la prueba. |
 
 ## tests/eval/banco_modelos.py
 
@@ -852,6 +981,91 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [test_la_conversacion_queda_registrada_en_disco](../tests/test_api.py#L223) | El texto de cada turno sobrevive al reinicio del servidor y a LangSmith caido. |
 | [test_twilio_signature_uses_configured_public_url](../tests/test_api.py#L242) | Azure puede recibir HTTP interno mientras la firma corresponde a la URL HTTPS publica. |
 
+## tests/test_catalogo_tools.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_catalogo_tools.py#L1) | Las tools de catalogo frente a los dos backends del RAG (Chroma y Azure AI Search). |
+| [_RuntimeFalso](../tests/test_catalogo_tools.py#L14) | Imita lo unico que las tools usan del ToolRuntime que inyecta create_agent. |
+| [_RuntimeFalso.__init__](../tests/test_catalogo_tools.py#L17) | Expone el contexto recibido mediante el atributo context que leen las tools. |
+| [_runtime](../tests/test_catalogo_tools.py#L22) | Runtime falso con una sesion identificable para buscar sus trazas. |
+| [test_un_error_del_indice_no_le_llega_al_modelo_pero_queda_en_la_traza](../tests/test_catalogo_tools.py#L29) | Con Azure el error trae el endpoint y el nombre del indice. Antes la tool |
+| [test_un_error_del_indice_no_le_llega_al_modelo_pero_queda_en_la_traza.explotar](../tests/test_catalogo_tools.py#L38) | Simula un fallo del SDK de Azure con datos internos en el mensaje. |
+| [test_consultar_politica_tampoco_filtra_el_error](../tests/test_catalogo_tools.py#L53) | Verifica que consultar politica tampoco filtra el error. |
+| [test_consultar_politica_tampoco_filtra_el_error.explotar](../tests/test_catalogo_tools.py#L57) | Simula que el indice local no esta construido. |
+| [test_los_fragmentos_de_azure_se_citan_igual_que_los_de_chroma](../tests/test_catalogo_tools.py#L68) | Azure devuelve `documento > seccion` como fuente y el chunk limpio; la cita es la misma. |
+| [test_sin_resultados_la_tool_lo_dice_sin_inventar](../tests/test_catalogo_tools.py#L85) | Verifica que sin resultados la tool lo dice sin inventar. |
+| [test_rag_backend_conmuta_a_azure_search_por_variable_de_entorno](../tests/test_catalogo_tools.py#L95) | El conmutador del PR #9: con RAG_BACKEND=azure_search no se toca Chroma. |
+| [test_rag_backend_conmuta_a_azure_search_por_variable_de_entorno.chroma_no](../tests/test_catalogo_tools.py#L102) | Falla si el camino Chroma se usa con el backend de Azure activo. |
+
+## tests/test_contrato_errores.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_contrato_errores.py#L1) | Contrato de errores entre tools y el servicio de reservas de Marc (A9 del plan). |
+| [_RuntimeFalso](../tests/test_contrato_errores.py#L19) | Imita lo unico que las tools usan del ToolRuntime que inyecta create_agent. |
+| [_RuntimeFalso.__init__](../tests/test_contrato_errores.py#L22) | Expone el contexto recibido mediante el atributo context que leen las tools. |
+| [_ServicioCaido](../tests/test_contrato_errores.py#L27) | Servicio de reservas cuya infraestructura fallo: toda llamada lanza un error no de negocio. |
+| [_ServicioCaido._caer](../tests/test_contrato_errores.py#L30) | Imita el error de psycopg2 cuando Postgres no responde. |
+| [_ServicioEscribeMal](../tests/test_contrato_errores.py#L37) | Lee bien pero falla al escribir: el caso de la escritura incierta. |
+| [_ServicioEscribeMal.consultar_disponibilidad](../tests/test_contrato_errores.py#L40) | Hay mesa: la propuesta se prepara sin problema. |
+| [_ServicioEscribeMal.crear_reserva](../tests/test_contrato_errores.py#L44) | Postgres se cae justo al insertar. |
+| [_ServicioSinMesa](../tests/test_contrato_errores.py#L49) | Regla de negocio: la mesa desaparecio entre el resumen y la confirmacion. |
+| [_ServicioSinMesa.consultar_disponibilidad](../tests/test_contrato_errores.py#L52) | Al preparar todavia habia mesa. |
+| [_ServicioSinMesa.crear_reserva](../tests/test_contrato_errores.py#L56) | El contrato de Marc: sin mesa es ValueError. |
+| [test_consultar_disponibilidad_no_confunde_base_caida_con_sin_mesa](../tests/test_contrato_errores.py#L65) | Verifica que consultar disponibilidad no confunde base caida con sin mesa. |
+| [test_preparar_con_la_base_caida_no_deja_propuesta](../tests/test_contrato_errores.py#L81) | Verifica que preparar con la base caida no deja propuesta. |
+| [test_una_escritura_que_falla_se_informa_incierta_y_no_se_reintenta](../tests/test_contrato_errores.py#L92) | El token ya se consumio: repetir el CONFIRMO no vuelve a escribir. |
+| [test_una_regla_de_negocio_sigue_siendo_un_rechazo_normal](../tests/test_contrato_errores.py#L106) | ValueError del servicio no es infraestructura: mensaje de siempre, sin traza de error. |
+| [test_la_ficha_omite_reservas_si_el_servicio_falla_pero_no_tumba_el_turno](../tests/test_contrato_errores.py#L119) | Verifica que la ficha omite reservas si el servicio falla pero no tumba el turno. |
+| [test_consultar_por_codigo_con_la_base_caida_no_revela_ni_inventa](../tests/test_contrato_errores.py#L131) | Verifica que consultar por codigo con la base caida no revela ni inventa. |
+
+## tests/test_controles.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_controles.py#L1) | Controles conversacionales de la seccion 3.2: plan recortado y auditorias de salida. |
+| [test_el_tercer_tema_queda_en_pendientes_y_no_se_pierde](../tests/test_controles.py#L17) | Verifica que el tercer tema queda en pendientes y no se pierde. |
+| [test_el_cierre_dice_que_quedo_pendiente_sin_afirmar_que_lo_resolvio](../tests/test_controles.py#L28) | Verifica que el cierre dice que quedo pendiente sin afirmar que lo resolvio. |
+| [test_sin_pendientes_el_cierre_no_agrega_nada](../tests/test_controles.py#L53) | Verifica que sin pendientes el cierre no agrega nada. |
+| [test_dos_pendientes_se_enumeran_en_una_sola_frase](../tests/test_controles.py#L66) | Verifica que dos pendientes se enumeran en una sola frase. |
+| [test_un_saludo_con_presentacion_sobre_un_hilo_activo_es_reinicio](../tests/test_controles.py#L78) | Verifica que un saludo con presentacion sobre un hilo activo es reinicio. |
+| [test_un_hola_cortes_no_es_reinicio_por_si_solo](../tests/test_controles.py#L87) | El criterio de aceptacion: no bloquear cualquier 'hola' cortes. Ni contar lo que no lo es. |
+| [test_ofrecer_un_beneficio_se_detecta](../tests/test_controles.py#L101) | Verifica que ofrecer un beneficio se detecta. |
+| [test_negar_o_explicar_que_no_se_puede_no_es_promesa](../tests/test_controles.py#L108) | Verifica que negar o explicar que no se puede no es promesa. |
+| [test_la_auditoria_registra_pero_no_toca_el_texto](../tests/test_controles.py#L115) | Verifica que la auditoria registra pero no toca el texto. |
+| [test_el_cierre_audita_la_respuesta_final](../tests/test_controles.py#L129) | El unico punto de salida es donde se mira lo que el cliente va a leer. |
+
+## tests/test_estado_agentes.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_estado_agentes.py#L1) | Estado compartido de los agentes (paso 7 del plan del 18/09). |
+| [_ServicioContador](../tests/test_estado_agentes.py#L23) | Servicio minimo que siempre tiene mesa y cuenta cuantas reservas escribio. |
+| [_ServicioContador.__init__](../tests/test_estado_agentes.py#L26) | Arranca el contador protegido por un lock para usarlo desde varios hilos. |
+| [_ServicioContador.consultar_disponibilidad](../tests/test_estado_agentes.py#L31) | Siempre hay una opcion: lo que se prueba es el token, no la disponibilidad. |
+| [_ServicioContador.crear_reserva](../tests/test_estado_agentes.py#L35) | Escribe una reserva sintetica y la devuelve; cuenta la escritura. |
+| [_ServicioContador.obtener_reserva](../tests/test_estado_agentes.py#L43) | No hace falta para crear; devuelve None. |
+| [_token](../tests/test_estado_agentes.py#L52) | Extrae el comando CONFIRMO del resumen del servidor. |
+| [_grafo_falso](../tests/test_estado_agentes.py#L57) | Sustituto del grafo compilado que devuelve un cierre fijo sin modelo. |
+| [_grafo_falso.Grafo](../tests/test_estado_agentes.py#L59) | Doble del grafo LangGraph con la forma minima de `final` que lee `responder`. |
+| [_grafo_falso.Grafo.invoke](../tests/test_estado_agentes.py#L62) | Devuelve un turno de informacion resuelto. |
+| [test_el_backend_auto_sigue_al_de_reservas](../tests/test_estado_agentes.py#L73) | Si las reservas viven en Postgres, el estado que las autoriza tambien. |
+| [test_postgres_sin_contexto_flask_explica_como_arreglarlo](../tests/test_estado_agentes.py#L86) | El pool de app/db exige app_context; el error debe decirlo, no fallar en Flask. |
+| [test_los_backends_efectivos_se_pueden_consultar](../tests/test_estado_agentes.py#L93) | Lo que /api/salud expone: nunca desplegar creyendo que se escribe en Trello o Postgres. |
+| [test_continuidad_y_resolucion_en_memoria](../tests/test_estado_agentes.py#L107) | Verifica que continuidad y resolucion en memoria. |
+| [test_los_rechazos_expiran_con_la_ventana](../tests/test_estado_agentes.py#L121) | Un error humano aislado no acumula para siempre. |
+| [test_una_sola_confirmacion_gana_en_sqlite](../tests/test_estado_agentes.py#L133) | Ocho hilos con el mismo CONFIRMO: una reserva, un exito, siete rechazos. |
+| [test_la_resolucion_hitl_se_entrega_en_el_siguiente_turno_una_sola_vez](../tests/test_estado_agentes.py#L152) | El panel del staff no envia WhatsApp: el cliente se entera en su proximo mensaje. |
+| [test_tras_el_maximo_de_rechazos_no_se_invoca_al_modelo](../tests/test_estado_agentes.py#L175) | Adivinar tokens no puede consumir razonamiento ilimitado; otra sesion no se ve afectada. |
+| [test_una_operacion_incierta_no_cuenta_como_rechazo](../tests/test_estado_agentes.py#L195) | Que la base falle al escribir no es culpa del cliente. |
+| [test_una_operacion_incierta_no_cuenta_como_rechazo.EscribeMal](../tests/test_estado_agentes.py#L197) | Servicio cuya escritura falla por infraestructura. |
+| [test_una_operacion_incierta_no_cuenta_como_rechazo.EscribeMal.crear_reserva](../tests/test_estado_agentes.py#L200) | Simula Postgres caido justo al insertar. |
+| [test_postgres_guarda_propiedad_propuestas_perfil_revision_y_continuidad](../tests/test_estado_agentes.py#L220) | Recorrido completo del almacen sobre las tablas agentes_* del Postgres local. |
+| [test_postgres_una_sola_confirmacion_gana](../tests/test_estado_agentes.py#L262) | Cuatro hilos (cada uno con su app_context) y el mismo token: una sola escritura. |
+| [test_postgres_una_sola_confirmacion_gana.confirmar](../tests/test_estado_agentes.py#L267) | Confirma desde un hilo con contexto propio, como haria otra replica. |
+| [test_postgres_el_orquestador_conserva_continuidad_y_ticket_entre_procesos](../tests/test_estado_agentes.py#L279) | Lo que antes vivia en diccionarios del proceso ahora sobrevive a `reiniciar_grafo`. |
+
 ## tests/test_eval_robustez.py
 
 | Elemento | Descripcion |
@@ -862,6 +1076,30 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [preparar.Metrica.measure](../tests/test_eval_robustez.py#L17) | Lanza el error configurado en lugar de producir un juicio valido. |
 | [test_error_del_juez_no_se_cuenta_como_juicio_valido](../tests/test_eval_robustez.py#L25) | Verifica que error del juez no se cuenta como juicio valido. |
 | [test_agotamiento_no_se_oculta_como_error_del_juez](../tests/test_eval_robustez.py#L35) | Verifica que agotamiento no se oculta como error del juez. |
+
+## tests/test_fecha.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_fecha.py#L1) | Fecha, hora y dia de la semana: el reloj de Lima y la validacion del servidor. |
+| [_RuntimeFalso](../tests/test_fecha.py#L18) | Imita lo unico que las tools usan del ToolRuntime que inyecta create_agent. |
+| [_RuntimeFalso.__init__](../tests/test_fecha.py#L21) | Expone el contexto recibido mediante el atributo context que leen las tools. |
+| [_ServicioQueNoDebeEscribir](../tests/test_fecha.py#L26) | Servicio de reservas que falla si alguien intenta consultarlo o escribir. |
+| [_ServicioQueNoDebeEscribir.consultar_disponibilidad](../tests/test_fecha.py#L29) | Falla: con una contradiccion de fecha no debe consultarse disponibilidad. |
+| [_ServicioQueNoDebeEscribir.obtener_reserva](../tests/test_fecha.py#L33) | Falla: la prueba no espera lecturas de reservas. |
+| [_ServicioConMesa](../tests/test_fecha.py#L38) | Servicio minimo que siempre tiene una mesa libre; solo sirve para preparar propuestas. |
+| [_ServicioConMesa.consultar_disponibilidad](../tests/test_fecha.py#L41) | Devuelve una opcion para que `proponer` llegue a generar el resumen. |
+| [_fijar](../tests/test_fecha.py#L46) | Fija el reloj del modulo en un instante UTC; `ahora()` lo convierte a Lima. |
+| [test_el_reloj_es_de_lima_y_no_del_servidor](../tests/test_fecha.py#L55) | A las 03:30 UTC del martes 22 todavia es lunes 21 a las 22:30 en Lima. |
+| [test_dia_declarado_tolera_tildes_mayusculas_y_articulos](../tests/test_fecha.py#L69) | Verifica que dia declarado tolera tildes mayusculas y articulos. |
+| [test_contradiccion_entre_dia_y_fecha](../tests/test_fecha.py#L88) | Verifica que contradiccion entre dia y fecha. |
+| [test_la_tool_devuelve_hoy_manana_y_los_proximos_dias](../tests/test_fecha.py#L98) | La tool es determinista y trae la zona: el modelo no tiene que calcular nada. |
+| [test_una_contradiccion_no_deja_propuesta_que_confirmar](../tests/test_fecha.py#L118) | "El viernes 26" cuando el 26 es sabado: no se prepara nada, no hay codigo |
+| [test_dia_y_fecha_coherentes_preparan_la_reserva_sin_filtrar_el_dia](../tests/test_fecha.py#L144) | `dia_semana` solo valida: nunca viaja al servicio como parametro de la reserva. |
+| [test_fecha_pasada_se_mide_en_hora_de_lima](../tests/test_fecha.py#L165) | Cruce de medianoche: a las 03:00 UTC del 22, en Lima todavia es el 21. |
+| [test_fecha_pasada_se_mide_en_hora_de_lima.proponer](../tests/test_fecha.py#L175) | Prepara una reserva de prueba para la fecha dada y devuelve el texto del servidor. |
+| [test_consultar_disponibilidad_no_consulta_con_dia_contradictorio](../tests/test_fecha.py#L186) | La contradiccion se corta antes de tocar el servicio de reservas. |
+| [test_cada_turno_lleva_la_fecha_de_lima_y_la_ficha_solo_si_existe](../tests/test_fecha.py#L203) | La fecha ya no vive en el system prompt congelado: viaja pegada al mensaje. |
 
 ## tests/test_guardrails.py
 
@@ -1003,6 +1241,19 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [test_send_whatsapp_message_raises_without_credentials](../tests/test_outbound_whatsapp.py#L53) | Verifies send whatsapp message raises without credentials. |
 | [test_send_whatsapp_message_raises_on_twilio_error](../tests/test_outbound_whatsapp.py#L59) | Verifies send whatsapp message raises on twilio error. |
 
+## tests/test_perfil_cliente.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_perfil_cliente.py#L1) | Perfil del cliente: identidad del servidor, alergias anotadas y la tool `anotar_dato_cliente`. |
+| [_RuntimeFalso](../tests/test_perfil_cliente.py#L13) | Imita lo unico que las tools usan del ToolRuntime que inyecta create_agent. |
+| [_RuntimeFalso.__init__](../tests/test_perfil_cliente.py#L16) | Expone el contexto recibido mediante el atributo context que leen las tools. |
+| [test_un_telefono_declarado_no_abre_el_perfil_de_otro](../tests/test_perfil_cliente.py#L21) | La clave es la identidad autenticada del canal; decir un numero no cambia de perfil. |
+| [test_el_telefono_dicho_se_guarda_como_dato_no_como_clave](../tests/test_perfil_cliente.py#L31) | Verifica que el telefono dicho se guarda como dato no como clave. |
+| [test_las_alergias_no_se_repiten_y_llegan_a_la_ficha](../tests/test_perfil_cliente.py#L40) | Verifica que las alergias no se repiten y llegan a la ficha. |
+| [test_la_tool_anota_y_no_promete_que_la_cocina_ya_sabe](../tests/test_perfil_cliente.py#L54) | Verifica que la tool anota y no promete que la cocina ya sabe. |
+| [test_la_tool_rechaza_campos_y_valores_invalidos](../tests/test_perfil_cliente.py#L66) | Verifica que la tool rechaza campos y valores invalidos. |
+
 ## tests/test_pii.py
 
 | Elemento | Descripcion |
@@ -1054,6 +1305,13 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [test_modificar_hora_conserva_la_reserva](../tests/test_reservas.py#L52) | Verifica que modificar hora conserva la reserva. |
 | [test_sin_mesa_para_el_grupo_lanza_error](../tests/test_reservas.py#L63) | Verifica que sin mesa para el grupo lanza error. |
 
+## tests/test_salud_backends.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_salud_backends.py#L1) | `/api/salud` expone los backends efectivos (paso 6 del plan: "hacer visible el backend"). |
+| [test_salud_dice_en_que_backend_escribe_cada_modulo](../tests/test_salud_backends.py#L13) | Verifica que salud dice en que backend escribe cada modulo. |
+
 ## tests/test_seguridad_reservas.py
 
 | Elemento | Descripcion |
@@ -1097,6 +1355,16 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [test_chat_real_prepara_y_confirma_sin_modelo_en_el_segundo_turno.nodo_reservas](../tests/test_seguridad_reservas.py#L314) | Prepara una propuesta mediante la herramienta real y registra la sesion recibida. |
 | [test_whatsapp_prepara_y_confirma_con_propiedad_del_canal](../tests/test_seguridad_reservas.py#L331) | WhatsApp usa el flujo protegido y exige confirmacion en otro turno para escribir. |
 | [test_whatsapp_prepara_y_confirma_con_propiedad_del_canal.nodo_reservas](../tests/test_seguridad_reservas.py#L341) | Prepara una reserva real con contexto del canal sin invocar un modelo. |
+
+## tests/test_trazado_langsmith.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_trazado_langsmith.py#L1) | Redaccion de spans de LangSmith (A8 / paso 8 del plan del 18/09). |
+| [cliente_limpio](../tests/test_trazado_langsmith.py#L17) | Deja el cliente global de langsmith vacio antes y despues de cada prueba. |
+| [test_langchain_toma_el_cliente_redactado](../tests/test_trazado_langsmith.py#L25) | Verifica que langchain toma el cliente redactado. |
+| [test_lo_que_sale_al_span_va_redactado](../tests/test_trazado_langsmith.py#L38) | Verifica que lo que sale al span va redactado. |
+| [test_configurar_observabilidad_instala_la_redaccion_cuando_hay_clave](../tests/test_trazado_langsmith.py#L54) | El gancho vive en `configurar_observabilidad`: con tracing y clave, el cliente queda redactado. |
 
 ## tests/test_whatsapp.py
 

@@ -10,6 +10,8 @@ from .base import construir_agente, ejecutar
 from .contexto import ContextoConversacion
 from .prompts import PROMPT_INCIDENCIAS
 from .tools.catalogo_tools import consultar_politica
+from .tools.cliente_tools import anotar_dato_cliente
+from .tools.fecha_tools import get_current_datetime
 from .tools.incidencias_tools import (
     consultar_incidencia,
     registrar_incidencia,
@@ -21,6 +23,8 @@ TOOLS = [
     consultar_incidencia,
     verificar_reserva_del_reclamo,
     consultar_politica,   # marco de lo que se puede y no se puede proponer
+    get_current_datetime,  # "ayer" y "el sabado pasado" se fechan con el reloj de Lima
+    anotar_dato_cliente,   # una alergia dicha en un reclamo tambien queda en el perfil
 ]
 
 _agente = None

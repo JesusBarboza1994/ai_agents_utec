@@ -19,6 +19,7 @@ langchain>=1.0
 langgraph
 langgraph-checkpoint-sqlite  # pausa/reanudacion persistente del HITL
 pydantic
+tzdata                    # zona America/Lima para `app/agentes/fecha.py`; Windows no la trae
 
 # --- Proveedores de LLM: el razonamiento corre sobre API (acuerdo del equipo) ---
 langchain-anthropic       # AGENT_MODEL=claude

@@ -16,6 +16,8 @@ from . import con_traza
 
 from ...reservas import obtener_servicio as servicio_reservas
 from .. import autorizacion
+from .. import fecha as reloj
+from ..servicios import ServicioNoDisponible, intentar
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
@@ -24,7 +26,8 @@ LIMITE_GRUPO_AUTONOMO = 10
 @tool
 @con_traza
 def consultar_disponibilidad(
-    fecha: str, hora: str, personas: int, runtime: ToolRuntime, zona: str = ""
+    fecha: str, hora: str, personas: int, runtime: ToolRuntime, zona: str = "",
+    dia_semana: str = "",
 ) -> str:
     """Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar.
 
@@ -33,14 +36,30 @@ def consultar_disponibilidad(
         hora: turno en formato HH:MM (12:00, 13:00, 14:00, 19:00, 20:00, 21:00 o 22:00).
         personas: numero de comensales.
         zona: opcional, "salon", "terraza" o "barra".
+        dia_semana: el dia de la semana que dijo el cliente ("viernes"), si lo dijo.
+            El servidor comprueba que coincida con la fecha antes de consultar.
     """
+    contradiccion = reloj.contradiccion_dia(dia_semana, fecha)
+    if contradiccion:
+        runtime.context.datos["guardrail_fecha"] = {
+            "estado": "contradiccion", "dia_declarado": dia_semana, "fecha": fecha,
+        }
+        return contradiccion
+
     if personas > LIMITE_GRUPO_AUTONOMO:
         return (
             f"Grupo de {personas} personas: excede lo que se confirma por chat. "
             "Reúne nombre, teléfono, fecha y hora, y usa solicitar_excepcion_grupo."
         )
 
-    opciones = servicio_reservas().consultar_disponibilidad(fecha, hora, personas, zona or None)
+    try:
+        opciones = intentar(
+            runtime.context, "consultar_disponibilidad",
+            servicio_reservas().consultar_disponibilidad, fecha, hora, personas, zona or None,
+        )
+    except ServicioNoDisponible:
+        # Un Postgres caido NO es "sin disponibilidad": se dice tal cual.
+        return autorizacion.NO_DISPONIBLE
     if not opciones:
         return f"Sin disponibilidad para {personas} personas el {fecha} a las {hora}."
 
@@ -52,7 +71,7 @@ def consultar_disponibilidad(
 @con_traza
 def crear_reserva(
     nombre: str, telefono: str, fecha: str, hora: str, personas: int,
-    runtime: ToolRuntime, zona: str = "", notas: str = "",
+    runtime: ToolRuntime, zona: str = "", notas: str = "", dia_semana: str = "",
 ) -> str:
     """Prepara un resumen de reserva; NO escribe la reserva.
     Usar cuando se conocen los datos. El cliente debe enviar despues CONFIRMO
@@ -66,10 +85,12 @@ def crear_reserva(
         personas: numero de comensales.
         zona: opcional, zona preferida.
         notas: alergias, ocasion especial u otra indicacion del cliente.
+        dia_semana: el dia de la semana que dijo el cliente, si lo dijo; el servidor
+            rechaza el resumen si no coincide con la fecha.
     """
     return autorizacion.proponer(runtime.context, "crear", {
         "nombre": nombre, "telefono": telefono, "fecha": fecha, "hora": hora,
-        "personas": personas, "zona": zona, "notas": notas,
+        "personas": personas, "zona": zona, "notas": notas, "dia_semana": dia_semana,
     }, servicio_reservas())
 
 
@@ -81,8 +102,12 @@ def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
     Usar antes de modificar o cancelar. Conocer el telefono no concede acceso;
     sin registros autorizados devuelve rechazo y marca guardrail_autorizacion.
     """
-    reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
-                if r.telefono == telefono]
+    try:
+        reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
+                    if r.telefono == telefono]
+    except ServicioNoDisponible:
+        runtime.context.datos["servicio_reservas"] = {"estado": "no_disponible", "operacion": "obtener_reserva"}
+        return autorizacion.NO_DISPONIBLE
     if not reservas:
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
@@ -102,7 +127,10 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
     if not autorizacion.es_propietario(runtime.context.sesion_id, codigo):
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
-    reserva = servicio_reservas().obtener_reserva(codigo)
+    try:
+        reserva = intentar(runtime.context, "obtener_reserva", servicio_reservas().obtener_reserva, codigo)
+    except ServicioNoDisponible:
+        return autorizacion.NO_DISPONIBLE
     if reserva is None:
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
@@ -113,7 +141,8 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
 @tool
 @con_traza
 def modificar_reserva(
-    reserva_id: str, runtime: ToolRuntime, fecha: str = "", hora: str = "", personas: int = 0
+    reserva_id: str, runtime: ToolRuntime, fecha: str = "", hora: str = "", personas: int = 0,
+    dia_semana: str = "",
 ) -> str:
     """Prepara un cambio de una reserva propia, sin ejecutarlo.
     El servidor exige despues CONFIRMO con el codigo del resumen.
@@ -123,10 +152,11 @@ def modificar_reserva(
         fecha: nueva fecha YYYY-MM-DD, vacio si no cambia.
         hora: nueva hora HH:MM, vacio si no cambia.
         personas: nuevo numero de personas, 0 si no cambia.
+        dia_semana: el dia de la semana que dijo el cliente para la nueva fecha, si lo dijo.
     """
     return autorizacion.proponer(runtime.context, "modificar", {
         "reserva_id": reserva_id.strip().upper(), "fecha": fecha or None,
-        "hora": hora or None, "personas": personas or None,
+        "hora": hora or None, "personas": personas or None, "dia_semana": dia_semana,
     }, servicio_reservas())
 
 
