@@ -62,6 +62,7 @@ def test_toda_herramienta_publicada_se_describe_para_el_modelo(servicio_mcp):
 # --------------------------------------------------------------------------
 
 def test_un_ticket_creado_por_mcp_vuelve_con_su_plazo(servicio_mcp):
+    """Verifica que un ticket creado por mcp vuelve con su plazo."""
     incidencia = servicio_mcp.crear_incidencia(
         sesion_id="whatsapp-51999000111",
         descripcion="Espere 40 minutos con reserva confirmada.",
@@ -75,6 +76,7 @@ def test_un_ticket_creado_por_mcp_vuelve_con_su_plazo(servicio_mcp):
 
 
 def test_lo_creado_por_mcp_se_puede_volver_a_leer_por_mcp(servicio_mcp):
+    """Verifica que lo creado por mcp se puede volver a leer por mcp."""
     creada = servicio_mcp.crear_incidencia(
         sesion_id="web-1", descripcion="El plato llego frio.", tipo="producto",
     )
@@ -94,6 +96,7 @@ def test_consultar_un_ticket_que_no_existe_no_revienta(servicio_mcp):
 
 
 def test_comentar_por_mcp_persiste_la_nota_y_no_finge_exito(servicio_mcp):
+    """Verifica que comentar por mcp persiste la nota y no finge exito."""
     ticket = servicio_mcp.crear_incidencia("sesion-prueba", "Caso ficticio")
     assert servicio_mcp.anotar(ticket.id, "dato adicional ficticio")
     assert "dato adicional ficticio" in servicio_mcp.listar_incidencias()[0].descripcion

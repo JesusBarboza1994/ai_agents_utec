@@ -7,6 +7,7 @@ con responsable y plazo, y no la cierra el agente.
 
 
 def test_incidencia_nace_abierta_con_plazo(servicio_incidencias):
+    """Verifica que incidencia nace abierta con plazo."""
     incidencia = servicio_incidencias.crear_incidencia(
         "demo-1", "Espere 40 minutos con reserva confirmada", tipo="espera"
     )
@@ -16,12 +17,14 @@ def test_incidencia_nace_abierta_con_plazo(servicio_incidencias):
 
 
 def test_tipo_desconocido_cae_en_otro(servicio_incidencias):
+    """Verifica que tipo desconocido cae en otro."""
     incidencia = servicio_incidencias.crear_incidencia("demo-1", "algo raro", tipo="inventado")
     assert incidencia.tipo == "otro"
     assert incidencia.plazo_horas == 24
 
 
 def test_listar_filtra_por_estado(servicio_incidencias):
+    """Verifica que listar filtra por estado."""
     a = servicio_incidencias.crear_incidencia("demo-1", "plato frio", tipo="producto")
     servicio_incidencias.crear_incidencia("demo-2", "mala atencion", tipo="servicio")
     servicio_incidencias.cerrar_incidencia(a.id, "se ofrecio disculpa y cortesia")

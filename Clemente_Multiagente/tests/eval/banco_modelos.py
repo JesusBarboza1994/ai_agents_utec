@@ -59,6 +59,7 @@ PROHIBIDO = ("como modelo de lenguaje", "soy una inteligencia artificial",
 # eran dos respuestas legitimas citando "R- o el telefono", no vinetas. Una
 # vineta real va al INICIO de renglon; un codigo va pegado a una palabra antes.
 def _tiene_vineta(texto: str) -> bool:
+    """Detecta si texto comienza con una vineta Markdown o la contiene tras un salto de linea."""
     return texto.lstrip().startswith("- ") or "\n- " in texto
 
 
@@ -96,6 +97,7 @@ def activar(modelo: str) -> None:
 
 
 def credencial_de(backend: str) -> bool:
+    """Comprueba presencia de la variable de credencial del backend, sin validar contra la API."""
     return bool(os.getenv("ANTHROPIC_API_KEY" if backend == "claude" else "OPENAI_API_KEY"))
 
 
@@ -196,6 +198,7 @@ def correr_modelo(modelo: str, guiones: list[dict]) -> dict:
 # --------------------------------------------------------------------------
 
 def tabla(resultados: list[dict]) -> str:
+    """Renderiza resultados como tabla Markdown de calidad minima, tokens, costo y latencia."""
     filas = [
         "| Modelo | Turnos | Ruteo | Plan | Texto prohibido | Tokens entrada | Tokens salida | Costo USD | Mediana | Peor turno |",
         "|---|---|---|---|---|---|---|---|---|---|",
@@ -211,6 +214,7 @@ def tabla(resultados: list[dict]) -> str:
 
 
 def informe(resultados: list[dict], guiones: list[dict]) -> str:
+    """Genera el informe Markdown con dataset, tabla comparativa, tarifas y limites de interpretacion."""
     from app.llm import PRECIOS_POR_MILLON
 
     turnos = sum(len(g["turnos"]) for g in guiones)
@@ -275,6 +279,9 @@ def informe(resultados: list[dict], guiones: list[dict]) -> str:
 # --------------------------------------------------------------------------
 
 def main() -> None:
+    """Procesa modelos y guiones de la CLI, muestra costos y ejecuta la comparacion autorizada.
+
+    Realiza llamadas a proveedores y guarda resultados; --si omite la pregunta de inicio."""
     from app.config import Config
     from app.llm import precio_de
 

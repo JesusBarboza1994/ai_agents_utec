@@ -5,17 +5,15 @@ Boris, en la asesoria del 2026-09-07 [12:09]: "este orquestador no solo va a
 definir el plan, sino que va a hacer algo mas: va a servir de proxy a cualquier
 pedido de informacion del restaurante".
 
-Esto NO es un cuarto agente. Es el orquestador usando sus propias herramientas.
-La diferencia importa para la profile card y para la defensa: no tiene alcance
-de negocio propio, no puede escribir nada, y no aparece en el registro `AGENTES`.
-Por eso vive en `app/orquestador/` y no en `app/agentes/`.
+Es el componente de informacion del orquestador. Tecnicamente se construye
+con create_agent de LangChain, pero no se registra como un agente de negocio
+independiente en AGENTES. Sus herramientas solo leen catalogo y politicas.
+Por eso vive en app/orquestador/ y no en app/agentes/.
 
-Que gana el sistema con esto, ademas de un agente menos:
-  * una pregunta general se contesta en un solo salto, sin pagar una llamada de
-    clasificacion mas otra de respuesta;
-  * el orquestador conoce los horarios y la direccion, asi que puede decidir con
-    esos datos en la mano -- si el cliente pide mesa un lunes, sabe que el
-    restaurante esta cerrado antes de mandarlo a Reservas.
+El recorrido normal sigue pasando por el planificador antes de este nodo;
+una consulta general puede consumir una llamada de planificacion y las
+llamadas del agente para recuperar y redactar. El planificador recibe el
+hilo y ultimo_agente, no los fragmentos del catalogo de este componente.
 """
 
 from ..agentes.base import construir_agente, ejecutar
@@ -32,6 +30,10 @@ _agente = None
 
 
 def obtener_agente():
+    """Construye y reutiliza el agente LangChain del componente de informacion del orquestador.
+
+    Solo recibe herramientas de lectura del catalogo y politicas; no se
+    registra como agente de negocio independiente en AGENTES."""
     global _agente
     if _agente is None:
         _agente = construir_agente(PROMPT_ORQUESTADOR, TOOLS)
@@ -42,7 +44,13 @@ def responder(
     texto: str, sesion_id: str, historial: list[dict] | None = None,
     contexto: ContextoConversacion | None = None,
 ) -> str:
-    """Misma firma que los agentes, para que el grafo trate a todos los nodos igual."""
+    """Responde una consulta general con el agente de lectura del orquestador.
+
+    Recibe texto, sesion, historial y contexto y devuelve el texto de ejecutar.
+    Las herramientas recuperan catalogo y politicas; este componente no crea
+    reservas ni incidencias. El fallback sustituye una tool escrita como
+    texto; los errores de invocacion se propagan al llamador.
+    """
     return ejecutar(
         obtener_agente(), texto, sesion_id, historial, contexto=contexto,
         fallback="Perdona, se me cruzo la linea. Me repites tu consulta?",

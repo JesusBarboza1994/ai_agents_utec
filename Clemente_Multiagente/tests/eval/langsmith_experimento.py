@@ -204,6 +204,7 @@ def sin_texto_prohibido(inputs: dict, outputs: dict) -> dict:
     import unicodedata
 
     def normalizar(texto: str) -> str:
+        """Convierte texto a minusculas y elimina marcas diacriticas para la comparacion."""
         sin_tildes = unicodedata.normalize("NFKD", texto.lower())
         return "".join(c for c in sin_tildes if not unicodedata.combining(c))
 
@@ -285,6 +286,10 @@ def _fijar_modelo(modelo: str) -> None:
 
 
 def main() -> None:
+    """Procesa la CLI, publica el dataset y opcionalmente ejecuta el experimento en LangSmith.
+
+    Requiere su credencial; --subir solo sincroniza datos y --con-juez agrega
+    evaluacion LLM. Puede escribir datos externos y consumir APIs."""
     parser = argparse.ArgumentParser(description="Experimento de Clemente en LangSmith")
     parser.add_argument("--subir", action="store_true",
                         help="solo crear o actualizar el dataset, sin correr nada")

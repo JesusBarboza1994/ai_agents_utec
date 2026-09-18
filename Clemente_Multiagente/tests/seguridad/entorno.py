@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 
 def guardar_json(destino: Path, datos):
+    """Crea la carpeta y persiste datos como JSON UTF-8 mediante temporal y reemplazo."""
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_suffix(destino.suffix + ".tmp")
     temporal.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -15,6 +16,7 @@ def guardar_json(destino: Path, datos):
 
 
 def registrar_turno(destino: Path, datos):
+    """Agrega una fila JSONL al diario y vacia el buffer; la carpeta debe existir."""
     with destino.open("a", encoding="utf-8") as archivo:
         archivo.write(json.dumps(datos, ensure_ascii=False) + "\n")
         archivo.flush()

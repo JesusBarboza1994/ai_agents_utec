@@ -52,6 +52,10 @@ def casos_de_catalogo() -> list[dict]:
 
 
 def evaluar(k: int) -> dict:
+    """Recupera k fragmentos por pregunta y mide precision contextual con el juez.
+
+    Devuelve fuentes, scores y agregado; usa la respuesta de referencia y
+    no ejecuta el agente conversacional. Las llamadas al juez tienen costo."""
     from deepeval.test_case import LLMTestCase
 
     from app.agentes.rag.indice import buscar
@@ -108,6 +112,7 @@ def evaluar(k: int) -> dict:
 
 
 def main() -> None:
+    """Procesa k y juez, confirma el inicio salvo --si y persiste el informe de precision RAG."""
     parser = argparse.ArgumentParser(description="Precision contextual del RAG de Clemente")
     parser.add_argument("--k", type=int, default=4, help="fragmentos a recuperar (por defecto 4)")
     parser.add_argument("--juez", help="modelo que califica")

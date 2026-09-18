@@ -32,6 +32,10 @@ _vector_store = None
 
 
 def _extraer_texto(ruta: Path) -> str:
+    """Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta.
+
+    Devuelve cadena vacia para extensiones no admitidas; los errores de lectura
+    o de los lectores de documentos se propagan."""
     sufijo = ruta.suffix.lower()
     if sufijo in {".md", ".txt"}:
         return ruta.read_text(encoding="utf-8", errors="ignore")
@@ -53,6 +57,11 @@ SOLAPE = 120
 
 
 def _cargar_documentos():
+    """Devuelve los documentos fragmentados y sus identificadores para el indice RAG.
+
+    Recorre CARPETA_DOCUMENTOS en orden, omite archivos vacios o no admitidos,
+    divide Markdown por encabezados y luego todos los textos por tamano con
+    solape. Cada fragmento conserva fuente y seccion; no crea embeddings aqui."""
     from langchain_core.documents import Document
     from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 

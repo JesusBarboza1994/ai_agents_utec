@@ -17,6 +17,7 @@ def append_message(
     chat_id: str, role: str, content: str, *,
     provider_message_id: str | None = None,
 ) -> None:
+    """Inserta un mensaje en Postgres; el llamador debe entregar contenido redactado."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO messages (chat_id, role, content, provider_message_id, created_at) "

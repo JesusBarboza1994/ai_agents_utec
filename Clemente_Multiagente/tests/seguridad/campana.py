@@ -11,6 +11,11 @@ from .presupuesto import Presupuesto
 
 
 def main():
+    """Configura modelos, entorno aislado y presupuesto y ejecuta la etapa solicitada.
+
+    Carga el archivo --env y guarda estado y evidencias bajo --destino; solo
+    algunas etapas admiten reanudacion. Puede consumir APIs y crear tarjetas
+    de prueba en la etapa Trello."""
     parser = argparse.ArgumentParser()
     parser.add_argument("etapa", choices=["conexion", "conexion_medida", "funcional", "ciclo", "humo", "completo", "completo_repeticion", "rejuzgar", "trello"])
     parser.add_argument("--env", type=Path, required=True)
@@ -94,6 +99,10 @@ def main():
 
 
 def funcional(destino):
+    """Evalua guiones con datos sinteticos y guarda cada informe al terminar.
+
+    Omite guiones ya presentes para reanudar; usa la semilla local de reserva
+    y consume el modelo del asistente y las metricas del juez."""
     from tests.eval.deepeval_evaluar import CASOS, evaluar
     from tests.eval.metricas import construir_metricas
     from app.agentes import autorizacion
@@ -123,6 +132,7 @@ def funcional(destino):
 
 def trello(destino):
     # Implementacion de la etapa separada: no activa Trello en red teaming.
+    """Delega la etapa de integracion a validacion_trello.ejecutar, que crea evidencia externa."""
     from .validacion_trello import ejecutar
     ejecutar(destino)
 

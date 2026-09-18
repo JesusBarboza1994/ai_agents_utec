@@ -55,14 +55,18 @@ class JuezGptLuna(DeepEvalBaseLLM):
     """Envoltorio de gpt-5.6-luna (Azure) para usarlo como juez en DeepEval."""
 
     def load_model(self):
+        """Devuelve el modelo de chat configurado para el juez de DeepEval."""
         return chat_gpt_luna(temperature=0.0)
 
     def generate(self, prompt: str) -> str:
+        """Invoca el juez sincronicamente y devuelve su texto."""
         return self.model.invoke(prompt).content
 
     async def a_generate(self, prompt: str) -> str:
+        """Invoca el juez asincronicamente y devuelve su texto."""
         respuesta = await self.model.ainvoke(prompt)
         return respuesta.content
 
     def get_model_name(self) -> str:
+        """Devuelve el nombre del modelo juez para identificar los reportes."""
         return f"{DEPLOYMENT_GPT_LUNA} (Azure OpenAI)"

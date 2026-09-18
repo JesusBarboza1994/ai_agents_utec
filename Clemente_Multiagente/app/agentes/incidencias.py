@@ -27,6 +27,7 @@ _agente = None
 
 
 def obtener_agente():
+    """Construye una vez el agente de incidencias con su prompt y herramientas y lo reutiliza."""
     global _agente
     if _agente is None:
         _agente = construir_agente(PROMPT_INCIDENCIAS, TOOLS)
@@ -37,6 +38,10 @@ def responder(
     texto: str, sesion_id: str, historial: list[dict] | None = None,
     contexto: ContextoConversacion | None = None,
 ) -> str:
+    """Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio.
+
+    Devuelve texto para el cliente; ejecutar sustituye una tool escrita como
+    texto por el fallback. Los errores de invocacion se propagan al orquestador."""
     return ejecutar(
         obtener_agente(), texto, sesion_id, historial, contexto=contexto,
         fallback="Perdona, se me cruzo la linea. Me cuentas otra vez que paso y cuando fue?",

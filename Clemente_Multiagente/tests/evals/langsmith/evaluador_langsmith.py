@@ -61,6 +61,7 @@ client = Client()
 # ============================================================================
 
 def crear_o_recuperar_dataset() -> str:
+    """Reemplaza el dataset existente de LangSmith por los casos actuales y devuelve su identificador."""
     if client.has_dataset(dataset_name=NOMBRE_DATASET):
         dataset = client.read_dataset(dataset_name=NOMBRE_DATASET)
         client.delete_dataset(dataset_id=dataset.id)
@@ -108,6 +109,7 @@ def ejecutar_agente(inputs: dict) -> dict:
 # ============================================================================
 
 class JuicioLLM(BaseModel):
+    """Define la puntuacion y justificacion estructuradas esperadas del modelo juez."""
     score: float = Field(description="Puntuación entre 0.0 (incumple) y 1.0 (cumple perfectamente)")
     razon: str = Field(description="Justificación breve en español, 1-2 frases")
 
@@ -163,7 +165,9 @@ CRITERIOS = {
 
 
 def crear_evaluador_llm(nombre_metrica: str, categorias_aplicables: set, criterio: str):
+    """Construye un evaluador de un criterio con categorias aplicables y juez estructurado."""
     def evaluador(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+        """Omite categorias no aplicables y solicita al juez una puntuacion y justificacion para el criterio."""
         if reference_outputs.get("categoria") not in categorias_aplicables:
             # Métrica no aplica a la categoría de este caso: se deja constancia
             # sin puntuar, para no ensuciar el promedio con un 0 injustificado.
@@ -203,6 +207,7 @@ HERRAMIENTA_ESPERADA_POR_CATEGORIA = {
 
 
 def enrutamiento_correcto(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+    """Puntua si las herramientas registradas coinciden con alguna esperada para la categoria."""
     categoria = reference_outputs.get("categoria")
     usadas = set(outputs.get("herramientas_usadas", []))
     esperadas = HERRAMIENTA_ESPERADA_POR_CATEGORIA.get(categoria, set())
@@ -216,6 +221,7 @@ def enrutamiento_correcto(inputs: dict, outputs: dict, reference_outputs: dict) 
 
 
 def construir_evaluadores():
+    """Reune jueces de criterios de negocio y el evaluador determinista de herramientas."""
     evaluadores = [
         crear_evaluador_llm(nombre, categorias, criterio)
         for nombre, (categorias, criterio) in CRITERIOS.items()
@@ -229,6 +235,7 @@ def construir_evaluadores():
 # ============================================================================
 
 def main():
+    """Ejecuta la evaluacion indicada por este script; puede consumir APIs y publicar resultados externos."""
     print("=" * 80)
     print("EVALUACIÓN DEL AGENTE CLEMENTE - LANGSMITH")
     print("=" * 80)

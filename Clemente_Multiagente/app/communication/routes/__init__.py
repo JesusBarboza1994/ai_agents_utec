@@ -10,7 +10,7 @@ rule points straight at a controller function.
 
 from flask import Blueprint
 
-from ..controllers import chat_controller, whatsapp_controller
+from ..controllers import chat_controller, whatsapp_controller, staff_controller
 
 bp = Blueprint("communication", __name__)
 
@@ -18,3 +18,6 @@ bp.add_url_rule("/", view_func=chat_controller.chat_demo, methods=["GET"])
 bp.add_url_rule("/api/chat", view_func=chat_controller.chat, methods=["POST"])
 bp.add_url_rule("/api/webhook/whatsapp", view_func=whatsapp_controller.handle_webhook, methods=["POST"])
 bp.add_url_rule("/api/sesiones/<sesion_id>/reset", view_func=chat_controller.reset, methods=["POST"])
+
+bp.add_url_rule("/api/staff/revisiones", view_func=staff_controller.listar_revisiones, methods=["GET"])
+bp.add_url_rule("/api/staff/revisiones/<sesion_id>/resolver", view_func=staff_controller.resolver_revision_staff, methods=["POST"])

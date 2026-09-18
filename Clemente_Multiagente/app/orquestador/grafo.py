@@ -28,7 +28,9 @@ Lo que cambio, en concreto, son tres cosas:
    pedido de informacion del restaurante". Ver `informacion.py`.
 
 3. **Es el unico punto de salida.** Ningun agente escala por su cuenta: levanta la
-   mano en el contexto y `_nodo_cierre` abre el ticket, lo notifica y lo registra.
+   mano en el contexto y `_nodo_cierre` registra el ticket y su resultado.
+   El envio a Trello depende del backend; este modulo no envia una notificacion
+   al cliente ni acredita que el personal haya recibido el caso.
    Boris [12:39]: "el que administra la comunicacion es el orquestador, porque si
    no, como persiste en el log. Al final, el unico punto de salida".
 
@@ -43,6 +45,7 @@ tienen ninguna senal de reserva. Por eso recibe el resumen del hilo y el agente
 que venia atendiendo, con una regla explicita de continuidad.
 """
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -83,6 +86,45 @@ _ultimo_agente: dict[str, str] = {}
 # Evita abrir una tarjeta nueva cada vez que el agente vuelve a levantar la mano
 # dentro del mismo hilo (ver `_escalar`).
 _escalado_de: dict[str, str] = {}
+
+# Revisiones pausadas por HumanInTheLoopMiddleware. El estado detallado del
+# agente vive en su checkpointer; aquí se conserva el contexto de negocio que
+# recibirá la tool cuando el staff reanude el mismo thread_id.
+_revisiones: dict[str, dict] = {}
+ARCHIVO_REVISIONES = Path(__file__).resolve().parent.parent / "agentes" / "datos" / "revisiones_hitl.json"
+_revisiones_cargadas = False
+
+
+def _cargar_revisiones() -> None:
+    """Carga una sola vez las revisiones HITL persistidas al registro en memoria.
+
+    Tolera archivo ausente, ilegible o JSON invalido; solo incorpora un
+    diccionario. El checkpoint detallado del agente se guarda por separado."""
+    global _revisiones_cargadas
+    if _revisiones_cargadas:
+        return
+    try:
+        datos = json.loads(ARCHIVO_REVISIONES.read_text(encoding="utf-8"))
+        if isinstance(datos, dict):
+            _revisiones.update(datos)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    _revisiones_cargadas = True
+
+
+def _guardar_revisiones() -> None:
+    """Persiste las revisiones mediante archivo temporal y reemplazo del JSON.
+
+    Omite el objeto contexto, que no es serializable; los errores de escritura
+    se propagan. Los datos de negocio serializables quedan en cada revision."""
+    ARCHIVO_REVISIONES.parent.mkdir(parents=True, exist_ok=True)
+    serializable = {
+        sid: {clave: valor for clave, valor in item.items() if clave != "contexto"}
+        for sid, item in _revisiones.items()
+    }
+    temporal = ARCHIVO_REVISIONES.with_suffix(".tmp")
+    temporal.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporal.replace(ARCHIVO_REVISIONES)
 
 
 class EstadoConversacion(TypedDict, total=False):
@@ -199,6 +241,10 @@ def _mensaje_de(estado: EstadoConversacion) -> str:
 
 
 def _resumen_del_hilo(historial: list[dict]) -> str:
+    """Resume los ultimos TURNOS_PARA_ENRUTAR mensajes para el planificador.
+
+    Etiqueta Cliente o Clemente y recorta cada contenido a 220 caracteres;
+    sin historial devuelve un marcador. No es un resumen generado por un LLM."""
     if not historial:
         return "(sin conversacion previa)"
     lineas = []
@@ -226,6 +272,17 @@ def _limpiar_plan(pasos: list[str]) -> list[str]:
 # ------------------------------- nodos -------------------------------------
 
 def _nodo_planificador(estado: EstadoConversacion) -> dict:
+    """Calcula el plan ordenado de resolucion del turno y devuelve la actualizacion del estado.
+
+    Lee mensaje, historial, ultimo_agente y sesion_id. Solicita al modelo
+    PlanDeResolucion, elimina pasos repetidos o desconocidos y limita el plan
+    a PASOS_MAXIMOS. Escribe plan, paso=0, motivo_ruta y respuestas=[]; registra
+    el plan para auditoria, sin responder al cliente ni ejecutar herramientas.
+
+    Sin mensaje devuelve un plan vacio para ir al cierre sin llamar al modelo.
+    Si falla la invocacion o procesamiento de la decision, usa ultimo_agente
+    o informacion y registra el error. La construccion del modelo ocurre
+    antes del try: sus errores se propagan al llamador."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     mensaje = _mensaje_de(estado)
@@ -270,9 +327,22 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
 
 
 def _nodo_trabajo(nombre: str):
-    """Fabrica el nodo de un paso del plan: mismo cuerpo para todos."""
+    """Devuelve el nodo ejecutor para un nombre del registro NODOS.
+
+    Se usa para registrar informacion, reservas e incidencias con el mismo
+    contrato de estado. La funcion devuelta acumula texto, avanza paso y
+    conserva contexto; _siguiente decide la transicion al terminar.
+    Un nombre que no exista produce KeyError cuando se ejecuta el nodo.
+    """
 
     def nodo(estado: EstadoConversacion) -> dict:
+        """Ejecuta el componente capturado por nombre y devuelve el progreso del turno.
+
+        Lee mensaje, historial, sesion_id y contexto del estado; si falta contexto
+        crea uno para Studio. Llama NODOS[nombre], mide su duracion, agrega
+        {agente, texto} a respuestas e incrementa paso. Comparte contexto de
+        negocio entre pasos; no inserta la respuesta previa en el historial
+        del siguiente agente. Los errores del componente se propagan."""
         sesion = _sesion_de(estado)
         mensaje = _mensaje_de(estado)
         # Lanzado desde Studio no viene contexto: se arma uno para que las tools
@@ -296,7 +366,12 @@ def _nodo_trabajo(nombre: str):
 
 
 def _siguiente(estado: EstadoConversacion) -> str:
-    """Que sigue: el proximo paso del plan, o el cierre si ya no quedan."""
+    """Selecciona la transicion condicional usando plan y paso, sin llamar al modelo.
+
+    Devuelve plan[paso] mientras queden pasos y no se supere PASOS_MAXIMOS;
+    en otro caso devuelve cierre. No modifica el estado. El plan debe estar
+    normalizado por _limpiar_plan antes de llegar a esta funcion.
+    """
     plan = estado.get("plan") or []
     paso = estado.get("paso", 0)
     if paso < len(plan) and paso < PASOS_MAXIMOS:
@@ -374,12 +449,19 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
 
 def _nodo_cierre(estado: EstadoConversacion) -> dict:
     """
-    Punto UNICO de salida del orquestador.
+    Construye la respuesta final del recorrido del grafo y gestiona escalamiento.
 
-    Aqui pasan, en este orden, las cuatro cosas que Boris pidio que no estuvieran
-    repartidas entre los agentes: se junta la respuesta, se abre el ticket si
-    alguien levanto la mano, se deja la traza y se decide con que etiqueta sale
-    el turno.
+    Lee respuestas, sesion_id, mensaje y contexto. Devuelve respuesta, ruta
+    y contexto; la ruta conserva el ultimo componente que atendio el turno.
+    Sin respuestas devuelve SIN_MENSAJE. Si hay confirmacion_pendiente usa
+    el resumen del servidor en lugar del texto de reservas; en otro caso
+    sintetiza las respuestas con _sintetizar.
+
+    Si contexto solicita escalamiento, _escalar crea o actualiza el caso y
+    registra la traza. Sustituye promesas del modelo por el codigo devuelto,
+    sin confirmar una mesa. Si falla, devuelve un aviso y desactiva escalado.
+    Un codigo local no acredita entrega a Trello o notificacion al personal.
+    La validacion de salida del canal se ejecuta despues, en _atender.
     """
     sesion = _sesion_de(estado)
     respuestas = estado.get("respuestas") or []
@@ -432,6 +514,12 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
 
 
 def _construir_grafo():
+    """Construye y compila el StateGraph que ejecuta la orquestacion.
+
+    Registra planificador, componentes de NODOS y cierre. START conduce al
+    planificador; _siguiente decide cada paso mediante aristas condicionales;
+    cierre conduce a END. Devuelve el grafo compilado sin ejecutar modelos.
+    El grafo externo no configura checkpointer; reservas configura el suyo."""
     from langgraph.graph import END, START, StateGraph
 
     grafo = StateGraph(EstadoConversacion)
@@ -467,6 +555,7 @@ def _construir_grafo():
 
 
 def obtener_grafo():
+    """Devuelve el grafo compilado del proceso, construyendolo solo en la primera llamada."""
     global _grafo
     if _grafo is None:
         _grafo = _construir_grafo()
@@ -494,8 +583,17 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
     """
     Punto de entrada del orquestador: lo unico que llama la capa de comunicacion.
 
-    Devuelve siempre una RespuestaClemente, incluso ante error: un canal de chat
-    no puede quedarse mudo.
+    Crea el contexto y estado del turno. Primero intenta confirmar un permiso
+    exacto mediante autorizacion.confirmar: esa operacion no llama al LLM.
+    Para texto conversacional descarta la propuesta anterior y ejecuta el
+    grafo compilado. Actualiza continuidad, guarda revisiones HITL pendientes
+    y registra el turno con el plan completo para auditoria.
+
+    Devuelve RespuestaClemente con texto, ruta, motivo y datos de negocio.
+    Captura errores del bloque de confirmacion/ejecucion y construye un aviso;
+    errores posteriores de persistencia no estan cubiertos por ese bloque.
+    El bloqueo PII y Guardrails AI del canal pertenecen a _atender: invocar
+    esta funcion directamente no ejecuta esas validaciones HTTP.
     """
     contexto = ContextoConversacion(sesion_id=entrante.sesion_id, canal=entrante.canal)
     estado_inicial: EstadoConversacion = {
@@ -547,6 +645,16 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
         )
 
     plan = final.get("plan") or []
+    revision = contexto.datos.get("revision_humana")
+    if revision and revision.get("estado") == "pendiente":
+        _cargar_revisiones()
+        _revisiones[entrante.sesion_id] = {
+            "sesion_id": entrante.sesion_id,
+            "contexto": contexto,
+            "solicitud": revision.get("solicitud", {}),
+            "canal": entrante.canal,
+        }
+        _guardar_revisiones()
     _ultimo_agente[entrante.sesion_id] = final["ruta"]
     duracion = (time.perf_counter() - inicio) * 1000
 
@@ -578,7 +686,60 @@ def olvidar_sesion(sesion_id: str) -> None:
     """
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
+    _cargar_revisiones()
+    if _revisiones.pop(sesion_id, None) is not None:
+        _guardar_revisiones()
     autorizacion.descartar(sesion_id)
+
+
+def revisiones_pendientes() -> list[dict]:
+    """Vista serializable para el panel/API del staff; no expone objetos internos."""
+    _cargar_revisiones()
+    return [
+        {"sesion_id": sid, "solicitud": item["solicitud"], "canal": item["canal"]}
+        for sid, item in _revisiones.items()
+    ]
+
+
+def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> RespuestaClemente:
+    """Aprueba o rechaza la ejecución pausada y termina el turno en el cierre único."""
+    _cargar_revisiones()
+    pendiente = _revisiones.get(sesion_id)
+    if pendiente is None:
+        raise KeyError("No existe una revisión pendiente para esa sesión")
+    if decision not in {"approve", "reject"}:
+        raise ValueError("La decisión debe ser approve o reject")
+
+    from ..agentes import reservas
+
+    contexto = pendiente.get("contexto") or ContextoConversacion(
+        sesion_id=sesion_id, canal=pendiente.get("canal", "webchat"),
+    )
+    decision_hitl = {"type": decision}
+    if motivo:
+        decision_hitl["message"] = motivo
+    texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
+    contexto.datos["revision_humana"] = {
+        "estado": "aprobada" if decision == "approve" else "rechazada",
+        "flujo": "reservas", "decision": decision, "motivo": motivo,
+    }
+    final = _nodo_cierre({
+        "sesion_id": sesion_id,
+        "mensaje": f"decisión del staff: {decision}",
+        "contexto": contexto,
+        "respuestas": [{"agente": "reservas", "texto": texto_agente}],
+    })
+    _revisiones.pop(sesion_id, None)
+    _guardar_revisiones()
+    registrar(
+        "hitl_resuelto", sesion_id, agente="reservas",
+        detalle={"decision": decision, "motivo": motivo},
+    )
+    return RespuestaClemente(
+        texto=final["respuesta"], agente="reservas", sesion_id=sesion_id,
+        motivo_ruta="revisión humana de excepción de capacidad",
+        escalado=contexto.escalado, datos=contexto.datos,
+    )
 
 
 def diagrama_mermaid() -> str:

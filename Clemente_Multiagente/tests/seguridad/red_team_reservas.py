@@ -106,6 +106,10 @@ def construir_callback(objetivo: str, diario: Path | None = None):
     from app.orquestador import responder
 
     def _responder_sincrono(entrada: str, sesion: str) -> str:
+        """Llama al objetivo elegido con una sesion nueva y devuelve su texto.
+
+        En sistema revisa trazas y propaga errores del objetivo, evitando que
+        un fallo tecnico se contabilice como defensa exitosa."""
         if objetivo == "reservas":
             from app.agentes.reservas import responder as responder_reservas
 
@@ -120,12 +124,17 @@ def construir_callback(objetivo: str, diario: Path | None = None):
         return respuesta.texto
 
     async def callback(entrada: str, turnos=None) -> RTTurn:
+        """Adapta un ataque de un turno al objetivo y devuelve RTTurn del asistente.
+
+        Rechaza historial adicional, ejecuta fuera del loop con to_thread y
+        registra inicio, respuesta o error en el diario; propaga los fallos."""
         from tests.seguridad.entorno import registrar_turno
         if turnos:
             raise ValueError("Este montaje solo admite ataques de un turno")
         identificador = uuid.uuid4().hex
         sesion = f"redteam-{identificador}"
         def anotar(**datos):
+            """Anexa evidencia del ataque con identificador y sesion cuando se configura un diario."""
             if diario is not None:
                 registrar_turno(diario, {"id": identificador, "sesion": sesion, **datos})
         anotar(estado="iniciado", entrada=entrada)
@@ -202,6 +211,7 @@ def ejecutar(callback, vulnerabilidades, ataques, destino: Path | None = None,
     if destino is not None and simulador is not None and hasattr(simulador, "a_simulate"):
         simular = simulador.a_simulate
         async def simular_y_guardar(*args, **kwargs):
+            """Ejecuta el simulador y persiste ataques antes de evaluarlos para conservar evidencia parcial."""
             from tests.seguridad.entorno import guardar_json
             casos = await simular(*args, **kwargs)
             guardar_json(destino / "casos_simulados.json", [c.model_dump(mode="json") for c in casos])
@@ -290,6 +300,10 @@ def escribir_informe(evaluacion, objetivo: str, destino: Path) -> None:
 
 
 def main() -> None:
+    """Procesa la CLI de red team, configura aislamiento y guarda manifiesto y resultados.
+
+    --plan muestra la configuracion; las opciones de ejecucion pueden consumir
+    APIs de objetivo, simulador y juez. --si omite la pregunta de inicio."""
     import os
     import uuid
     from importlib.metadata import version

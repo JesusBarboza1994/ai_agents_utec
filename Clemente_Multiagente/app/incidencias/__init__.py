@@ -49,6 +49,7 @@ def backend_activo() -> str:
 
 
 def obtener_servicio() -> ServicioIncidencias:
+    """Selecciona JSON, Trello o MCP con backend_activo y reutiliza la instancia del proceso."""
     global _servicio
     if _servicio is None:
         backend = backend_activo()
@@ -72,5 +73,6 @@ def obtener_servicio() -> ServicioIncidencias:
 
 
 def reiniciar_servicio() -> None:
+    """Descarta la instancia en memoria para reconstruirla con la configuracion vigente."""
     global _servicio
     _servicio = None

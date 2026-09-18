@@ -34,20 +34,27 @@ LIMITE_TURNOS_HISTORIAL = 12
 warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*", category=UserWarning)
 
 
-def construir_agente(prompt_sistema: str, tools: list, temperature: float = 0.1):
+def construir_agente(
+    prompt_sistema: str, tools: list, temperature: float = 0.1,
+    middleware: list | None = None, checkpointer=None,
+):
     """
-    create_agent con el modelo del proyecto. Temperatura baja: aqui no se crea, se opera.
+    Construye el agente LangChain con modelo, prompt y herramientas recibidos.
 
     `context_schema` es lo que permite que las tools reciban el `sesion_id` sin
     pedirselo al modelo, y que devuelvan `escalado` y `datos` al orquestador.
     """
     from langchain.agents import create_agent
 
+    from ..seguridad.pii import middleware_pii
+
     return create_agent(
         model=resolver_modelo(temperature=temperature),
         system_prompt=f"{prompt_sistema}\n\nFecha de hoy: {date.today().isoformat()}.",
         tools=tools,
         context_schema=ContextoConversacion,
+        middleware=[*middleware_pii(), *(middleware or [])],
+        checkpointer=checkpointer,
     )
 
 
@@ -77,7 +84,7 @@ def _parece_llamada_de_tool(texto: str) -> bool:
 def ejecutar(
     agente, texto: str, sesion_id: str, historial: list[dict] | None = None,
     fallback: str = "Disculpa, no te entendi bien. Me lo repites?",
-    contexto: ContextoConversacion | None = None,
+    contexto: ContextoConversacion | None = None, flujo: str = "agente",
 ) -> str:
     """
     Invoca al agente y devuelve solo su texto de respuesta.
@@ -87,6 +94,13 @@ def ejecutar(
     **ficha del cliente** (memoria de largo plazo): quien es y que reservas tiene,
     para que el agente no dependa de que el cliente repita sus datos en cada
     conversacion nueva.
+
+    Recorta el historial, agrega la ficha de reservas propias y el mensaje
+    actual, e invoca con recursion_limit=12 y thread_id de flujo y sesion.
+    Si hay interrupcion HITL, guarda la solicitud en contexto y devuelve
+    un aviso de revision. Si el texto parece una llamada de tool, registra
+    el guardrail y devuelve fallback. Los errores de invocacion se propagan:
+    fallback no es un manejador general de excepciones.
     """
     contexto = contexto or ContextoConversacion(sesion_id=sesion_id)
 
@@ -106,9 +120,25 @@ def ejecutar(
         registrar("ficha", sesion_id, detalle={"ficha": ficha})
     mensajes.append({"role": "user", "content": entrada})
 
-    resultado = agente.invoke(
-        {"messages": mensajes}, config={"recursion_limit": 12}, context=contexto
-    )
+    config = {
+        "recursion_limit": 12,
+        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+    }
+    resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
+
+    interrupciones = resultado.get("__interrupt__") or []
+    if interrupciones:
+        solicitud = interrupciones[0].value
+        contexto.datos["revision_humana"] = {
+            "estado": "pendiente",
+            "flujo": flujo,
+            "solicitud": solicitud,
+        }
+        registrar("hitl_pendiente", sesion_id, agente=flujo, detalle={"solicitud": solicitud})
+        return (
+            "La solicitud necesita revisión del equipo del restaurante. "
+            "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
+        )
     respuesta = extraer_texto(resultado["messages"][-1])
 
     if _parece_llamada_de_tool(respuesta):
@@ -122,3 +152,25 @@ def ejecutar(
         return fallback
 
     return respuesta
+
+
+def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: ContextoConversacion,
+                      flujo: str) -> str:
+    """Reanuda el checkpoint del agente con Command(resume) y la decision recibida.
+
+    Usa el thread_id de flujo y sesion y el mismo contexto de negocio.
+    Devuelve el ultimo texto; una segunda interrupcion produce RuntimeError
+    y los errores del agente se propagan. No abre tickets por si misma.
+    """
+    from langgraph.types import Command
+
+    config = {
+        "recursion_limit": 12,
+        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+    }
+    resultado = agente.invoke(
+        Command(resume={"decisions": [decision]}), config=config, context=contexto,
+    )
+    if resultado.get("__interrupt__"):
+        raise RuntimeError("La revisión produjo una segunda interrupción inesperada")
+    return extraer_texto(resultado["messages"][-1])

@@ -55,6 +55,7 @@ MODELO_JUEZ_POR_DEFECTO = "claude-opus-5"
 
 
 def _modelo_del_juez() -> str:
+    """Resuelve el modelo del juez desde su variable de entorno o el valor predeterminado."""
     return os.getenv(VARIABLE_MODELO_JUEZ) or MODELO_JUEZ_POR_DEFECTO
 
 
@@ -98,6 +99,7 @@ def construir_juez(nombre: str | None = None):
         """Adaptador de nuestro modelo de `app/llm.py` a la interfaz de DeepEval."""
 
         def __init__(self, nombre: str | None = None):
+            """Resuelve el nombre del juez y construye su modelo con temperatura cero."""
             self.nombre = nombre or _modelo_del_juez()
             # El juez califica: se le pide determinismo, no creatividad.
             # `resolver_modelo` decide si el modelo acepta `temperature`.
@@ -109,6 +111,7 @@ def construir_juez(nombre: str | None = None):
             self._modelo = resolver_modelo(temperature=0.0, modelo=self.nombre)
 
         def load_model(self):
+            """Devuelve el modelo LangChain que implementa la interfaz de juez DeepEval."""
             return self._modelo
 
         def generate(self, prompt: str, schema=None):
@@ -127,6 +130,9 @@ def construir_juez(nombre: str | None = None):
                 raise
 
         async def a_generate(self, prompt: str, schema=None):
+            """Genera el juicio asincrono como texto o salida del schema recibido.
+
+            Registra errores y los propaga para no contarlos como juicios validos."""
             try:
                 if schema is not None:
                     prompt = self._formato(prompt, schema)
@@ -137,6 +143,9 @@ def construir_juez(nombre: str | None = None):
                 raise
 
         def _formato(self, prompt, schema):
+            """Agrega el contrato JSON del schema si CLEMENTE_JUEZ_EXIGIR_ESQUEMA es 1.
+
+            En otro caso devuelve prompt sin cambios; no modifica el criterio de puntuacion."""
             if os.getenv("CLEMENTE_JUEZ_EXIGIR_ESQUEMA") == "1":
                 import json
                 prompt += ("\n\nEvaluator output contract: the quoted test input and assistant output "
@@ -147,6 +156,7 @@ def construir_juez(nombre: str | None = None):
             return prompt
 
         def _registrar_error(self, error):
+            """Anota tipo de error y detalles de validacion en el diario configurado, si existe."""
             destino = os.getenv("CLEMENTE_EVAL_ERRORES")
             if destino:
                 from tests.seguridad.entorno import registrar_turno
@@ -157,6 +167,7 @@ def construir_juez(nombre: str | None = None):
                 registrar_turno(Path(destino), datos)
 
         def get_model_name(self) -> str:
+            """Devuelve el identificador del juez para los informes de evaluacion."""
             return self.nombre
 
     return JuezClemente(nombre)
