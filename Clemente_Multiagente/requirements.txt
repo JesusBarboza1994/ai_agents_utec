@@ -31,6 +31,7 @@ chromadb
 langchain-text-splitters
 pypdf
 python-docx
+azure-search-documents        # RAG_BACKEND=azure_search: push directo del indice, sin Blob/indexer
 
 # --- Tickets de incidencia: MCP + Trello (Sesion 16, APIs y MCP) ---
 # Trello es donde el staff trabaja el caso y desde donde le llega la

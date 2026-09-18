@@ -1,0 +1,61 @@
+name: Reindexar catalogo RAG en Azure AI Search
+
+# Push manual del catalogo (Clemente_Multiagente/app/agentes/rag/documentos/*.md)
+# al indice de Azure AI Search. No hay cron ni deteccion automatica de cambios --
+# correr esto a mano (pestana Actions -> Run workflow) cada vez que alguien edite
+# el catalogo y quiera reflejarlo en el indice de produccion.
+#
+# El script (app/agentes/rag/indice.py) habla directo con las APIs de Azure
+# Search y Azure OpenAI usando API keys -- no usa "az" CLI, asi que este
+# workflow no necesita el login OIDC que si usa deploy-azure.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Rama o tag desde donde tomar los documentos del catalogo"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: Clemente_Multiagente
+
+jobs:
+  reindexar:
+    name: Push del catalogo a Azure AI Search
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        # requirements.txt completo, no un subconjunto: "python -m app.agentes.rag.indice"
+        # importa el paquete app.agentes, y app/agentes/__init__.py trae todo el
+        # stack de agentes (incidencias, reservas) al nivel del paquete -- no hay
+        # forma de aislar solo el RAG sin instalar practicamente todo igual.
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Reindexar el catalogo
+        env:
+          RAG_BACKEND: azure_search
+          AZURE_SEARCH_ENDPOINT: ${{ vars.AZURE_SEARCH_ENDPOINT }}
+          AZURE_SEARCH_API_KEY: ${{ secrets.AZURE_SEARCH_API_KEY }}
+          AZURE_SEARCH_INDEX: ${{ vars.AZURE_SEARCH_INDEX }}
+          EMBEDDINGS_BACKEND: azure
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT: ${{ vars.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+        run: python -m app.agentes.rag.indice
