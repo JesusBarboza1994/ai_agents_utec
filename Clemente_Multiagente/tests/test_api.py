@@ -215,7 +215,7 @@ def test_whatsapp_webhook_traces_media_instead_of_dropping_it(cliente, monkeypat
 
 
 def test_el_historial_se_acumula_en_la_sesion(cliente):
-    from Clemente_Multiagente.app.communication.services.sesiones import obtener_sesion
+    from app.communication.services.sesiones import obtener_sesion
 
     sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]
     cliente.post("/api/chat", json={"mensaje": "y el domingo?", "sesion_id": sid})

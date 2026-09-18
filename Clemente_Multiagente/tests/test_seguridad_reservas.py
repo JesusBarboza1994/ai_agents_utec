@@ -248,11 +248,32 @@ def test_reset_invalida_permiso_sin_perder_propiedad(entorno):
 
 
 def test_confirmaciones_simultaneas_no_duplican_la_reserva(entorno):
+    # `connection()` (app/db/connection.py) lee la config vía `current_app`,
+    # que es un proxy atado al contexto de Flask -- y ese contexto no cruza
+    # threads solo (misma historia que ya documenta app/agentes/contexto.py
+    # para los ContextVar). Cada worker necesita empujar su propio
+    # app_context, igual que ya hace whatsapp_controller.py con su hilo de
+    # background; sin esto, el segundo hilo revienta con
+    # "Working outside of application context", no con una condicion de
+    # carrera real -- falso negativo, no una prueba de concurrencia.
     from concurrent.futures import ThreadPoolExecutor
+
+    from flask import current_app, has_app_context
+
     servicio, _ = entorno
+    # Solo el backend postgres corre dentro de un app_context (lo empuja el
+    # fixture servicio_reservas); json no lo necesita para nada.
+    app = current_app._get_current_object() if has_app_context() else None
     _, token = propuesta_crear()
+
+    def confirmar_en_su_propio_contexto():
+        if app is None:
+            return autorizacion.confirmar("propietario", token, servicio)
+        with app.app_context():
+            return autorizacion.confirmar("propietario", token, servicio)
+
     with ThreadPoolExecutor(max_workers=2) as pool:
-        resultados = list(pool.map(lambda _: autorizacion.confirmar("propietario", token, servicio), range(2)))
+        resultados = list(pool.map(lambda _: confirmar_en_su_propio_contexto(), range(2)))
     assert sum("reserva" in datos for _, datos in resultados) == 1
     assert len(servicio.buscar_reservas_de("900000001")) == 1
 

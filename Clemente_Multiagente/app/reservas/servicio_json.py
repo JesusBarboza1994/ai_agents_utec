@@ -16,13 +16,16 @@ import uuid
 from pathlib import Path
 
 from ..contratos import OpcionDisponibilidad, Reserva
+from .validaciones import (
+    TURNOS_VALIDOS,
+    clave_idempotencia,
+    validar_cambio_turno,
+    validar_datos_reserva,
+)
 
 CARPETA_DATOS = Path(__file__).parent / "datos"
 ARCHIVO_MESAS = CARPETA_DATOS / "mesas.json"
 ARCHIVO_RESERVAS = CARPETA_DATOS / "reservas.json"
-
-# Turnos que el restaurante acepta. Regla de negocio, no del agente.
-TURNOS_VALIDOS = ["12:00", "13:00", "14:00", "19:00", "20:00", "21:00", "22:00"]
 
 # Una mesa reservada bloquea su turno completo (no hay solapamiento parcial).
 DURACION_TURNO_HORAS = 2
@@ -101,20 +104,35 @@ class ServicioReservasJSON:
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
     ) -> Reserva:
-        opciones = self.consultar_disponibilidad(fecha, hora, personas, zona)
+        datos = validar_datos_reserva(
+            nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
+            personas=personas, zona=zona, notas=notas,
+        )
+        clave = clave_idempotencia(datos["telefono"], datos["fecha"], datos["hora"], datos["personas"])
+
+        reservas = self._leer()
+        existente = next(
+            (r for r in reservas if r.get("idempotency_key") == clave and r["estado"] != "cancelada"),
+            None,
+        )
+        if existente is not None:
+            return Reserva(**existente)
+
+        opciones = self.consultar_disponibilidad(
+            datos["fecha"], datos["hora"], datos["personas"], datos["zona"] or None,
+        )
         if not opciones:
             raise ValueError(
-                f"Sin mesas para {personas} personas el {fecha} a las {hora}"
-                + (f" en {zona}" if zona else "")
+                f"Sin mesas para {datos['personas']} personas el {datos['fecha']} a las {datos['hora']}"
+                + (f" en {datos['zona']}" if datos["zona"] else "")
             )
 
         reserva = Reserva(
             id=f"R-{uuid.uuid4().hex[:6].upper()}",
-            nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
-            personas=personas, zona=opciones[0].zona, mesa_id=opciones[0].mesa_id,
-            notas=notas,
+            nombre=datos["nombre"], telefono=datos["telefono"], fecha=datos["fecha"],
+            hora=datos["hora"], personas=datos["personas"], zona=opciones[0].zona,
+            mesa_id=opciones[0].mesa_id, notas=datos["notas"], idempotency_key=clave,
         )
-        reservas = self._leer()
         reservas.append(reserva.__dict__)
         self._escribir(reservas)
         return reserva
@@ -130,6 +148,7 @@ class ServicioReservasJSON:
             nueva_fecha = fecha or r["fecha"]
             nueva_hora = hora or r["hora"]
             nuevas_personas = personas or r["personas"]
+            validar_cambio_turno(fecha=nueva_fecha, hora=nueva_hora, personas=nuevas_personas)
 
             # Verificacion doble: no se confirma un cambio sin mesa real detras.
             opciones = self.consultar_disponibilidad(
