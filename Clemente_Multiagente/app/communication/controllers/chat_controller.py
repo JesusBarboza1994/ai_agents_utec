@@ -11,8 +11,25 @@ import uuid
 
 from flask import jsonify, render_template, request, session
 
-from ...contratos import MensajeEntrante
+from ...contratos import MensajeEntrante, RespuestaClemente
 from ..services import chat_service
+
+
+def _estado_ui(respuesta: RespuestaClemente) -> dict:
+    """Traduce la respuesta a tipo y etiqueta del estado visual.
+
+    Prioriza seguridad, revision pendiente, autorizacion y escalamiento;
+    si ninguno aplica devuelve el estado normal."""
+    if respuesta.agente == "seguridad":
+        return {"tipo": "seguridad", "etiqueta": "Protección activada"}
+    revision = respuesta.datos.get("revision_humana", {})
+    if revision.get("estado") == "pendiente":
+        return {"tipo": "revision_pendiente", "etiqueta": "Revisión humana pendiente"}
+    if respuesta.datos.get("guardrail_autorizacion"):
+        return {"tipo": "acceso_protegido", "etiqueta": "Acceso protegido"}
+    if respuesta.escalado:
+        return {"tipo": "escalado", "etiqueta": "Escalado al restaurante"}
+    return {"tipo": "normal", "etiqueta": ""}
 
 
 def browser_session_id() -> str:
@@ -23,11 +40,13 @@ def browser_session_id() -> str:
 
 
 def chat_demo():
+    """Inicializa la identidad firmada del navegador y renderiza el chat con panel HITL."""
     browser_session_id()
     return render_template("chat.html")
 
 
 def chat():
+    """Normaliza JSON, rechaza identidad ajena y devuelve respuesta protegida con estado visual."""
     data = request.get_json(silent=True) or {}
     text = (data.get("mensaje") or "").strip()
     if not text:
@@ -52,10 +71,12 @@ def chat():
         motivo_ruta=respuesta.motivo_ruta,
         sesion_id=respuesta.sesion_id,
         escalado=respuesta.escalado,
+        estado_ui=_estado_ui(respuesta),
     )
 
 
 def reset(sesion_id: str):
+    """Comprueba propiedad de la cookie antes de limpiar el hilo y propuestas pendientes."""
     if sesion_id != session.get("clemente_sesion"):
         return jsonify(error="No autorizado"), 403
     chat_service.reset_session(sesion_id)

@@ -17,11 +17,13 @@ from app.communication.services.whatsapp_service import (
 
 
 def _signature(url: str, form: dict, token: str) -> str:
+    """Calcula una firma Twilio de prueba para comprobar autenticacion del webhook."""
     payload = url + "".join(f"{k}{form[k]}" for k in sorted(form))
     return base64.b64encode(hmac.new(token.encode(), payload.encode(), hashlib.sha1).digest()).decode()
 
 
 def test_is_valid_request_accepts_the_correct_signature():
+    """Verifies is valid request accepts the correct signature."""
     url = "https://clemente.example.com/api/webhook/whatsapp"
     form = {"From": "whatsapp:+51999111222", "Body": "hola"}
     signature = _signature(url, form, "shared-secret")
@@ -29,6 +31,7 @@ def test_is_valid_request_accepts_the_correct_signature():
 
 
 def test_is_valid_request_rejects_wrong_signature_or_token():
+    """Verifies is valid request rejects wrong signature or token."""
     url = "https://clemente.example.com/api/webhook/whatsapp"
     form = {"From": "whatsapp:+51999111222", "Body": "hola"}
     signature = _signature(url, form, "shared-secret")
@@ -38,57 +41,70 @@ def test_is_valid_request_rejects_wrong_signature_or_token():
 
 
 def test_resolve_chat_key_strips_the_whatsapp_prefix_and_plus():
+    """Verifies resolve chat key strips the whatsapp prefix and plus."""
     assert resolve_chat_key({"From": "whatsapp:+51999111222"}) == "51999111222"
 
 
 def test_resolve_chat_key_keeps_a_business_scoped_id_as_is():
     # WhatsApp's privacy features make Twilio send this instead of a real number.
+    """Verifies resolve chat key keeps a business scoped id as is."""
     assert resolve_chat_key({"From": "whatsapp:PE.2227643368025850"}) == "PE.2227643368025850"
 
 
 def test_resolve_chat_key_is_none_without_from():
+    """Verifies resolve chat key is none without from."""
     assert resolve_chat_key({}) is None
 
 
 def test_resolve_phone_returns_none_for_a_business_scoped_id():
+    """Verifies resolve phone returns none for a business scoped id."""
     assert resolve_phone({"From": "whatsapp:PE.2227643368025850"}) is None
 
 
 def test_resolve_phone_returns_the_number_when_its_real():
+    """Verifies resolve phone returns the number when its real."""
     assert resolve_phone({"From": "whatsapp:+51999111222"}) == "51999111222"
 
 
 def test_is_business_scoped_user_id():
+    """Verifies is business scoped user id."""
     assert is_business_scoped_user_id("PE.2227643368025850")
     assert not is_business_scoped_user_id("51999111222")
 
 
 def test_format_whatsapp_address_keeps_e164_plus_for_real_numbers():
+    """Verifies format whatsapp address keeps e164 plus for real numbers."""
     assert format_whatsapp_address("51999111222") == "whatsapp:+51999111222"
 
 
 def test_format_whatsapp_address_drops_plus_for_business_scoped_ids():
+    """Verifies format whatsapp address drops plus for business scoped ids."""
     assert format_whatsapp_address("PE.2227643368025850") == "whatsapp:PE.2227643368025850"
 
 
 def test_media_content_type_reads_the_first_attachment():
+    """Verifies media content type reads the first attachment."""
     assert media_content_type({"MediaContentType0": "image/jpeg"}) == "image/jpeg"
 
 
 def test_media_content_type_is_none_for_a_text_only_message():
+    """Verifies media content type is none for a text only message."""
     assert media_content_type({"Body": "hola"}) is None
 
 
 def test_is_valid_account_skips_the_check_when_unconfigured():
+    """Verifies is valid account skips the check when unconfigured."""
     assert is_valid_account("ACanything", "")
 
 
 def test_is_valid_account_matches_the_configured_account():
+    """Verifies is valid account matches the configured account."""
     assert is_valid_account("ACexpected", "ACexpected")
     assert not is_valid_account("ACother", "ACexpected")
 
 
 def test_parse_inbound_builds_the_canonical_message():
+    """Verifies parse inbound builds the canonical message."""
     form = {
         "From": "whatsapp:+51999111222", "To": "whatsapp:+14155238886",
         "Body": " hola ", "ProfileName": "Ana", "MessageSid": "SM123",
@@ -105,6 +121,7 @@ def test_parse_inbound_builds_the_canonical_message():
 
 
 def test_parse_inbound_flags_media_without_body_as_unsupported():
+    """Verifies parse inbound flags media without body as unsupported."""
     form = {"From": "whatsapp:+51999111222", "MediaContentType0": "image/jpeg"}
     message = parse_inbound(form)
     assert message.text == ""

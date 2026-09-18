@@ -9,16 +9,19 @@ import pytest
 
 
 def test_hay_disponibilidad_en_turno_valido(servicio_reservas):
+    """Verifica que hay disponibilidad en turno valido."""
     opciones = servicio_reservas.consultar_disponibilidad("2026-09-12", "20:00", 4)
     assert opciones
     assert all(o.capacidad >= 4 for o in opciones)
 
 
 def test_no_hay_disponibilidad_fuera_de_turno(servicio_reservas):
+    """Verifica que no hay disponibilidad fuera de turno."""
     assert servicio_reservas.consultar_disponibilidad("2026-09-12", "17:30", 2) == []
 
 
 def test_asigna_la_mesa_mas_ajustada(servicio_reservas):
+    """Verifica que asigna la mesa mas ajustada."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", "2026-09-12", "20:00", 2, "salon"
     )
@@ -26,6 +29,7 @@ def test_asigna_la_mesa_mas_ajustada(servicio_reservas):
 
 
 def test_una_mesa_no_se_reserva_dos_veces(servicio_reservas):
+    """Verifica que una mesa no se reserva dos veces."""
     libres_antes = servicio_reservas.consultar_disponibilidad("2026-09-12", "20:00", 2)
     servicio_reservas.crear_reserva("Ana", "999111222", "2026-09-12", "20:00", 2, "salon")
     libres_despues = servicio_reservas.consultar_disponibilidad("2026-09-12", "20:00", 2)
@@ -33,6 +37,7 @@ def test_una_mesa_no_se_reserva_dos_veces(servicio_reservas):
 
 
 def test_cancelar_libera_la_mesa(servicio_reservas):
+    """Verifica que cancelar libera la mesa."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", "2026-09-12", "20:00", 2, "salon"
     )
@@ -45,6 +50,7 @@ def test_cancelar_libera_la_mesa(servicio_reservas):
 
 
 def test_modificar_hora_conserva_la_reserva(servicio_reservas):
+    """Verifica que modificar hora conserva la reserva."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", "2026-09-12", "20:00", 2, "salon"
     )
@@ -55,5 +61,6 @@ def test_modificar_hora_conserva_la_reserva(servicio_reservas):
 
 
 def test_sin_mesa_para_el_grupo_lanza_error(servicio_reservas):
+    """Verifica que sin mesa para el grupo lanza error."""
     with pytest.raises(ValueError):
         servicio_reservas.crear_reserva("Grupo", "999", "2026-09-12", "20:00", 30, "")

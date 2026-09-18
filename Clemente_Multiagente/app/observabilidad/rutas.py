@@ -18,6 +18,9 @@ bp = Blueprint("observabilidad", __name__, url_prefix="/api")
 
 @bp.get("/salud")
 def salud():
+    """Devuelve configuracion activa y presencia de credencial, sin llamar a modelos o servicios.
+
+    El estado ok indica esta comprobacion local, no una prueba integral de salud."""
     config = current_app.config["CLEMENTE"]
     return jsonify(
         estado="ok" if not config.falta_credencial else "sin_credencial",
@@ -32,6 +35,9 @@ def salud():
 
 @bp.get("/trazas")
 def trazas():
+    """Devuelve trazas de la sesion del navegador hasta el limite solicitado.
+
+    Una sesion ausente o ajena devuelve 403; limite se convierte a entero."""
     limite = int(request.args.get("limite", 50))
     sesion_id = session.get("clemente_sesion")
     if not sesion_id or request.args.get("sesion_id", sesion_id) != sesion_id:
@@ -41,6 +47,7 @@ def trazas():
 
 @bp.get("/metricas")
 def ver_metricas():
+    """Devuelve las metricas agregadas de las trazas conservadas en el proceso."""
     return jsonify(metricas())
 
 

@@ -1,9 +1,65 @@
 # Clemente — asistente multiagente para restaurantes
 
-> **Actualización de seguridad — 2026-09-09.** Esta nota prevalece sobre las
+> **Documentacion del codigo revisada el 2026-09-18.** Consulta la
+> [guia de nodos, funciones, guardrails y limites reales](docs/GUIA_CODIGO.md)
+> y el [indice de todas las definiciones Python](docs/INDICE_CODIGO.md).
+> Estas referencias describen el codigo actual y prevalecen sobre las
+> explicaciones historicas del flujo. Verifica cobertura y sintaxis con
+> `python docs/verificar_documentacion.py`; esa auditoria no ejecuta pruebas funcionales.
+
+## Índice
+
+1. [Cómo funciona, en una página](#1-cómo-funciona-en-una-página)
+   - [El orquestador y los dos agentes](#el-orquestador-y-los-dos-agentes)
+   - [Cómo planifica el orquestador](#cómo-planifica-el-orquestador)
+   - [Dos niveles de grafo y el patrón ReAct](#dos-niveles-de-grafo-y-el-patrón-react)
+   - [Seguridad con Guardrails AI, PII y toxicidad](#seguridad-con-guardrails-ai-pii-y-toxicidad)
+   - [Por qué LangGraph](#por-qué-langgraph-y-no-un-ifelif)
+2. [Quién hace qué](#2-quién-hace-qué)
+3. [Puesta en marcha](#3-puesta-en-marcha)
+   - [3.1 Elección de modelo](#31-elección-de-modelo)
+   - [3.2 Ver el grafo en LangGraph Studio](#32-ver-el-grafo-en-langgraph-studio)
+   - [3.3 Todos los comandos](#33-todos-los-comandos-en-un-solo-lugar)
+   - [3.4 Banco de modelos](#34-banco-de-modelos-cuánto-gasta-y-cuánto-tarda-cada-uno)
+   - [Resultado medido](#resultado-medido-2026-09-08)
+4. [API HTTP](#4-api-http)
+5. [Qué ocurre con un mensaje, paso a paso](#5-qué-ocurre-con-un-mensaje-paso-a-paso)
+6. [Contratos entre módulos](#6-contratos-entre-módulos)
+7. [Datos y reglas de negocio](#7-datos-y-reglas-de-negocio)
+8. [Tickets por MCP](#8-los-tickets-por-mcp-sesión-16)
+   - [El camino completo de un reclamo](#el-camino-completo-de-un-reclamo)
+   - [Por qué la vuelta de más](#por-qué-la-vuelta-de-más)
+   - [Los dos transportes](#los-dos-transportes-y-por-qué-hacen-falta-los-dos)
+   - [Los tres backends de incidencias](#los-tres-backends-de-incidencias)
+   - [Comandos](#comandos)
+   - [Cómo se ve el MCP](#cómo-se-ve-el-mcp)
+   - [Lo que no se hizo](#lo-que-no-se-hizo-y-por-qué)
+9. [Observabilidad](#9-observabilidad)
+10. [Evaluación y seguridad](#10-evaluación-y-seguridad-módulo-8)
+    - [10.1 El dataset](#101-el-dataset)
+    - [10.2 Los cuatro corredores](#102-los-cuatro-corredores)
+    - [10.3 El juez](#103-el-juez)
+    - [10.4 Red teaming](#104-red-teaming)
+11. [Estado y hallazgos](#11-estado-y-hallazgos)
+    - [Prueba de extremo a extremo](#prueba-de-extremo-a-extremo-del-2026-09-03-modelo-local-llama32)
+    - [Primera corrida de evaluación](#primera-corrida-de-evaluación-2026-09-07-claude-sonnet-5)
+    - [Evaluación del evaluador](#el-evaluador-también-hay-que-evaluarlo)
+    - [Segunda corrida](#segunda-corrida-los-hallazgos-que-sí-eran-del-agente)
+    - [Estado medido al cierre](#estado-medido-al-cierre-del-2026-09-07)
+    - [Primera medición de la arquitectura nueva](#primera-medición-de-la-arquitectura-nueva-2026-09-08-claude-sonnet-5)
+    - [Defectos encontrados por la v1](#los-tres-defectos-que-encontró-la-v1-y-que-ninguna-prueba-de-contrato-veía)
+    - [Giro de arquitectura](#el-giro-de-arquitectura-del-2026-09-07-asesoría-con-boris)
+12. [Estructura del repositorio](#12-estructura-del-repositorio)
+    - [12.1 Si buscas… está aquí](#121-si-buscas-está-aquí)
+    - [12.2 El árbol completo](#122-el-árbol-completo)
+13. [Documentos del proyecto](#13-documentos-del-proyecto)
+
+> **Estado verificado — 2026-09-18.** Esta nota prevalece sobre las
 > descripciones históricas de acceso y confirmación de este README.
-> Validación actual: **94 pruebas aprobadas**, sin llamadas a modelos ni a Trello.
-> Informe: [revisión y correcciones de los pasos 1–3](docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md).
+> Validación actual: **193 pruebas aprobadas, sin fallos ni omisiones**, con Postgres aislado.
+> Las cifras posteriores de 126 casos son históricas. Ver [cambios y validación del PR](docs/PR_GUARDRAILS.md).
+> El informe de los pasos 1–3 es un antecedente histórico. Desde entonces se incorporaron
+> `create_agent`, HIL persistente, Guardrails AI, PII, toxicidad y su representación en el webchat.
 >
 > Las tools de crear, modificar y cancelar ahora **preparan** una operación. El
 > servidor muestra el resumen exacto y exige otro mensaje `CONFIRMO <código>`:
@@ -20,32 +76,19 @@
 > conservar la cookie; usar después el identificador devuelto por el servidor.
 > Las trazas, conversaciones y reinicios HTTP se limitan a esa sesión. El webhook
 > de WhatsApp (`POST /api/webhook/whatsapp`) permanece deshabilitado salvo que
-> se configure `CLEMENTE_DATABASE_URL`. **La validación de la firma de Twilio
-> está apagada a propósito** (proyecto de prueba, sin tráfico real de Twilio
-> todavía): `whatsapp_service.is_valid_request` sigue ahí, probada, lista para
-> reactivarse con una línea en `whatsapp_controller.py` antes de exponer esto
-> a internet de verdad. El mensaje se guarda en Postgres (cliente, chat y
-> mensaje), y la ventana de 7 días que vería el LLM se calcula al leer, sin
-> una fila de sesión. El envío de la respuesta al cliente todavía está
-> pendiente de conectarse al LLM (`app/communication/services/llm_bridge.py`);
-> el servicio que la entregaría por WhatsApp ya existe
-> (`app/communication/services/outbound_whatsapp_service.py`).
-> Configurar `CLEMENTE_SECRET_KEY` estable evita invalidar cookies al reiniciar.
->
-> `app/agentes/datos/autorizaciones.sqlite3` guarda permisos y propuestas, no las
-> reservas. El gestor de reservas continúa en JSON y aún necesita la mejora de
-> concurrencia prevista. Los escalamientos informan el código efectivamente
-> guardado sin garantizar una notificación no comprobada; los errores no fingen
-> atención humana. El juez recibe también la evidencia del cierre del orquestador.
+> se configure `CLEMENTE_DATABASE_URL`. La firma de Twilio es obligatoria: sin firma valida no se acepta la identidad ni se inicia procesamiento. El webhook comparte los guardrails del webchat.
 
 Proyecto final del **Programa en Diseño e Implementación de Agentes IA** (UTEC Posgrado) — **Grupo 02**.
-Implementa la arquitectura declarada en el *Entregable 01*: **tres agentes especializados**
-coordinados por un orquestador, expuestos por un único canal conversacional.
+Implementa la evolución de la arquitectura declarada en el *Entregable 01*: **dos agentes
+especializados** —Reservas e Incidencias— coordinados por un orquestador. El orquestador también
+atiende las consultas de conocimiento mediante el RAG del catálogo. Todo se expone por un único
+canal conversacional.
 
-**Alcance cerrado del entregable:** los tres agentes (Reservas y Capacidad, Incidencias y
-Experiencia, Conocimiento). El flujo de pedidos, delivery y recojo del caso de estudio **queda
-fuera**. Canal real: **WhatsApp vía Twilio**; el webchat incluido es solo para desarrollar y
-demostrar sin depender de Twilio.
+**Alcance cerrado del entregable:** dos agentes especializados (Reservas y Capacidad;
+Incidencias y Experiencia) más las consultas de Conocimiento resueltas por el orquestador con
+RAG. El flujo de pedidos, delivery y recojo del caso de estudio **queda fuera**. El canal previsto
+es **WhatsApp vía Twilio**, con firma obligatoria y guardrails compartidos; el webchat incluido es
+el canal actualmente disponible para desarrollar y demostrar el sistema.
 
 ---
 
@@ -147,7 +190,7 @@ flowchart LR
 ```
 
 **Colores = responsable.** Azul: Jesús (canal WhatsApp con Twilio, comunicación y sesiones).
-Verde: Christian y Jean (orquestador, los tres agentes y el RAG). Ámbar: Miguel (gestor de
+Verde: Christian y Jean (orquestador, los dos agentes y el RAG). Ámbar: Miguel (gestor de
 reservas). Morado: Adrián (observabilidad). Gris: piezas comunes del proyecto — entre ellas el
 **webchat, que es una herramienta interna de desarrollo y demostración: no pasa por Twilio ni
 forma parte del canal de producción**.
@@ -254,6 +297,57 @@ modelos que sí la tienen, pedirlo en el *prompt* empuja al modelo a **escribir*
 de **invocarla** — exactamente la falla que se documentó con `llama3.2` (sección 11) y la razón de
 que exista el guardrail de salida en `app/agentes/base.py`.
 
+### Seguridad con Guardrails AI, PII y toxicidad
+
+El proyecto conserva todos sus controles deterministas y añade el framework que se trabajó en
+la sesión 24 como defensa en profundidad. Antes del orquestador,
+`app/seguridad/guardrails_ai.py` envía el mensaje al servicio aislado
+`guardrails_service/`, que ejecuta `Guard().use(DetectJailbreak(...))`. Una detección positiva
+termina el turno sin llamar al planificador, al modelo ni a ninguna tool. El resultado queda en
+trazas como `guardrail_input`.
+
+**Estado exacto de los guardrails implementados:**
+
+| Guardrail | Tipo | Estado | Qué impide o controla |
+|---|---|---|---|
+| `DetectJailbreak` | Guardrails AI | **Implementado** | Bloquea intentos de jailbreak antes del orquestador, el LLM y las tools; también se evalúa con casos de prompt injection |
+| `ToxicLanguage` + reglas en español | Guardrails AI + propio | **Implementado** | Bloquea amenazas, acoso grave y discriminación en entrada y salida; permite reclamos duros sin amenazas |
+| `PIIMiddleware` | LangChain | **Implementado** | Redacta correos y tarjetas en entradas, salidas y resultados de tools |
+| PII y secretos en el canal | Propio, determinista | **Implementado** | Bloquea tarjetas, API keys y credenciales; redacta correo, DNI, IP, MAC y teléfono en respuestas y trazas |
+| Autorización por sesión | Propio, determinista | **Se conserva** | Impide consultar, modificar o cancelar reservas de otra sesión aunque se conozca el teléfono o código |
+| Confirmación `CONFIRMO <código>` | Propio, determinista | **Se conserva** | Ninguna creación, modificación o cancelación se ejecuta directamente desde una respuesta del modelo |
+| `HumanInTheLoopMiddleware` | LangChain | **Implementado** | Pausa solicitudes de más de 10 personas hasta que el *staff* las apruebe o rechace |
+| Restricción de tools por agente | Propio, determinista | **Se conserva** | El orquestador no puede reservar y el agente de incidencias no puede cerrar casos ni conceder compensaciones |
+| Disponibilidad y políticas con evidencia | Propio | **Se conserva** | Obliga a consultar las tools o el RAG antes de afirmar disponibilidad o citar una política |
+| Detección de tools escritas como texto | Propio, salida | **Se conserva** | Descarta respuestas donde el modelo imprime una supuesta llamada en vez de ejecutar la tool |
+| Cierre con evidencia del orquestador | Propio, salida | **Se conserva** | Evita anunciar reservas, tickets o escalamientos que no aparecen en el resultado real de las herramientas |
+| Límite del plan | Propio, determinista | **Se conserva** | Elimina pasos repetidos y limita cada turno a dos pasos de agentes |
+
+El teléfono y el nombre se permiten dentro del flujo autorizado porque son necesarios para una
+reserva; no se muestran completos en respuestas ni trazas. El detector dedicado de *prompt
+injection* continúa pendiente por la incompatibilidad de `rebuff` con Python 3.13.
+
+Guardrails AI corre en un entorno separado porque `DetectJailbreak` instala una pila de
+Hugging Face, Click y OpenTelemetry incompatible con DeepEval y la observabilidad del proceso
+principal. El aislamiento también evita cargar varios modelos de clasificación dentro de cada
+worker de Clemente. En Windows, el entorno y la caché usan rutas cortas para no superar el
+límite de longitud de PyTorch. Las instrucciones reproducibles están en
+`guardrails_service/README.md`.
+
+La política de operación es explícita:
+
+| Situación | Acción |
+|---|---|
+| El validador permite la entrada | Se usa `validated_output`, no el texto original |
+| Detecta jailbreak o inyección | Se bloquea antes del LLM y se registra el motivo |
+| Servicio caído o timeout | Se registra `guardrail_error` y continúa con los controles deterministas existentes |
+| `CLEMENTE_GUARDRAILS_URL` vacío | Servicio externo deshabilitado; continúan activos los controles deterministas y `PIIMiddleware` |
+
+El paquete `guardrails-ai-detect-prompt-injection` usado en el material no se instala: su
+dependencia `rebuff>=0.1.1` no ofrece una distribución compatible con Python 3.13. La implementación
+usa `DetectJailbreak` y mide también casos de inyección. No se baja la versión de Python exigida
+por el curso ni se presenta el clasificador como una garantía absoluta.
+
 ### Por qué LangGraph y no un `if/elif`
 
 Hasta el 2026-09-07 esta sección decía, con razón, que un `if/elif` daba el mismo
@@ -276,20 +370,20 @@ A eso se suman las razones que ya valían antes:
    sustenta la arquitectura en la presentación final.
 4. **Agregar un tercer agente** es un nodo más y una entrada en `NODOS`: no se reescribe el
    despacho.
-5. **Lo que falta solo existe ahí.** Dos cosas del *backlog* son primitivas de LangGraph y no de
-   un `if`: el ***checkpointer*** para persistir el historial del hilo (hoy vive en memoria RAM) y
-   el `interrupt()` para que el escalamiento al *staff* espere una respuesta humana antes de
-   seguir — *human-in-the-loop* de verdad, no un aviso.
+5. **Pausa decisiones sensibles.** El agente de reservas usa
+   `HumanInTheLoopMiddleware`, un checkpointer SQLite e `interrupt()` para que el *staff*
+   apruebe o rechace excepciones de capacidad antes de ejecutar la tool.
 
 Para ser exactos sobre lo que **no** se está usando: no hay ejecución en paralelo de varios
-agentes (los pasos del plan corren en secuencia) y todavía no hay *checkpointer*. La topología
+agentes (los pasos del plan corren en secuencia). El checkpointer está acotado al agente de
+reservas y a su revisión humana; la topología
 sigue siendo la de **supervisor** de la Sesión 15.
 
 ## 2. Quién hace qué
 
 | Frente | Responsable | Carpeta |
 |---|---|---|
-| Comunicación y conexión con WhatsApp (Twilio) | **Jesús** | `app/comunicacion/` |
+| Comunicación y conexión con WhatsApp (Twilio) | **Jesús** | `app/communication/` |
 | Orquestador + los 2 agentes + RAG | **Christian, Jean** | `app/orquestador/`, `app/agentes/` |
 | Gestor de reservas | **Miguel** | `app/reservas/` |
 | Observabilidad | **Adrián** | `app/observabilidad/` |
@@ -304,13 +398,30 @@ Reglas de trabajo, ramas y decisiones abiertas: [`ACUERDOS_EQUIPO.md`](ACUERDOS_
 
 **Requisitos**
 
-- **Python 3.11+** (probado en 3.13; `chromadb` aún no publica *wheels* para 3.14).
+- **Python 3.13 o superior**, conforme a la configuración indicada en el curso. Para este
+  proyecto se recomienda `>=3.13,<3.14` porque `chromadb` aún no publica *wheels* para 3.14.
 - **Una clave de API**: `ANTHROPIC_API_KEY` u `OPENAI_API_KEY`. El razonamiento del agente corre
   sobre API — decisión del equipo, tomada tras medir que el modelo local inventaba datos
   (sección 11).
 - **Ollama** solo para los *embeddings* del RAG, que siguen siendo locales y gratuitos:
   `ollama pull bge-m3`. Alternativa sin Ollama: `EMBEDDINGS_BACKEND=openai`.
 - **Clave de LangSmith** (`LANGSMITH_API_KEY`) para la observabilidad compartida.
+
+**Entorno validado — 10 de septiembre de 2026**
+
+| Componente | Versión comprobada |
+|---|---|
+| Python | `3.13.5` |
+| LangChain | `1.4.0` |
+| LangGraph | `1.2.11` |
+| LangChain Core | `1.6.1` |
+| ChromaDB | `1.5.9` |
+
+Los agentes usan la API vigente `langchain.agents.create_agent`; no utilizan el *pipelining*
+antiguo. La suite local completa terminó con **126 casos aprobados, recopilados a partir de 113
+funciones `test_*`** en este entorno. Las
+versiones de la tabla describen el entorno efectivamente probado; `requirements.txt` conserva
+rangos abiertos y por sí solo no reproduce necesariamente estas mismas versiones.
 
 **Instalación**
 
@@ -334,6 +445,7 @@ JUEZ_MODEL=claude-sonnet-5        # juez independiente de DeepEval/DeepTeam
 LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=...
 LANGSMITH_PROJECT=clemente-grupo02
+CLEMENTE_HITL_TOKEN=...           # token exclusivo de las rutas internas del staff
 ```
 
 `AGENT_MODEL` elige al proveedor que atiende al cliente. Las variables de
@@ -470,7 +582,7 @@ de razonamiento de OpenAI (GPT-5 en adelante, GPT-6, serie *o*) tienen la misma 
 python -m app.reservas.seed          # solo si usas CLEMENTE_BACKEND_RESERVAS=postgres
 python run.py                     # http://localhost:5000
 curl http://localhost:5000/api/salud
-pytest -q                         # 58 pruebas, no llaman al modelo
+pytest -q                         # 126 casos (113 funciones), no llaman al modelo
 ```
 
 `GET /api/salud` responde `{"estado": "sin_credencial", "falta": "ANTHROPIC_API_KEY"}` si el
@@ -568,7 +680,7 @@ cd D:\...\Proyecto_Final\Entregable_Final\clemente
 
 | Qué | Comando |
 |---|---|
-| Las 58 pruebas de contrato (no llaman al modelo) | `.\.venv\Scripts\python.exe -m pytest -q` |
+| Los 126 casos automatizados: 113 funciones + parametrizaciones (no llaman al modelo) | `.\.venv\Scripts\python.exe -m pytest -q` |
 | Solo las del orquestador (plan, encadenamiento, cierre) | `.\.venv\Scripts\python.exe -m pytest tests\test_orquestador.py -v` |
 | Solo las del protocolo MCP (sin red ni credenciales) | `.\.venv\Scripts\python.exe -m pytest tests\test_mcp.py -v` |
 | Una sola | `.\.venv\Scripts\python.exe -m pytest tests\test_guardrails.py -v` |
@@ -683,13 +795,15 @@ muestra el total al terminar.
 
 | Método y ruta | Descripción |
 |---|---|
-| `GET /` | webchat de demostración (muestra qué agente respondió y por qué) |
+| `GET /` | webchat de demostración: agente, estado de seguridad y panel HITL del personal |
 | `POST /api/chat` | API interna de conversación |
-| `POST /api/webhook/whatsapp` | entrada de Twilio (firma sin validar a propósito, ver sección 5; cliente/chat/mensaje en Postgres) |
+| `POST /api/webhook/whatsapp` | entrada de Twilio con firma obligatoria, guardrails compartidos y mensajes redactados en Postgres |
 | `POST /api/sesiones/<id>/reset` | reinicia un hilo de conversación |
 | `GET /api/salud` | proveedor, modelo, *backends* y credenciales faltantes |
 | `GET /api/trazas?sesion_id=&limite=` | últimas trazas (ruteo, latencia, errores) |
 | `GET /api/metricas` | métricas agregadas para el informe final |
+| `GET /api/staff/revisiones` | cola HITL protegida con `CLEMENTE_HITL_TOKEN` |
+| `POST /api/staff/revisiones/<sesion_id>/resolver` | aprueba o rechaza una interrupción HITL |
 
 **`POST /api/chat`**
 
@@ -700,11 +814,16 @@ muestra el total al terminar.
 
 // respuesta
 { "respuesta": "Sí, tengo mesa para 4 …",
-  "agente": "reservas",              // reservas | incidencias | conocimiento | orquestador
+  "agente": "reservas",              // reservas | incidencias | informacion | seguridad
   "motivo_ruta": "pide una mesa para una fecha",
   "sesion_id": "s1",
-  "escalado": false }
+  "escalado": false,
+  "estado_ui": { "tipo": "normal", "etiqueta": "" } }
 ```
+
+El webchat representa `seguridad`, `acceso_protegido`, `revision_pendiente` y `escalado` con
+insignias distintas. El panel interno permite cargar la cola HITL y aprobar o rechazar cada
+solicitud; exige el token del personal y no lo persiste en el navegador.
 
 **`GET /api/metricas`**
 
@@ -717,40 +836,8 @@ muestra el total al terminar.
 
 ## 5. Qué ocurre con un mensaje, paso a paso
 
-1. **Canal (WhatsApp)** — el flujo real está dividido en adaptador de canal + núcleo agnóstico, para
-   que sumar Facebook mañana sea otro controller + adapter, no tocar la lógica. Antes del ack solo
-   corre trabajo en memoria, nada de I/O: `routes/` enruta `POST /api/webhook/whatsapp` al controlador;
-   `controllers/whatsapp_controller.py` valida, si está configurado, que el `AccountSid` sea el
-   esperado (`services/whatsapp_service.is_valid_account`) — la firma de Twilio se valida con
-   `services/whatsapp_service.is_valid_request`, pero el controller **no la llama a propósito**
-   (proyecto de prueba, sin tráfico real de Twilio todavía; es la única línea que falta para
-   reactivarla) — y traduce el form a un
-   `IncomingMessage` (`services/whatsapp_service.parse_inbound` — el **adaptador**: solo sabe de Twilio,
-   `chat_key` a partir de `From` — normalmente el teléfono, a veces un id interno cuando WhatsApp lo
-   enmascara, ver `format_whatsapp_address`). Con eso ya responde a Twilio (TwiML vacío): **todo lo que
-   implica I/O corre después, en un hilo aparte** (`whatsapp_controller._process_in_background`) —
-   guardar el mensaje, generar la respuesta y enviarla por Twilio, porque un LLM real puede tardar
-   ~30s y el ack no debe esperarlo. Dentro de ese hilo: `services/message_service.handle_incoming_message`
-   es el **núcleo agnóstico al canal** — recibe el `IncomingMessage`, guarda cliente/chat/mensaje y
-   devuelve el `chat_id`; `digenerate_and_store_reply` arma la respuesta desde la ventana de sesión (hoy
-   mockeada en `services/llm_bridge.generate_reply` — TODO conectar el orquestador real) y la guarda
-   como turno `assistant`; por último `services/outbound_whatsapp_service.send_whatsapp_message` la
-   entrega, reconstruyendo la dirección de Twilio desde el mismo `chat_key` (real o *business-scoped
-   id*). Contrapartida asumida: si guardar falla, ya no hay forma de devolverle un 503 a Twilio para que
-   reintente — solo queda trazado (`registrar("error", ...)`); `provider_message_id` queda guardado por
-   si hace falta deduplicar reintentos más adelante. En Postgres (conexión y migraciones
-   compartidas en `app/db/`) hay tres tablas, cada una con su repositorio en `app/db/repositories/`:
-   `customers` (nombre, teléfono y lo que se sume después), `chats` (una por `chat_key`, enlazada a su
-   cliente, con `channel_number` — el número propio por el que entró) y `messages` (cada turno, con su
-   fecha y el `provider_message_id` de Twilio para una futura deduplicación). No existe una fila de
-   "sesión": la ventana de 7 días que ve el LLM se calcula al leer, filtrando `messages` por fecha
-   (`messages_repository.get_recent_messages`).
-2. **Canal (webchat)** — `controllers/chat_controller.py` arma el `MensajeEntrante` desde el JSON,
-   `services/chat_service.py` hace de puente con el orquestador, y `app/communication/sesiones.py`
-   recupera el hilo (`sesion_id`) con su historial en memoria, acotado a los últimos 20 turnos: la
-   ventana de contexto es un recurso escaso (Sesión 9). No es un canal real (ese es WhatsApp): hoy es
-   sobre todo la superficie HTTP que ejercitan la demo y `tests/test_seguridad_reservas.py` para probar
-   el orquestador de punta a punta, así que se mantiene aunque no comparta el flujo agnóstico de arriba.
+1. **Canal (WhatsApp)**: `whatsapp_controller` comprueba cuenta y firma Twilio, normaliza el formulario y devuelve TwiML. El trabajador conserva su propio contexto Flask. `message_service.process_incoming_message` recupera la ventana de Postgres, redacta mensajes antiguos y llama al flujo compartido `chat_service.handle_incoming_message`. Ese servicio bloquea tarjetas/secretos, valida entrada, invoca el orquestador, valida salida y redacta historial/respuesta. Luego se guardan ambos mensajes redactados y se envia la respuesta via Twilio. El puente simulado no participa en este recorrido. El ack sigue siendo asincrono; los errores posteriores quedan registrados y no provocan reintento automatico.
+2. **Canal (webchat)**: `chat_controller` usa la identidad de la cookie firmada y el mismo `chat_service.handle_incoming_message`. Devuelve `estado_ui` y mantiene el historial acotado en memoria. `staff_controller` expone la cola y approve/reject bajo `CLEMENTE_HITL_TOKEN`, separado de las credenciales Twilio. Resolver una revision devuelve la respuesta al personal; no la envia automaticamente por WhatsApp.
 3. **Plan** — el nodo `planificador` de `app/orquestador/grafo.py` arma la lista de pasos con
    `with_structured_output(PlanDeResolucion)`. Ve **el resumen del hilo y el agente que venía
    atendiendo**, con una regla explícita de continuidad: un dato suelto ("el sábado", "somos 4",
@@ -853,8 +940,10 @@ Reglas codificadas, no sugeridas al modelo: turnos válidos `12:00 13:00 14:00 1
 
 **Cuándo escala un grupo grande** (decisión del 2026-09-07, tomada a raíz de la evaluación).
 El agente reconoce el límite en el primer mensaje —dice que un grupo de más de 10 personas lo
-coordina el *staff* y no promete nada— pero **llama a `escalar_a_staff` recién después de pedir
-nombre y teléfono**. Escalar antes le dejaría al *staff* un caso que no puede atender, sin a quién
+coordina el *staff* y no promete nada— pero **llama a `solicitar_excepcion_grupo` recién después
+de reunir nombre, teléfono, fecha y hora**. El middleware pausa esa llamada. El *staff* puede
+aprobarla o rechazarla; solo una aprobación ejecuta la tool y llega al cierre. Escalar antes le
+dejaría al *staff* un caso que no puede atender, sin a quién
 llamar. La contrapartida asumida: si el cliente abandona en el primer turno, no queda registro.
 Está escrito así en `tests/eval/casos.json`, guion `reservas-grupo-grande-escala`.
 
@@ -864,6 +953,13 @@ orquestador, que es el único que tiene el turno completo delante. Boris **[12:3
 administra la comunicación es el orquestador, porque si no, ¿cómo persiste en el log? Al final,
 el único punto de salida"*. El argumento no es de estilo: si cada agente pudiera escalar por su
 cuenta, habría tantos puntos de escalamiento como agentes y ninguno con la conversación entera.
+
+La revisión se opera mediante `GET /api/staff/revisiones` y
+`POST /api/staff/revisiones/<sesion_id>/resolver`, con `Authorization: Bearer
+<CLEMENTE_HITL_TOKEN>`. La decisión admite únicamente `approve` o `reject`. Al aprobar, el
+orquestador crea el ticket mediante el backend MCP/Trello y devuelve su código; al rechazar, no
+se ejecuta la tool ni se crea incidencia. Las quejas y los conflictos generales conservan el
+escalamiento asíncrono directo a Trello.
 
 Y desde ahí el caso **sí llega a una persona**. Hasta el 2026-09-07 el agente prometía que *"una
 persona del restaurante continuará la coordinación"* y no había nadie recibiendo nada: la
@@ -1159,9 +1255,10 @@ respuesta, y eso se discute y se cita en el informe.
 
 ### 10.3 El juez
 
-DeepEval y DeepTeam usan **GPT-4 de OpenAI** por defecto. El equipo arrancó trabajando solo sobre
-Anthropic, así que `tests/eval/juez.py` implementa `DeepEvalBaseLLM` envolviendo el mismo
-`resolver_modelo()` de `app/llm.py`. Cambiar el juez sigue siendo una línea del `.env`:
+Los frameworks pueden usar un modelo de OpenAI con su configuración predeterminada. En Clemente
+esa decisión es explícita: `tests/eval/juez.py` implementa `DeepEvalBaseLLM` sobre
+`resolver_modelo()` de `app/llm.py`, de modo que el juez puede pertenecer a OpenAI o Anthropic.
+Cambiarlo sigue siendo una línea del `.env`:
 
 ```ini
 JUEZ_MODEL=          # vacío = claude-opus-5
@@ -1246,16 +1343,19 @@ ataques que **sí** funcionaron — es material sensible y está en el `.gitigno
 | RAG del orquestador | funcional sobre el catálogo de demostración |
 | Gestor de reservas | referencia en JSON con autorización por sesión y confirmación de operaciones |
 | Observabilidad | trazas, métricas y registro de conversaciones; LangSmith activable por `.env` |
+| Aprendizaje desde trazas | no implementado; las trazas sirven para evaluación y corrección manual, pero no reescriben prompts ni conducta |
 | Inspección del grafo (LangGraph Studio) | **lista** — `langgraph dev`, sección 3.2 |
 | Dataset de evaluación (`tests/eval/`) | listo — 13 guiones y 17 turnos |
 | Evaluación funcional con DeepEval/GEval | ejecutada el 2026-09-09 — 34 juicios: 29 aprobados, 4 bajo umbral y 1 error del juez |
 | Red teaming con DeepTeam (mapeo OWASP para LLM) | ejecutado el 2026-09-09 — 24 escenarios; resultados y errores revisados por caso |
 | Integración con Trello por MCP | validada el 2026-09-09 — creación, consulta y comentario en una tarjeta real |
-| Ética (Sesión 24) | pendiente, sin responsable asignado |
-| Conexión WhatsApp (Twilio) | pendiente — Jesús |
+| AI Policy | versión 1.1 documentada el 2026-09-11 (`docs/AI_POLICY.md`); declara Claude Code y OpenAI Codex, separa IA de desarrollo y operativa, pendiente de aprobación formal del equipo |
+| Ética (Sesión 24) | 4 principios operativos documentados el 2026-09-11 (`docs/ETICA_Y_PRINCIPIOS_OPERATIVOS.md`); transparencia al cliente y evaluación de equidad tienen responsables y fecha objetivo |
+| Conexión WhatsApp (Twilio) | implementada con firma y guardrails; entrega real requiere configurar credenciales |
 | Memoria de largo plazo (perfil del cliente) | **hecha** — perfil por teléfono en disco, ficha inyectada por turno |
-| Memoria de corto plazo persistente (historial del hilo) | pendiente — vive en RAM (`app/comunicacion/sesiones.py`, módulo de Jesús) |
-| Panel del *staff* | pendiente |
+| Memoria de corto plazo persistente (historial del hilo) | pendiente — vive en RAM (`app/communication/services/sesiones.py`, módulo de Jesús) |
+| Human-in-the-loop con `interrupt()` | **implementado para grupos de más de 10**; approve/reject, checkpointer SQLite, API autenticada y trazas |
+| Panel del *staff* | **implementado en el webchat** — cola HITL autenticada, aprobar/rechazar y estado visual |
 
 ### Prueba de extremo a extremo del 2026-09-03 (modelo local `llama3.2`)
 
@@ -1470,10 +1570,10 @@ Lo que **no** cambió y sigue valiendo: los hallazgos del RAG (`bge-m3` contra `
 el sesgo del juez, y las tres correcciones de instrumentación de la sección anterior. Esos eran
 problemas de medición, no de arquitectura.
 
-**Estado de verificación al 2026-09-09:**
+**Estado de verificación al 2026-09-10:**
 
-1. Las pruebas locales cubren el plan, el encadenamiento, el punto único de salida, el
-   protocolo MCP, la autorización de reservas y la resolución del modelo.
+1. Los 126 casos locales (113 funciones) cubren el plan, el encadenamiento, el punto único de salida, MCP,
+   autorización, HIL, PII, Guardrails AI y los estados visuales del webchat.
 2. El experimento de LangSmith de la arquitectura nueva quedó registrado como antecedente.
 3. La evaluación funcional se repitió con DeepEval/GEval, usando `gpt-5.6-terra` como objetivo
    y `claude-sonnet-5` como juez. Los resultados están en
@@ -1484,6 +1584,8 @@ problemas de medición, no de arquitectura.
    [`docs/VALIDACION_INTEGRACION_TRELLO.md`](docs/VALIDACION_INTEGRACION_TRELLO.md).
 6. Quedan como ampliaciones una muestra mayor, la evaluación completa de cada paso en planes
    compuestos y repeticiones para medir variabilidad entre corridas y modelos.
+7. El webchat muestra insignias de seguridad y revisión; el panel interno permite al personal
+   consultar, aprobar y rechazar interrupciones HIL con su token exclusivo.
 
 ## 12. Estructura del repositorio
 
@@ -1513,6 +1615,9 @@ problemas de medición, no de arquitectura.
 | **Las reglas de negocio codificadas** | `app/reservas/servicio_json.py` y `app/reservas/datos/mesas.json` |
 | **El texto de las conversaciones reales** | `app/observabilidad/datos/conversaciones.jsonl` |
 | **La memoria de largo plazo del cliente** | `app/agentes/memoria.py` + `app/agentes/datos/clientes.json` |
+| **Los guardrails de PII** | `app/seguridad/pii.py` |
+| **La conexión con Guardrails AI** | `app/seguridad/guardrails_ai.py` y `guardrails_service/` |
+| **La cola y reanudación HITL** | `app/orquestador/grafo.py` y el panel en `app/web/templates/chat.html` |
 
 ### 12.2 El árbol completo
 
@@ -1530,15 +1635,27 @@ clemente/
   README.md                       este documento
   ACUERDOS_EQUIPO.md              reglas de trabajo y decisiones del equipo
 
+  guardrails_service/             servicio aislado Guardrails AI
+    app.py                        jailbreak + toxicidad de entrada y salida
+    requirements.txt             dependencias aisladas del servicio
+    README.md                     instalación y operación
+
   app/
     __init__.py                   create_app(): fábrica de la app + blueprints
     config.py                     configuración leída del .env     <- compartido
     llm.py                        resolución de modelo y embeddings <- compartido
     contratos.py                  costuras entre módulos           <- compartido
 
-    comunicacion/                 ── JESÚS ──────────────────────────────────
-      rutas.py                    GET /, POST /api/chat, webhook de WhatsApp
-      sesiones.py                 historial por sesión (memoria corta, en RAM)
+    seguridad/
+      pii.py                      bloqueo/redacción de PII y PIIMiddleware
+      guardrails_ai.py            adaptador HTTP de entrada y salida
+
+    communication/                canales y controles compartidos
+      controllers/                chat, WhatsApp y revision humana del personal
+      routes/__init__.py          registro de endpoints
+      services/chat_service.py    PII, entrada, orquestador, salida e historial
+      services/message_service.py Postgres y flujo protegido de WhatsApp
+      services/sesiones.py        historial acotado en memoria
 
     orquestador/                  ── CHRISTIAN, JEAN ────────────────────────
       grafo.py                    grafo LangGraph: planificador, pasos y cierre
@@ -1604,16 +1721,18 @@ clemente/
       datos/conversaciones.jsonl  texto de cada turno             (generado)
 
     web/
-      templates/chat.html         webchat de demostración (3 columnas)
+      templates/chat.html         webchat, insignias de seguridad y panel HITL
       static/img/                 foto de la sala + LEEME.md
 
-  tests/                          58 pruebas de contrato — NO llaman al modelo
+  tests/                          126 casos / 113 funciones — NO llaman al modelo
     conftest.py                   fixtures compartidas
     test_api.py                   endpoints HTTP y contratos de respuesta
     test_reservas.py              reglas del gestor de reservas
     test_incidencias.py           registro de incidencias y plazos
     test_guardrails.py            guardrail de salida, contexto, memoria de
                                   largo plazo y turno sin texto
+    test_guardrails_ai.py         adapter, fallos, bloqueos y métricas del framework
+    test_pii.py                   secretos, redacción y protección de trazas
     test_orquestador.py           el plan, el encadenamiento de dos agentes y
                                   el punto único de salida
     test_mcp.py                   el servidor MCP: que publique lo que debe y,
@@ -1656,6 +1775,9 @@ es la fuente de verdad del restaurante y su historial de cambios importa.
 | [`docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md`](docs/EVALUACION_FUNCIONAL_LLM_JUDGE.md) | resultados de la evaluación funcional con DeepEval/GEval |
 | [`docs/EVALUACION_TECNICA_FUNCIONAL_LLM_COMO_JUEZ.md`](docs/EVALUACION_TECNICA_FUNCIONAL_LLM_COMO_JUEZ.md) | diseño técnico del LLM como juez |
 | [`docs/VALIDACION_INTEGRACION_TRELLO.md`](docs/VALIDACION_INTEGRACION_TRELLO.md) | evidencia de la prueba real de Trello por MCP |
+| [`docs/AI_POLICY.md`](docs/AI_POLICY.md) | declaración de transparencia sobre uso de IA en el desarrollo (herramientas, tareas, verificación, límites) |
+| [`docs/ETICA_Y_PRINCIPIOS_OPERATIVOS.md`](docs/ETICA_Y_PRINCIPIOS_OPERATIVOS.md) | 4 principios operativos (Sesión 24), clasificación bajo el D.S. N.º 115-2025-PCM y brechas declaradas (transparencia frente al cliente, equidad) |
+| [`docs/TAREA_SESION_24_ETICA_CLEMENTE.md`](docs/TAREA_SESION_24_ETICA_CLEMENTE.md) | entregable académico de la tarea grupal: evaluación ética, 5 principios operativos, perfil del agente y brechas priorizadas |
 | [`docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md`](docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md) | registro histórico de la integración y las correcciones iniciales |
 | [`app/agentes/rag/documentos/01_horarios_y_ubicacion.md`](app/agentes/rag/documentos/01_horarios_y_ubicacion.md) | fuente de conocimiento del RAG sobre horarios, dirección y zonas del restaurante |
 | [`app/agentes/rag/documentos/02_carta_y_servicios.md`](app/agentes/rag/documentos/02_carta_y_servicios.md) | fuente de conocimiento del RAG sobre carta, opciones alimentarias y servicios |

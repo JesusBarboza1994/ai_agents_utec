@@ -6,6 +6,10 @@ from .entorno import guardar_json
 
 
 def ejecutar(destino):
+    """Ejercita el ciclo de reserva con datos sinteticos y persiste evidencia de cada turno.
+
+    Comprueba propuesta sin escritura, rechazo de otra sesion y confirmacion
+    del propietario; usa el orquestador real y puede consumir API."""
     from app.contratos import MensajeEntrante
     from app.orquestador import responder
     from app.reservas import obtener_servicio
@@ -18,6 +22,9 @@ def ejecutar(destino):
     historial = []
     evidencia = []
     def turno(texto, sid=sesion):
+        """Ejecuta un turno para sid, guarda respuesta y reservas propias y actualiza el historial.
+
+        Solo la sesion principal comparte historial; devuelve el texto del turno."""
         respuesta = responder(MensajeEntrante(sesion_id=sid, texto=texto, canal="eval"),
                               historial if sid == sesion else [])
         evidencia.append({"sesion": sid, "entrada": texto, "respuesta": respuesta.texto,

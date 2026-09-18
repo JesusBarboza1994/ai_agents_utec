@@ -14,9 +14,10 @@ Trello podria ser las tres".
 Eso es exactamente lo que faltaba. Hasta ahora el agente le decia al cliente que
 "una persona del restaurante continuara la coordinacion" y **no habia nadie
 recibiendo nada**: la incidencia era una fila en un JSON que ningun humano miraba.
-La tarjeta de Trello cierra ese hueco, y la notificacion no la programamos
-nosotros -- la manda Trello al miembro asignado, que es justamente la gracia de
-apoyarse en algo que ya existe.
+La tarjeta de Trello proporciona una vista para el personal. Esta implementacion
+crea tarjetas sin asignar miembros ni comprobar entrega de notificaciones;
+esas acciones dependen de la configuracion operativa del tablero. No debe
+anunciarse que una persona fue notificada solo porque existe un codigo local.
 
 Doble escritura, y por que
 ---------------------------
@@ -65,6 +66,7 @@ def credenciales() -> tuple[str, str]:
 
 
 def hay_credenciales() -> bool:
+    """Devuelve si clave y token de Trello estan definidos, sin comprobar su validez remota."""
     clave, token = credenciales()
     return bool(clave and token)
 
@@ -78,6 +80,9 @@ class ServicioIncidenciasTrello:
     """
 
     def __init__(self, tablero: str | None = None, espejo: ServicioIncidenciasJSON | None = None):
+        """Configura el nombre del tablero, respaldo JSON y caches de listas y etiquetas.
+
+        El tablero se descubre en la primera operacion que lo necesita."""
         self.tablero_nombre = tablero or os.getenv("TRELLO_TABLERO", "Incidencias Clemente")
         self.espejo = espejo or ServicioIncidenciasJSON()
         self._tablero_id: str | None = None
@@ -87,6 +92,10 @@ class ServicioIncidenciasTrello:
     # ---------------------------- HTTP ------------------------------------
 
     def _pedir(self, metodo: str, ruta: str, **parametros):
+        """Hace una peticion a la API de Trello con credenciales y timeout.
+
+        Devuelve JSON o diccionario vacio si no hay cuerpo; propaga errores HTTP
+        y lanza RuntimeError cuando faltan las credenciales."""
         import requests
 
         clave, token = credenciales()
@@ -162,6 +171,11 @@ class ServicioIncidenciasTrello:
     ) -> Incidencia:
         # Primero el registro local: es el que garantiza que el cliente reciba un
         # codigo aunque Trello este caido.
+        """Persiste primero el caso en JSON e intenta crear su tarjeta en la lista Pendiente.
+
+        Agrega codigo, descripcion, vencimiento y etiqueta cuando esta disponible.
+        Si Trello falla registra una advertencia y devuelve el caso local: el codigo
+        no demuestra por si solo que se haya creado una tarjeta o notificado al staff."""
         incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
 
         try:
@@ -236,6 +250,9 @@ class ServicioIncidenciasTrello:
         return [i for i in locales if estado is None or i.estado == estado]
 
     def _tarjeta_de(self, incidencia_id: str) -> dict | None:
+        """Busca la tarjeta cuyo titulo comienza con incidencia_id; devuelve None si no existe.
+
+        Carga el tablero y propaga errores de la API."""
         self._cargar_tablero()
         buscado = incidencia_id.strip().upper()
         for tarjeta in self._pedir("GET", f"/boards/{self._tablero_id}/cards", fields="name"):

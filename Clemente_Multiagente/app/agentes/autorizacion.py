@@ -21,6 +21,10 @@ DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al
 
 @contextmanager
 def _db():
+    """Abre SQLite, crea las tablas de propiedad y propuestas si faltan y cede la conexion.
+
+    Confirma la transaccion al salir normalmente, la revierte ante error y
+    cierra siempre la conexion. Los errores de SQLite se propagan."""
     ARCHIVO.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(ARCHIVO, timeout=10)
     try:
@@ -33,6 +37,10 @@ def _db():
 
 
 def vincular(sesion, reserva_id):
+    """Persiste la propiedad de reserva_id para sesion.
+
+    Rechaza sesiones vacias, desconocida o studio con ValueError; una reserva
+    ya vinculada produce el error de integridad de SQLite."""
     if not sesion or sesion in {"desconocida", "studio"}:
         raise ValueError("Sesion no identificada")
     with _db() as db:
@@ -40,23 +48,39 @@ def vincular(sesion, reserva_id):
 
 
 def es_propietario(sesion, reserva_id):
+    """Devuelve si SQLite vincula exactamente reserva_id con sesion; no usa el telefono."""
     with _db() as db:
         return db.execute("SELECT 1 FROM propietarios WHERE reserva=? AND sesion=?", (reserva_id, sesion)).fetchone() is not None
 
 
 def reservas_propias(sesion, servicio):
+    """Devuelve las reservas vinculadas a sesion que todavia existen en servicio.
+
+    Incluye sus estados actuales, tambien canceladas; omite codigos inexistentes."""
     with _db() as db:
         ids = [r[0] for r in db.execute("SELECT reserva FROM propietarios WHERE sesion=?", (sesion,))]
     return [r for codigo in ids if (r := servicio.obtener_reserva(codigo)) is not None]
 
 
 def descartar(sesion):
+    """Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas."""
     with _db() as db:
         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
 
 
 def proponer(contexto, accion, datos, servicio):
-    """Las tools solo preparan. El usuario confirma el resumen generado por codigo."""
+    """Prepara crear, modificar o cancelar sin escribir una reserva en el servicio.
+
+    contexto aporta la sesion del servidor; datos contiene los parametros
+    de la operacion. Comprueba propiedad para modificar/cancelar y captura
+    el registro anterior. Para crear/modificar exige fecha no pasada y de
+    1 a 10 personas; crear tambien exige contacto y disponibilidad.
+
+    Persiste en SQLite una propuesta por sesion con token y vencimiento,
+    y guarda confirmacion_pendiente en contexto.datos. Devuelve el resumen
+    del servidor con CONFIRMO o el motivo de rechazo. Una accion desconocida
+    produce ValueError; otros errores de servicio o persistencia se propagan.
+    """
     sesion = contexto.sesion_id
     if not sesion or sesion in {"desconocida", "studio"}:
         return "No se puede preparar una operación sin una sesión identificada. Usa el chat."
@@ -64,6 +88,7 @@ def proponer(contexto, accion, datos, servicio):
     if accion in {"modificar", "cancelar"}:
         codigo = datos["reserva_id"]
         if not es_propietario(sesion, codigo):
+            contexto.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
             return DENEGADO
         actual = servicio.obtener_reserva(codigo)
         if actual is None or actual.estado == "cancelada":
@@ -113,6 +138,12 @@ def confirmar(sesion, texto, servicio):
 
     Retorna None si es texto conversacional. El token es de un uso, ligado a
     sesion, parametros y version de reserva. No se reintenta una escritura incierta.
+
+    Para un comando exacto retorna (texto, datos): rechazos tienen datos={},
+    exito incluye reserva y operacion. Comprueba sesion, token y vencimiento,
+    consume la propuesta antes de escribir y vuelve a comprobar propiedad y
+    version para modificar/cancelar. Crear vincula la reserva nueva a la sesion.
+    Convierte ValueError del servicio en rechazo; otros errores se propagan.
     """
     match = re.fullmatch(r"\s*CONFIRMO\s+([0-9A-F]{8})\s*[.!]?\s*", texto, re.I)
     if not match:

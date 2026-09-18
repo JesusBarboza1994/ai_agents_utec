@@ -29,6 +29,7 @@ from app.llm import modelo_activo, proveedor_de, resolver_modelo
 
 @pytest.fixture(autouse=True)
 def credenciales_falsas(monkeypatch):
+    """Configura credenciales ficticias para construir modelos sin usar cuentas reales."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "clave-de-prueba")
     monkeypatch.setenv("OPENAI_API_KEY", "clave-de-prueba")
 
@@ -63,6 +64,7 @@ def test_terra_es_el_modelo_predeterminado(monkeypatch):
     ("o3-mini", "openai"),
 ])
 def test_el_proveedor_sale_del_id_del_modelo(modelo, esperado):
+    """Verifica que el proveedor sale del id del modelo."""
     assert proveedor_de(modelo) == esperado
 
 
@@ -102,6 +104,7 @@ def test_el_modelo_del_enrutador_no_pisa_al_modelo_pedido(monkeypatch):
 
 
 def _reasoning_effort_de(cliente):
+    """Obtiene reasoning_effort del modelo construido para comprobar su configuracion."""
     return cliente.model_kwargs.get("reasoning_effort") or getattr(cliente, "reasoning_effort", None)
 
 

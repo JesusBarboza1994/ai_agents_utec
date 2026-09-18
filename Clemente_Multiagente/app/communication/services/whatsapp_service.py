@@ -58,6 +58,7 @@ def parse_whatsapp_address(address: str) -> str:
 
 
 def is_business_scoped_user_id(chat_key: str) -> bool:
+    """Reconoce identificadores de negocio de WhatsApp que sustituyen al telefono real."""
     return bool(_BSUID_PATTERN.match(chat_key))
 
 

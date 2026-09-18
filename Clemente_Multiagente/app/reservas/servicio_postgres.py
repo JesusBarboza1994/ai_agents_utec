@@ -30,10 +30,12 @@ TURNOS_VALIDOS = ["12:00", "13:00", "14:00", "19:00", "20:00", "21:00", "22:00"]
 
 
 class ServicioReservasPostgres:
+    """Implementa el contrato de reservas en Postgres con bloqueo transaccional de mesas y consultas parametrizadas."""
     def consultar_disponibilidad(
         self, fecha: str, hora: str, personas: int, zona: str | None = None,
         excluir_reserva_id: str | None = None,
     ) -> list[OpcionDisponibilidad]:
+        """Devuelve mesas libres del turno y capacidad solicitados; un horario no valido devuelve lista vacia."""
         if hora not in TURNOS_VALIDOS:
             return []
 
@@ -44,6 +46,7 @@ class ServicioReservasPostgres:
         return opciones
 
     def obtener_reserva(self, reserva_id: str) -> Reserva | None:
+        """Consulta una reserva por identificador; devuelve None si no existe. La propiedad se valida en la capa de autorizacion."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
@@ -54,6 +57,7 @@ class ServicioReservasPostgres:
         return self._construir(fila) if fila else None
 
     def buscar_reservas_de(self, telefono: str) -> list[Reserva]:
+        """Consulta reservas del telefono indicado; la capa de herramientas limita el acceso a la sesion propietaria."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
@@ -73,6 +77,7 @@ class ServicioReservasPostgres:
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
     ) -> Reserva:
+        """Bloquea mesas candidatas, asigna la menor disponible e inserta una reserva; sin disponibilidad lanza ValueError."""
         with connection() as conn, conn.cursor() as cur:
             opciones = self._opciones_libres(cur, fecha, hora, personas, zona, None, lock=True)
             if not opciones:
@@ -100,6 +105,7 @@ class ServicioReservasPostgres:
         self, reserva_id: str, fecha: str | None = None, hora: str | None = None,
         personas: int | None = None,
     ) -> Reserva | None:
+        """Bloquea la reserva activa y mesas candidatas, verifica disponibilidad y actualiza fecha, turno y capacidad."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
@@ -137,6 +143,7 @@ class ServicioReservasPostgres:
             return self._construir(cur.fetchone())
 
     def cancelar_reserva(self, reserva_id: str) -> Reserva | None:
+        """Bloquea y marca una reserva cancelada; devuelve None si no existe."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT id FROM reservas WHERE id = %s FOR UPDATE", (reserva_id,)
@@ -157,6 +164,7 @@ class ServicioReservasPostgres:
         self, cur, fecha: str, hora: str, personas: int,
         zona: str | None, excluir_reserva_id: str | None, lock: bool = False,
     ) -> list[OpcionDisponibilidad]:
+        """Filtra mesas por ocupacion, capacidad y zona; lock=True bloquea filas durante las escrituras."""
         cur.execute(
             "SELECT id, zona, capacidad FROM mesas ORDER BY capacidad ASC"
             + (" FOR UPDATE" if lock else "")
@@ -188,6 +196,7 @@ class ServicioReservasPostgres:
 
     @staticmethod
     def _construir(fila) -> Reserva:
+        """Convierte una fila SQL en el contrato Reserva sin consultar servicios externos."""
         (id_, nombre, telefono, fecha, hora, personas, zona,
          mesa_id, estado, notas, creada) = fila
         return Reserva(

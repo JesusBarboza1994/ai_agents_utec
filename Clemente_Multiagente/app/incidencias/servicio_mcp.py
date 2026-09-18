@@ -81,6 +81,7 @@ class ServicioIncidenciasMCP:
     """
 
     def __init__(self, destino=None, espejo: ServicioIncidenciasJSON | None = None):
+        """Configura el destino MCP y el servicio JSON de respaldo; no abre la conexion aun."""
         self.destino = destino if destino is not None else destino_mcp()
         # Respaldo local, por la misma razon de siempre: si el servidor no
         # responde, el reclamo del cliente no se puede perder.
@@ -89,6 +90,10 @@ class ServicioIncidenciasMCP:
     # ------------------------------- protocolo ------------------------------
 
     async def _llamar_async(self, herramienta: str, argumentos: dict):
+        """Abre un cliente MCP, llama a herramienta con argumentos y devuelve sus datos.
+
+        Prefiere data y usa structured_content si falta; los errores se propagan
+        para que cada operacion decida si utilizar el respaldo local."""
         from fastmcp import Client
 
         async with Client(self.destino) as cliente:
@@ -101,6 +106,7 @@ class ServicioIncidenciasMCP:
         return datos
 
     def llamar(self, herramienta: str, **argumentos):
+        """Ejecuta la llamada MCP asincrona desde la interfaz sincrona y devuelve sus datos."""
         return _ejecutar(self._llamar_async(herramienta, argumentos))
 
     def herramientas(self) -> list[dict]:
@@ -109,6 +115,7 @@ class ServicioIncidenciasMCP:
         permisos: lo que no aparece aqui, el agente no lo puede hacer.
         """
         async def pedir():
+            """Consulta las herramientas publicadas y devuelve nombre y primera linea de descripcion."""
             from fastmcp import Client
 
             async with Client(self.destino) as cliente:
@@ -125,6 +132,9 @@ class ServicioIncidenciasMCP:
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
         reserva_id: str | None = None,
     ) -> Incidencia:
+        """Llama crear_ticket por MCP y devuelve Incidencia; ante error registra el caso en JSON.
+
+        El respaldo local no acredita que la tarjeta haya llegado a Trello."""
         try:
             datos = self.llamar(
                 "crear_ticket", descripcion=descripcion, sesion_id=sesion_id,
@@ -136,6 +146,7 @@ class ServicioIncidenciasMCP:
             return self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
 
     def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]:
+        """Consulta listar_tickets por MCP; ante error devuelve los casos del respaldo JSON."""
         try:
             return [Incidencia(**d) for d in self.llamar("listar_tickets", estado=estado or "")]
         except Exception as error:

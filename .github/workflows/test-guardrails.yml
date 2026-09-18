@@ -1,0 +1,58 @@
+name: Pruebas de guardrails y canales
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Clemente_Multiagente/**"
+      - ".github/workflows/test-guardrails.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clemente_test
+          # Credencial efimera para esta base exclusiva del job de pruebas.
+          POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+          POSTGRES_DB: clemente_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clemente_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CLEMENTE_DATABASE_URL: postgresql://clemente_test:${{ github.run_id }}-${{ github.run_attempt }}@localhost:5432/clemente_test
+      PYTHON_DOTENV_DISABLED: "1"
+      LANGSMITH_TRACING: "false"
+    defaults:
+      run:
+        working-directory: Clemente_Multiagente
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            Clemente_Multiagente/requirements.txt
+            Clemente_Multiagente/requirements-dev.txt
+      - name: Instalar dependencias
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip check
+      - name: Verificar documentacion y sintaxis
+        run: python docs/verificar_documentacion.py
+      - name: Ejecutar regresiones con Postgres aislado
+        run: python -m pytest tests -q --junitxml=guardrails-results.xml
+      - name: Conservar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardrails-results
+          path: Clemente_Multiagente/guardrails-results.xml

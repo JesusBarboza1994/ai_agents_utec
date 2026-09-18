@@ -12,6 +12,7 @@ need `with app.app_context():` around it, or this gets revisited then.
 """
 
 from contextlib import contextmanager
+from threading import Lock
 
 from flask import current_app
 
@@ -20,23 +21,27 @@ import psycopg2.pool
 
 from . import migrate
 
-_pools: dict[str, psycopg2.pool.SimpleConnectionPool] = {}
+_pools: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
+_pool_lock = Lock()
 
 
-def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
-    if database_url not in _pools:
-        pool = psycopg2.pool.SimpleConnectionPool(1, 5, database_url)
-        conn = pool.getconn()
-        try:
-            migrate.apply_pending(conn)
-        finally:
-            pool.putconn(conn)
-        _pools[database_url] = pool
-    return _pools[database_url]
+def _pool_for(database_url: str) -> psycopg2.pool.ThreadedConnectionPool:
+    """Obtiene o crea el pool de Postgres para la URL y aplica migraciones al inicializarlo."""
+    with _pool_lock:
+        if database_url not in _pools:
+            pool = psycopg2.pool.ThreadedConnectionPool(1, 5, database_url)
+            conn = pool.getconn()
+            try:
+                migrate.apply_pending(conn)
+            finally:
+                pool.putconn(conn)
+            _pools[database_url] = pool
+        return _pools[database_url]
 
 
 @contextmanager
 def connection():
+    """Presta una conexion del pool; confirma al salir, revierte ante error y siempre devuelve la conexion."""
     database_url = current_app.config["CLEMENTE"].database_url
     if not database_url:
         raise RuntimeError("CLEMENTE_DATABASE_URL is not configured.")

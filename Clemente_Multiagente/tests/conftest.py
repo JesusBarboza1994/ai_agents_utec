@@ -17,6 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 @pytest.fixture(autouse=True)
 def aislar_estado(tmp_path, monkeypatch):
+    """Aisla archivos y registros globales por prueba y elimina credenciales del entorno.
+
+    Usa tmp_path para autorizacion, memoria, trazas y revisiones; selecciona
+    JSON y reinicia el grafo al entrar y salir, sin modificar datos del equipo."""
     from app.agentes import autorizacion, memoria
     from app.observabilidad import trazas
     from app.orquestador import grafo
@@ -33,11 +37,14 @@ def aislar_estado(tmp_path, monkeypatch):
     monkeypatch.setattr(trazas, "ARCHIVO_CONVERSACIONES", tmp_path / "conversaciones.jsonl")
     monkeypatch.setattr(reservas, "ARCHIVO_RESERVAS", tmp_path / "reservas.json")
     monkeypatch.setattr(incidencias, "ARCHIVO", tmp_path / "incidencias.json")
+    monkeypatch.setattr(grafo, "ARCHIVO_REVISIONES", tmp_path / "revisiones_hitl.json")
     sesiones._sesiones.clear()
     app.reservas.reiniciar_servicio()
     app.incidencias.reiniciar_servicio()
     trazas._trazas.clear()
     grafo._escalado_de.clear()
+    grafo._revisiones.clear()
+    grafo._revisiones_cargadas = True
     grafo.reiniciar_grafo()
     yield
     grafo.reiniciar_grafo()
@@ -80,6 +87,7 @@ def servicio_reservas(request, tmp_path):
 
 @pytest.fixture
 def servicio_incidencias(tmp_path):
+    """Proporciona un gestor JSON de incidencias con archivo temporal exclusivo de la prueba."""
     from app.incidencias.servicio_json import ServicioIncidenciasJSON
 
     return ServicioIncidenciasJSON(archivo=tmp_path / "incidencias.json")

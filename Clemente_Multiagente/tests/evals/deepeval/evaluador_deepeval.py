@@ -127,6 +127,7 @@ def invocar_agente_real(mensaje: str) -> tuple:
 # ============================================================================
 
 def generar_reporte(resultados_por_caso: list, ruta_salida: Path) -> Path:
+    """Escribe resultados de DeepEval en un reporte para revisar la evaluacion ejecutada."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_reporte = ruta_salida / f"evaluacion_deepeval_{timestamp}.md"
 
@@ -197,6 +198,7 @@ Explícita, Manejo de Incidencias, etc.) se evalúan en `evaluador_langsmith.py`
 
 
 def main():
+    """Ejecuta la evaluacion indicada por este script; puede consumir APIs y publicar resultados externos."""
     print("=" * 80)
     print("EVALUACIÓN DEL AGENTE CLEMENTE - DEEPEVAL (métricas nativas)")
     print("=" * 80)

@@ -13,14 +13,11 @@ _TWIML_ACK = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
 
 def handle_webhook():
     """
-    Signature validation is off on purpose (test project, not real Twilio
-    traffic yet): `whatsapp_service.is_valid_request` is still there, tested
-    and unused -- re-adding the check here is the only thing needed before
-    this goes anywhere that gets real traffic.
+    Verifica la firma de Twilio antes de aceptar la identidad del remitente.
 
     Only fast, in-memory work happens before the ack: the optional
     AccountSid check and building the IncomingMessage. Everything with I/O
-    -- storing the message, the LLM call (mocked today, ~30s for real later)
+    -- storing the message, the protected orchestrator call
     and Twilio's REST API to reply -- runs in a background thread, so none
     of it makes Twilio wait.
     """
@@ -29,6 +26,13 @@ def handle_webhook():
         return jsonify(error="Webhook not configured."), 503
     if not whatsapp_service.is_valid_account(request.form.get("AccountSid") or "", config.twilio_account_sid):
         return jsonify(error="Unexpected Twilio account"), 401
+
+    if not whatsapp_service.is_valid_request(
+        config.twilio_webhook_url or request.url,
+        request.form, request.headers.get("X-Twilio-Signature", ""),
+        config.twilio_auth_token,
+    ):
+        return jsonify(error="Invalid Twilio signature"), 401
 
     message = whatsapp_service.parse_inbound(request.form)
     if message.chat_key:
@@ -51,18 +55,18 @@ def _process_in_background(message, *, session_days: int) -> None:
     app = current_app._get_current_object()
 
     def _run() -> None:
+        """Procesa el turno protegido y envia la respuesta desde un contexto Flask independiente; registra errores sin contenido sensible."""
         with app.app_context():
             config = app.config["CLEMENTE"]
             try:
-                chat_id = message_service.handle_incoming_message(message, session_days=session_days)
-                if not chat_id:
+                reply = message_service.process_incoming_message(message, session_days=session_days)
+                if reply is None:
                     return
-                reply = message_service.digenerate_and_store_reply(chat_id, session_days=session_days)
                 outbound_whatsapp_service.send_whatsapp_message(
                     config.twilio_account_sid, config.twilio_auth_token,
                     config.twilio_whatsapp_from, message.chat_key, reply,
                 )
             except Exception as error:
-                registrar("error", message.chat_key, detalle={"error": f"whatsapp processing: {error}"})
+                registrar("error", message.chat_key, detalle={"error": type(error).__name__})
 
     threading.Thread(target=_run, daemon=True).start()

@@ -42,6 +42,7 @@ def test_el_plan_no_repite_agente_ni_pasa_del_tope():
     ],
 )
 def test_que_sigue_despues_de_cada_paso(estado, esperado):
+    """Verifica que que sigue despues de cada paso."""
     assert grafo._siguiente(estado) == esperado
 
 
@@ -59,7 +60,9 @@ def test_un_plan_de_dos_pasos_recorre_los_dos_agentes(monkeypatch):
     llamados = []
 
     def agente_falso(nombre):
+        """Fabrica un componente simulado que registra el orden de llamada y devuelve su nombre."""
         def responder(texto, sesion_id, historial=None, contexto=None):
+            """Anota la llamada al componente simulado y devuelve texto identificable en el cierre."""
             llamados.append(nombre)
             return f"[{nombre}] respondio"
         return responder
@@ -95,6 +98,7 @@ def test_una_sola_respuesta_no_paga_una_llamada_de_sintesis(monkeypatch):
     y seria pagar un modelo de mas en la gran mayoria de los turnos.
     """
     def explotar(*_args, **_kwargs):
+        """Falla deliberadamente si se llama o para simular una sintesis fallida, segun la prueba."""
         raise AssertionError("no se debe llamar al modelo con una sola respuesta")
 
     monkeypatch.setattr(grafo, "resolver_modelo", explotar)
@@ -106,6 +110,7 @@ def test_una_sola_respuesta_no_paga_una_llamada_de_sintesis(monkeypatch):
 def test_si_falla_la_sintesis_no_se_pierde_ninguna_respuesta(monkeypatch):
     """Dos textos pegados se leen feo; perder uno de los dos es peor."""
     def explotar(*_args, **_kwargs):
+        """Falla deliberadamente si se llama o para simular una sintesis fallida, segun la prueba."""
         raise RuntimeError("modelo caido")
 
     monkeypatch.setattr(grafo, "resolver_modelo", explotar)
@@ -161,6 +166,7 @@ def test_un_hilo_escala_una_sola_vez(tmp_path, monkeypatch):
     grafo.olvidar_sesion("t-esc")
 
     def turno(mensaje, motivo):
+        """Cierra un turno con contexto nuevo y la misma sesion para comprobar deduplicacion del caso."""
         contexto = ContextoConversacion(sesion_id="t-esc")
         contexto.escalado = True
         contexto.datos["escalamiento"] = {"origen": "reservas", "motivo": motivo, "detalle": ""}
@@ -194,6 +200,62 @@ def test_el_cierre_no_repite_un_codigo_que_el_agente_ya_dijo(tmp_path, monkeypat
     servicio = ServicioIncidenciasJSON(archivo=tmp_path / "incidencias.json")
     monkeypatch.setattr(grafo, "servicio_incidencias", lambda: servicio)
     grafo.olvidar_sesion("t-dup")
+
+
+def test_aprobar_revision_reanuda_y_crea_ticket_en_el_cierre(tmp_path, monkeypatch):
+    """Verifica que aprobar revision reanuda y crea ticket en el cierre."""
+    from app.agentes.contexto import ContextoConversacion
+    from app.incidencias.servicio_json import ServicioIncidenciasJSON
+    from app.agentes import reservas
+
+    servicio = ServicioIncidenciasJSON(archivo=tmp_path / "incidencias.json")
+    monkeypatch.setattr(grafo, "servicio_incidencias", lambda: servicio)
+    contexto = ContextoConversacion(sesion_id="t-hitl")
+    grafo._revisiones["t-hitl"] = {
+        "sesion_id": "t-hitl", "contexto": contexto,
+        "solicitud": {"action_requests": []}, "canal": "webchat",
+    }
+
+    def reanudar(_sid, decision, ctx):
+        """Simula la reanudacion autorizada y coloca el escalamiento en el contexto compartido."""
+        assert decision == {"type": "approve", "message": "capacidad coordinada"}
+        ctx.escalado = True
+        ctx.datos["escalamiento"] = {
+            "origen": "reservas_hitl", "motivo": "grupo aprobado", "detalle": "14 personas",
+        }
+        return "Excepción aprobada."
+
+    monkeypatch.setattr(reservas, "resolver_revision", reanudar)
+    respuesta = grafo.resolver_revision("t-hitl", "approve", "capacidad coordinada")
+
+    assert respuesta.escalado is True
+    assert len(servicio.listar_incidencias()) == 1
+    assert servicio.listar_incidencias()[0].id in respuesta.texto
+    assert "t-hitl" not in grafo._revisiones
+
+
+def test_rechazar_revision_no_crea_ticket(tmp_path, monkeypatch):
+    """Verifica que rechazar revision no crea ticket."""
+    from app.agentes.contexto import ContextoConversacion
+    from app.incidencias.servicio_json import ServicioIncidenciasJSON
+    from app.agentes import reservas
+
+    servicio = ServicioIncidenciasJSON(archivo=tmp_path / "incidencias.json")
+    monkeypatch.setattr(grafo, "servicio_incidencias", lambda: servicio)
+    contexto = ContextoConversacion(sesion_id="t-no")
+    grafo._revisiones["t-no"] = {
+        "sesion_id": "t-no", "contexto": contexto,
+        "solicitud": {}, "canal": "webchat",
+    }
+    monkeypatch.setattr(
+        reservas, "resolver_revision",
+        lambda *_args: "El equipo no autorizó la excepción de capacidad.",
+    )
+
+    respuesta = grafo.resolver_revision("t-no", "reject", "sin capacidad")
+
+    assert respuesta.escalado is False
+    assert servicio.listar_incidencias() == []
 
     contexto = ContextoConversacion(sesion_id="t-dup")
     contexto.escalado = True

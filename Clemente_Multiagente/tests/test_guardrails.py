@@ -11,22 +11,26 @@ from app.agentes.base import _parece_llamada_de_tool
 
 
 def test_detecta_tool_escrita_como_texto():
+    """Verifica que detecta tool escrita como texto."""
     assert _parece_llamada_de_tool(
         '{"name": "reservar_mesa", "parameters": {"personas": "4"}}'
     )
 
 
 def test_detecta_tool_dentro_de_un_bloque_de_codigo():
+    """Verifica que detecta tool dentro de un bloque de codigo."""
     assert _parece_llamada_de_tool('```json\n{"tool": "crear_reserva", "arguments": {}}\n```')
 
 
 def test_una_respuesta_normal_no_es_falso_positivo():
+    """Verifica que una respuesta normal no es falso positivo."""
     assert not _parece_llamada_de_tool(
         "Si, hay mesa para 4 el sabado a las 20:00. La reservo a tu nombre?"
     )
 
 
 def test_un_json_que_no_es_una_tool_no_es_falso_positivo():
+    """Verifica que un json que no es una tool no es falso positivo."""
     assert not _parece_llamada_de_tool('{"reserva": "R-ABC123", "estado": "confirmada"}')
 
 
@@ -34,6 +38,7 @@ class _RuntimeFalso:
     """Imita lo unico que las tools usan del ToolRuntime que inyecta create_agent."""
 
     def __init__(self, contexto):
+        """Expone el contexto recibido mediante el atributo context que leen las tools."""
         self.context = contexto
 
 
@@ -86,6 +91,89 @@ def test_escalar_levanta_la_mano_pero_no_abre_el_ticket():
     assert "14 personas" in contexto.datos["escalamiento"]["motivo"]
     # Lo que NO tiene que haber pasado todavia:
     assert "incidencia" not in contexto.datos
+
+
+def test_excepcion_aprobada_levanta_la_mano_para_el_orquestador():
+    """La tool protegida solo llega a ejecutarse después del approve del middleware."""
+    from app.agentes.contexto import ContextoConversacion
+    from app.agentes.tools.reservas_tools import solicitar_excepcion_grupo
+
+    contexto = ContextoConversacion(sesion_id="demo-hitl")
+    solicitar_excepcion_grupo.func(
+        nombre="Ana", telefono="999111222", fecha="2026-10-20", hora="20:00",
+        personas=14, zona="terraza", notas="cumpleaños",
+        runtime=_RuntimeFalso(contexto),
+    )
+
+    assert contexto.escalado is True
+    assert contexto.datos["escalamiento"]["origen"] == "reservas_hitl"
+    assert "Ana" in contexto.datos["escalamiento"]["detalle"]
+    assert contexto.datos["revision_humana"]["estado"] == "aprobada"
+
+
+def test_middleware_interrumpe_y_solo_approve_ejecuta_la_tool(monkeypatch):
+    """Prueba el ciclo real de LangChain, incluido Command(resume=...)."""
+    from pydantic import PrivateAttr
+    from langchain.agents.middleware import HumanInTheLoopMiddleware
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.types import Command
+    from app.agentes import base
+    from app.agentes.contexto import ContextoConversacion
+    from app.agentes.tools.reservas_tools import solicitar_excepcion_grupo
+
+    class ModeloFalso(BaseChatModel):
+        """Modelo LangChain simulado que produce la llamada y respuesta previstas sin usar API."""
+        _llamadas: int = PrivateAttr(default=0)
+
+        @property
+        def _llm_type(self):
+            """Identificador del modelo simulado requerido por BaseChatModel."""
+            return "modelo-falso-con-tools"
+
+        def bind_tools(self, tools, **kwargs):
+            """Devuelve el modelo simulado sin enlazar herramientas remotas."""
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            """Produce la secuencia de mensajes simulados para verificar middleware y herramientas."""
+            self._llamadas += 1
+            if self._llamadas == 1:
+                mensaje = AIMessage(content="", tool_calls=[{
+                    "name": "solicitar_excepcion_grupo", "id": "tool-1",
+                    "args": {"nombre": "Ana", "telefono": "999111222",
+                             "fecha": "2026-10-20", "hora": "20:00", "personas": 14},
+                }])
+            else:
+                mensaje = AIMessage(content="Revisión terminada.")
+            return ChatResult(generations=[ChatGeneration(message=mensaje)])
+
+    monkeypatch.setattr(base, "resolver_modelo", lambda **_kwargs: ModeloFalso())
+    agente = base.construir_agente(
+        "prueba", [solicitar_excepcion_grupo],
+        middleware=[HumanInTheLoopMiddleware(interrupt_on={
+            "solicitar_excepcion_grupo": {"allowed_decisions": ["approve", "reject"]},
+        })],
+        checkpointer=InMemorySaver(),
+    )
+    contexto = ContextoConversacion(sesion_id="hitl-real")
+    config = {"configurable": {"thread_id": "hitl-real"}}
+
+    pausado = agente.invoke(
+        {"messages": [{"role": "user", "content": "Somos 14"}]},
+        config=config, context=contexto,
+    )
+    assert pausado["__interrupt__"]
+    assert contexto.escalado is False
+
+    agente.invoke(
+        Command(resume={"decisions": [{"type": "approve"}]}),
+        config=config, context=contexto,
+    )
+    assert contexto.escalado is True
+    assert contexto.datos["escalamiento"]["origen"] == "reservas_hitl"
 
 
 def test_el_cierre_del_orquestador_es_quien_abre_el_ticket(tmp_path, monkeypatch):

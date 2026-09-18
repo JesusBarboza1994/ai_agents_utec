@@ -72,9 +72,11 @@ def registrar(
     detalle: dict[str, Any] | None = None, duracion_ms: float = 0.0,
 ) -> Traza:
     """Registra un evento de negocio. Es la unica forma de escribir una traza."""
+    from ..seguridad.pii import redactar_pii
+
     traza = Traza(
         evento=evento, sesion_id=sesion_id, agente=agente,
-        detalle=detalle or {}, duracion_ms=round(duracion_ms, 1),
+        detalle=redactar_pii(detalle or {}), duracion_ms=round(duracion_ms, 1),
     )
     _trazas.append(traza)
     log.info(
@@ -172,6 +174,9 @@ def leer_conversaciones(limite: int = 100, sesion_id: str | None = None) -> list
 
 
 def ultimas_trazas(limite: int = 50, sesion_id: str | None = None) -> list[Traza]:
+    """Devuelve las ultimas trazas en memoria, filtradas opcionalmente por sesion_id.
+
+    No lee el historial persistido y pierde estos eventos al reiniciar el proceso."""
     trazas = [t for t in _trazas if sesion_id is None or t.sesion_id == sesion_id]
     return trazas[-limite:]
 
@@ -230,5 +235,16 @@ def metricas() -> dict[str, Any]:
         "latencia_media_ms": round(sum(latencias) / len(latencias), 1) if latencias else 0.0,
         "tools": por_tool,
         "escalamientos": sum(1 for t in _trazas if t.evento == "escalado"),
-        "respuestas_descartadas_por_guardrail": sum(1 for t in _trazas if t.evento == "guardrail"),
+        "respuestas_descartadas_por_guardrail": sum(
+            1 for t in _trazas
+            if t.evento == "guardrail"
+            or (t.evento in {"guardrail_input", "guardrail_output"}
+                and not t.detalle.get("permitido", True))
+        ),
+        "guardrails_ai_bloqueos": sum(
+            1 for t in _trazas
+            if t.evento in {"guardrail_input", "guardrail_output"}
+            and not t.detalle.get("permitido", True)
+        ),
+        "guardrails_ai_errores": sum(1 for t in _trazas if t.evento == "guardrail_error"),
     }
