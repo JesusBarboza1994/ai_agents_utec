@@ -26,6 +26,16 @@ log = logging.getLogger("clemente")
 LARGO_SALIDA_EN_TRAZA = 400
 
 
+def limpiar_texto(valor, maximo: int) -> str:
+    """Deja `valor` en una sola linea, sin caracteres de control ni invisibles, y con un largo maximo.
+
+    Lo que el cliente escribe en un nombre, una nota o una descripcion se guarda y
+    despues vuelve a leerlo el modelo (ficha, resumenes, tickets): acotarlo y
+    quitarle saltos de linea reduce el espacio para instrucciones escondidas."""
+    texto = "".join(c if c.isprintable() else " " for c in str(valor or ""))
+    return " ".join(texto.split())[:maximo]
+
+
 def con_traza(funcion):
     """
     Registra cada llamada a una tool: cuanto tardo, si fallo y en que sesion.

@@ -70,10 +70,11 @@ def test_ocultar_redacta_lo_que_viaja_a_langsmith():
 
 def test_sin_langsmith_no_se_instala_ningun_cliente(monkeypatch):
     """Verifica que con el trazado apagado no se crea cliente ni se cambia nada."""
-    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.setattr(trazado, "_cliente", None)
+    monkeypatch.setattr(trazado, "trazado_activo", lambda: False)
     with trazado.contexto_de_trazado():
         pass
-    assert trazado.trazado_activo() is False
+    assert trazado._cliente is None
 
 
 def test_langsmith_recibe_los_datos_redactados(monkeypatch):
@@ -97,8 +98,8 @@ def test_langsmith_recibe_los_datos_redactados(monkeypatch):
     cliente.session = MagicMock()
     cliente.session.request.side_effect = falso
     monkeypatch.setattr(trazado, "_cliente", cliente)
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setenv("LANGSMITH_API_KEY", "x")
+    # Sin tocar el entorno: LangSmith guarda en cache las variables y un cambio aqui contaminaria otras pruebas.
+    monkeypatch.setattr(trazado, "trazado_activo", lambda: True)
 
     hijo = RunnableLambda(lambda x: {"eco": x["texto"]})
     padre = RunnableLambda(lambda x: hijo.invoke(x))

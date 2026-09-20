@@ -44,4 +44,4 @@ def contexto_de_trazado():
 
     if _cliente is None:
         _cliente = Client(hide_inputs=ocultar, hide_outputs=ocultar)
-    return tracing_context(client=_cliente)
+    return tracing_context(client=_cliente, enabled=True)

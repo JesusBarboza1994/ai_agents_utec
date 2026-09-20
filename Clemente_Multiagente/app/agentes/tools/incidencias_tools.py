@@ -9,11 +9,21 @@ agente registra, informa el plazo y deja el caso con el staff.
 
 from langchain.tools import ToolRuntime, tool
 
-from . import con_traza
+from difflib import SequenceMatcher
 
-from ...incidencias import obtener_servicio as servicio_incidencias
+from . import con_traza, limpiar_texto
+
+from ...incidencias import abiertas_de, obtener_servicio as servicio_incidencias
 from ...reservas import obtener_servicio as servicio_reservas
 from .. import autorizacion
+
+# Tope de casos abiertos por conversacion en una hora: un reclamo real no necesita mas.
+MAX_CASOS_POR_HORA = 3
+
+
+def _parecida(a: str, b: str) -> bool:
+    """True si dos descripciones son casi iguales (mismo reclamo repetido con otras palabras sueltas)."""
+    return SequenceMatcher(None, a.lower()[:300], b.lower()[:300]).ratio() >= 0.85
 
 
 @tool
@@ -33,12 +43,21 @@ def registrar_incidencia(
         tipo: "espera", "servicio", "producto", "reserva" u "otro".
         reserva_id: codigo de reserva relacionado, si lo hay.
     """
-    if reserva_id and not autorizacion.es_propietario(runtime.context.sesion_id, reserva_id.strip().upper()):
+    reserva_id = limpiar_texto(reserva_id, 20).upper()
+    if reserva_id and not autorizacion.es_propietario(runtime.context.sesion_id, reserva_id):
         return autorizacion.DENEGADO
+    descripcion = limpiar_texto(descripcion, 1000)
+    previas = abiertas_de(runtime.context.sesion_id, horas=1)
+    repetida = next((c for c in previas if _parecida(c.descripcion, descripcion)), None)
+    if repetida:
+        return f"Ese reclamo ya está registrado con el código {repetida.id}. El equipo lo está revisando; no se abrió otro caso."
+    if len(previas) >= MAX_CASOS_POR_HORA:
+        return ("Ya hay varios casos abiertos de esta conversación en la última hora y el equipo los está revisando. "
+                "No se abrió otro caso; si es algo nuevo y urgente, comunícate directamente con el restaurante.")
     incidencia = servicio_incidencias().crear_incidencia(
         sesion_id=runtime.context.sesion_id,
         descripcion=descripcion,
-        tipo=tipo,
+        tipo=limpiar_texto(tipo, 20),
         reserva_id=reserva_id or None,
     )
     runtime.context.datos["incidencia"] = incidencia.__dict__

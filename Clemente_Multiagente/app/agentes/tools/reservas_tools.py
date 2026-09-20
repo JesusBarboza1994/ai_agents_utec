@@ -12,7 +12,7 @@ el contexto que `create_agent` inyecta y que el modelo no ve.
 
 from langchain.tools import ToolRuntime, tool
 
-from . import con_traza
+from . import con_traza, limpiar_texto
 
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
@@ -106,8 +106,9 @@ def crear_reserva(
     if rechazo:
         return rechazo
     return autorizacion.proponer(runtime.context, "crear", {
-        "nombre": nombre, "telefono": telefono, "fecha": fecha, "hora": hora,
-        "personas": personas, "zona": zona, "notas": notas,
+        "nombre": limpiar_texto(nombre, 80), "telefono": limpiar_texto(telefono, 20),
+        "fecha": fecha, "hora": hora, "personas": personas,
+        "zona": limpiar_texto(zona, 20), "notas": limpiar_texto(notas, 300),
     }, servicio_reservas())
 
 
@@ -119,6 +120,7 @@ def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
     Usar antes de modificar o cancelar. Conocer el telefono no concede acceso;
     sin registros autorizados devuelve rechazo y marca guardrail_autorizacion.
     """
+    telefono = limpiar_texto(telefono, 20)
     reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
                 if r.telefono == telefono]
     if not reservas:
@@ -136,7 +138,7 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
     propiedad de la sesion del runtime antes de leer; un codigo ajeno o inexistente
     devuelve el mismo rechazo y marca guardrail_autorizacion sin revelar datos.
     """
-    codigo = reserva_id.strip().upper()
+    codigo = limpiar_texto(reserva_id, 20).upper()
     if not autorizacion.es_propietario(runtime.context.sesion_id, codigo):
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
@@ -206,8 +208,8 @@ def escalar_a_staff(motivo: str, detalle: str, runtime: ToolRuntime) -> str:
     runtime.context.escalado = True
     runtime.context.datos["escalamiento"] = {
         "origen": "reservas",
-        "motivo": motivo,
-        "detalle": detalle,
+        "motivo": limpiar_texto(motivo, 200),
+        "detalle": limpiar_texto(detalle, 1000),
     }
 
     return (
@@ -221,15 +223,25 @@ def escalar_a_staff(motivo: str, detalle: str, runtime: ToolRuntime) -> str:
 @con_traza
 def solicitar_excepcion_grupo(
     nombre: str, telefono: str, fecha: str, hora: str, personas: int,
-    runtime: ToolRuntime, zona: str = "", notas: str = "",
+    runtime: ToolRuntime, zona: str = "", notas: str = "", dia_semana: str = "",
 ) -> str:
     """Solicita al staff revisar un grupo de más de 10 personas.
 
     Esta herramienta se pausa antes de ejecutarse. Solo una aprobación humana
     permite que el orquestador abra el caso; una denegación no crea ticket.
+    Al ejecutarse tras la aprobación vuelve a comprobar la fecha (pasada o con
+    un dia de la semana que no coincide) y en ese caso no abre ningun caso.
+
+    Args:
+        dia_semana: el dia de la semana que dijo el cliente, si lo dijo.
     """
     if personas <= LIMITE_GRUPO_AUTONOMO:
         return "No requiere excepción: usa el flujo normal de disponibilidad y reserva."
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    if rechazo:
+        return rechazo
+    nombre, telefono = limpiar_texto(nombre, 80), limpiar_texto(telefono, 20)
+    zona, notas = limpiar_texto(zona, 20), limpiar_texto(notas, 300)
 
     runtime.context.escalado = True
     runtime.context.datos["escalamiento"] = {
