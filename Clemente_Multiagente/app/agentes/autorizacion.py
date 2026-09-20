@@ -15,7 +15,7 @@ from threading import RLock
 
 from . import fecha as reloj
 
-ARCHIVO =Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
+ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
 _lock = RLock()
 DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al restaurante que verifique tu identidad para recuperarla."
