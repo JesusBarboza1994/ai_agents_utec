@@ -13,6 +13,7 @@ Aqui viven tres cosas transversales:
   3. el guardrail de salida que descarta tool-calls escritas como texto.
 """
 
+import hashlib
 import json
 import warnings
 
@@ -32,6 +33,15 @@ LIMITE_TURNOS_HISTORIAL = 12
 # `context` no es None. Es cosmetico -- el contexto SI llega a las tools, lo
 # prueban tests/test_guardrails.py -- pero ensucia la consola de la demo.
 warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*", category=UserWarning)
+
+
+def id_de_hilo(flujo: str, sesion_id: str) -> str:
+    """Id del hilo del checkpoint: un hash de la sesion, para que el telefono no viaje a LangSmith.
+
+    LangGraph copia el thread_id a la metadata de cada ejecucion y la metadata no
+    pasa por la redaccion de `seguridad/trazado.py`. Es estable: reanudar una
+    revision humana calcula el mismo id que el turno que la pauso."""
+    return f"{flujo}:{hashlib.sha256(sesion_id.encode()).hexdigest()[:16]}"
 
 
 def construir_agente(
@@ -138,7 +148,7 @@ def ejecutar(
 
     config = {
         "recursion_limit": 12,
-        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+        "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
@@ -182,7 +192,7 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
 
     config = {
         "recursion_limit": 12,
-        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+        "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke(
         Command(resume={"decisions": [decision]}), config=config, context=contexto,

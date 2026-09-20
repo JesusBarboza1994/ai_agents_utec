@@ -12,9 +12,13 @@ pueden decir cuantas tools se llamaron, cuales tardan ni cuales fallan.
 """
 
 import functools
+import logging
 import time
 
 from ...observabilidad.trazas import registrar
+from ...seguridad.pii import redactar_pii
+
+log = logging.getLogger("clemente")
 
 # Cuanto de la respuesta de una tool se guarda en la traza. Es un recorte a
 # proposito: alcanza para auditar que dijo la herramienta, sin convertir las
@@ -52,9 +56,12 @@ def con_traza(funcion):
         try:
             resultado = funcion(*args, **kwargs)
         except Exception as error:
+            # Solo el tipo: el mensaje puede traer hosts o URLs y esta traza se lee desde /api/trazas.
+            log.warning("tool %s fallo (sesion %s): %s: %s", funcion.__name__, sesion,
+                        type(error).__name__, redactar_pii(str(error)))
             registrar(
                 "tool", sesion,
-                detalle={"tool": funcion.__name__, "estado": "error", "error": str(error)},
+                detalle={"tool": funcion.__name__, "estado": "error", "error": type(error).__name__},
                 duracion_ms=(time.perf_counter() - inicio) * 1000,
             )
             raise

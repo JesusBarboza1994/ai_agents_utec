@@ -62,6 +62,9 @@ from ..contratos import MensajeEntrante, RespuestaClemente
 from ..incidencias import obtener_servicio as servicio_incidencias
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import cronometro, registrar, registrar_conversacion
+from ..seguridad.errores import registrar_error
+from ..seguridad.pii import redactar_pii
+from ..seguridad.trazado import contexto_de_trazado
 from . import informacion
 
 # Cuantos turnos del hilo ve el planificador. Suficiente para entender de que se
@@ -313,7 +316,7 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
         # Un planificador caido no puede tumbar la conversacion: se cae al agente
         # que venia atendiendo, y si no habia, al mas barato de equivocarse.
         plan = [estado.get("ultimo_agente") or "informacion"]
-        registrar("error", _sesion_de(estado), detalle={"error": f"planificacion: {error}"})
+        registrar_error(_sesion_de(estado), "planificacion", error)
         motivo = "fallback por error de planificacion"
 
     if not plan:
@@ -406,7 +409,7 @@ def _sintetizar(respuestas: list[dict], sesion: str) -> str:
     except Exception as error:
         # Si la sintesis falla, el cliente recibe los dos textos pegados: feo,
         # pero completo. Perder una de las dos respuestas seria peor.
-        registrar("error", sesion, detalle={"error": f"sintesis: {error}"})
+        registrar_error(sesion, "sintesis", error)
         return pegado
 
 
@@ -485,7 +488,7 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
         try:
             codigo = _escalar(sesion, escalamiento, _mensaje_de(estado), contexto)
         except Exception as error:
-            registrar("error", sesion, detalle={"error": f"escalamiento: {error}"})
+            registrar_error(sesion, "escalamiento", error)
             contexto.escalado = False
             texto = "No pude registrar el caso para el restaurante. No hay una mesa confirmada por este escalamiento. Contacta directamente al local."
             return {"respuesta": texto, "ruta": respuestas[-1]["agente"], "contexto": contexto}
@@ -623,17 +626,18 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
             # Un nuevo pedido invalida el resumen anterior; no se confirma algo
             # que quedo atras en la conversacion. Las tools pueden proponer otro.
             autorizacion.descartar(entrante.sesion_id)
-            final = obtener_grafo().invoke(estado_inicial)
+            with contexto_de_trazado():
+                final = obtener_grafo().invoke(estado_inicial)
     except Exception as error:
-        registrar("error", entrante.sesion_id, detalle={"error": str(error)})
+        registrar_error(entrante.sesion_id, "turno", error)
         texto_error = (
             "Disculpa, no puedo procesar tu mensaje en este momento. "
             "No puedo asegurar que la operación se haya completado. "
             "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso."
         )
         registrar_conversacion(
-            sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=texto_error,
-            agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {error}",
+            sesion_id=entrante.sesion_id, mensaje=redactar_pii(entrante.texto), respuesta=texto_error,
+            agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {type(error).__name__}",
             escalado=False, duracion_ms=(time.perf_counter() - inicio) * 1000,
         )
         return RespuestaClemente(
@@ -659,7 +663,7 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
     duracion = (time.perf_counter() - inicio) * 1000
 
     registrar_conversacion(
-        sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=final["respuesta"],
+        sesion_id=entrante.sesion_id, mensaje=redactar_pii(entrante.texto), respuesta=redactar_pii(final["respuesta"]),
         agente=final["ruta"], canal=entrante.canal, motivo_ruta=final["motivo_ruta"],
         escalado=contexto.escalado, duracion_ms=duracion, plan=plan,
     )
@@ -718,7 +722,8 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     decision_hitl = {"type": decision}
     if motivo:
         decision_hitl["message"] = motivo
-    texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
+    with contexto_de_trazado():
+        texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
     contexto.datos["revision_humana"] = {
         "estado": "aprobada" if decision == "approve" else "rechazada",
         "flujo": "reservas", "decision": decision, "motivo": motivo,
