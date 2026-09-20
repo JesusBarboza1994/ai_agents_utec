@@ -2,7 +2,7 @@
 
 Generado por `docs/verificar_documentacion.py`. Incluye codigo propio; excluye datos, caches y dependencias.
 
-Archivos Python analizados: **104**. Elementos con descripcion: **760/760**.
+Archivos Python analizados: **105**. Elementos con descripcion: **783/783**.
 
 Esta cobertura comprueba presencia de docstrings y sintaxis; no equivale a una prueba funcional ni garantiza por si sola la exactitud de cada descripcion.
 
@@ -40,12 +40,13 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/base.py#L1) | Andamiaje comun de los tres agentes. |
-| [id_de_hilo](../app/agentes/base.py#L38) | Id del hilo del checkpoint: un hash de la sesion, para que el telefono no viaje a LangSmith. |
-| [construir_agente](../app/agentes/base.py#L47) | Construye el agente LangChain con modelo, prompt y herramientas recibidos. |
-| [_parece_llamada_de_tool](../app/agentes/base.py#L78) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
-| [_armar_entrada](../app/agentes/base.py#L97) | Antepone al mensaje los datos del sistema que el modelo no debe adivinar. |
-| [ejecutar](../app/agentes/base.py#L110) | Invoca al agente y devuelve solo su texto de respuesta. |
-| [reanudar_revision](../app/agentes/base.py#L183) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
+| [id_de_hilo](../app/agentes/base.py#L41) | Id del hilo del checkpoint: un hash de la sesion, para que el telefono no viaje a LangSmith. |
+| [construir_agente](../app/agentes/base.py#L50) | Construye el agente LangChain con modelo, prompt y herramientas recibidos. |
+| [_parece_llamada_de_tool](../app/agentes/base.py#L81) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
+| [_armar_entrada](../app/agentes/base.py#L100) | Antepone al mensaje los datos del sistema que el modelo no debe adivinar. |
+| [_olvidar_hilo](../app/agentes/base.py#L113) | Borra el checkpoint del hilo cuando el turno termino sin pausa para revision humana. |
+| [ejecutar](../app/agentes/base.py#L130) | Invoca al agente y devuelve solo su texto de respuesta. |
+| [reanudar_revision](../app/agentes/base.py#L204) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
 
 ## app/agentes/contexto.py
 
@@ -111,14 +112,15 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [modulo](../app/agentes/rag/indice.py#L1) | Indice vectorial (RAG) del catalogo validado del restaurante -- Sesion 13. |
 | [_extraer_texto](../app/agentes/rag/indice.py#L46) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta. |
 | [_cargar_documentos](../app/agentes/rag/indice.py#L71) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
-| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L126) | Devuelve la coleccion Chroma, construyendola la primera vez. |
-| [_id_seguro](../app/agentes/rag/indice.py#L153) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
-| [_cliente_azure_search](../app/agentes/rag/indice.py#L158) | SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
-| [_empujar_a_azure_search](../app/agentes/rag/indice.py#L170) | Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. No borra los retirados. |
-| [indexar_en_azure_search](../app/agentes/rag/indice.py#L189) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
-| [_asegurar_azure_search_indexado](../app/agentes/rag/indice.py#L202) | Primera consulta del proceso: si el indice esta vacio, lo puebla -- misma |
-| [_buscar_azure_search](../app/agentes/rag/indice.py#L218) | Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador. |
-| [buscar](../app/agentes/rag/indice.py#L241) | Busqueda semantica sobre el catalogo validado del restaurante. |
+| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L131) | Devuelve la coleccion Chroma, construyendola la primera vez. |
+| [_id_seguro](../app/agentes/rag/indice.py#L158) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
+| [_cliente_azure_search](../app/agentes/rag/indice.py#L163) | SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
+| [_empujar_a_azure_search](../app/agentes/rag/indice.py#L175) | Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. |
+| [indexar_en_azure_search](../app/agentes/rag/indice.py#L198) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
+| [_borrar_obsoletos_azure_search](../app/agentes/rag/indice.py#L217) | Borra del indice los chunks cuyo id ya no existe en el catalogo; devuelve cuantos borro. |
+| [_asegurar_azure_search_indexado](../app/agentes/rag/indice.py#L236) | Primera consulta del proceso: si el indice esta vacio, lo puebla -- misma |
+| [_buscar_azure_search](../app/agentes/rag/indice.py#L252) | Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador. |
+| [buscar](../app/agentes/rag/indice.py#L275) | Busqueda semantica sobre el catalogo validado del restaurante. |
 
 ## app/agentes/reservas.py
 
@@ -1144,6 +1146,32 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [test_token_cap_y_uso_reportado.llamada](../tests/test_presupuesto_eval.py#L35) | Envia una peticion asincrona al transporte simulado bajo el presupuesto activo. |
 | [test_error_conserva_reserva](../tests/test_presupuesto_eval.py#L47) | Verifica que error conserva reserva. |
 | [test_intercepta_sdk_instalado_httpx2](../tests/test_presupuesto_eval.py#L57) | Verifica que intercepta sdk instalado httpx2. |
+
+## tests/test_rag_azure_y_checkpoint.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_rag_azure_y_checkpoint.py#L1) | RAG de Azure con un indice falso (ids estables, borrado de obsoletos) y checkpoint sin historial repetido; sin red. |
+| [AzureFalso](../tests/test_rag_azure_y_checkpoint.py#L11) | Indice de Azure AI Search simulado: guarda documentos por id y admite buscar, subir y borrar. |
+| [AzureFalso.__init__](../tests/test_rag_azure_y_checkpoint.py#L14) | Empieza con un indice vacio. |
+| [AzureFalso.merge_or_upload_documents](../tests/test_rag_azure_y_checkpoint.py#L19) | Sube o actualiza documentos por id, como mergeOrUpload; puede simular rechazos. |
+| [AzureFalso.search](../tests/test_rag_azure_y_checkpoint.py#L25) | Devuelve los ids del indice paginados, como una busqueda vacia con select=id. |
+| [AzureFalso.delete_documents](../tests/test_rag_azure_y_checkpoint.py#L29) | Borra por id. |
+| [AzureFalso.get_document_count](../tests/test_rag_azure_y_checkpoint.py#L34) | Cantidad de documentos del indice. |
+| [catalogo](../tests/test_rag_azure_y_checkpoint.py#L40) | Catalogo temporal con dos archivos, conectado a un Azure falso y a embeddings falsos. |
+| [test_reindexar_tras_agregar_una_seccion_no_duplica](../tests/test_rag_azure_y_checkpoint.py#L53) | Verifica que agregar una seccion al principio deja 4 chunks y no 7: los ids no dependen de la posicion global. |
+| [test_editar_una_seccion_actualiza_en_lugar_de_duplicar](../tests/test_rag_azure_y_checkpoint.py#L66) | Verifica que cambiar el texto de una seccion reemplaza su version vieja. |
+| [test_una_seccion_retirada_se_borra_del_indice](../tests/test_rag_azure_y_checkpoint.py#L77) | Verifica que lo que ya no esta en el catalogo deja de poder recuperarse. |
+| [test_un_catalogo_vacio_no_vacia_el_indice](../tests/test_rag_azure_y_checkpoint.py#L86) | Verifica que un error de carpeta (sin documentos) no borra el indice existente. |
+| [test_una_carga_incompleta_no_borra_nada](../tests/test_rag_azure_y_checkpoint.py#L96) | Verifica que si Azure rechaza documentos no se borra lo anterior. |
+| [test_dos_archivos_con_el_mismo_nombre_no_se_pisan](../tests/test_rag_azure_y_checkpoint.py#L106) | Verifica que un mismo nombre de archivo y seccion en dos carpetas genera ids distintos. |
+| [_agente_con_checkpoint](../tests/test_rag_azure_y_checkpoint.py#L118) | Agente real de LangChain con un modelo falso que anota cuantos mensajes recibe y un checkpoint en memoria. |
+| [_agente_con_checkpoint.Modelo](../tests/test_rag_azure_y_checkpoint.py#L125) | Modelo falso que registra el tamano de lo que recibe. |
+| [_agente_con_checkpoint.Modelo.bind_tools](../tests/test_rag_azure_y_checkpoint.py#L127) | Ignora las tools: esta prueba no las usa. |
+| [_agente_con_checkpoint.Modelo._generate](../tests/test_rag_azure_y_checkpoint.py#L131) | Anota cuantos mensajes llegaron y responde con un texto fijo. |
+| [test_el_agente_no_ve_el_historial_repetido_turno_a_turno](../tests/test_rag_azure_y_checkpoint.py#L140) | Verifica que con checkpoint el modelo recibe solo el historial reenviado mas el mensaje nuevo, sin acumular copias. |
+| [test_borrar_el_hilo_no_falla_si_no_hay_checkpoint_o_no_se_puede_borrar](../tests/test_rag_azure_y_checkpoint.py#L152) | Verifica que un agente sin checkpointer, o con uno que no sabe borrar, no interrumpe la respuesta. |
+| [test_borrar_el_hilo_no_falla_si_no_hay_checkpoint_o_no_se_puede_borrar.SinBorrado](../tests/test_rag_azure_y_checkpoint.py#L156) | Checkpointer que no sabe borrar hilos. |
 
 ## tests/test_redteam_montaje.py
 

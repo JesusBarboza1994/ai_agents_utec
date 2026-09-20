@@ -15,6 +15,7 @@ Aqui viven tres cosas transversales:
 
 import hashlib
 import json
+import logging
 import warnings
 
 from ..llm import extraer_texto, resolver_modelo
@@ -23,6 +24,8 @@ from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
 from .prompts import AVISO_FECHA, AVISO_FICHA
+
+log = logging.getLogger("clemente")
 
 # Historial que se le pasa a un agente: solo turnos de texto (user/assistant).
 # Los mensajes de tool no viajan entre agentes porque cada uno tiene tools
@@ -107,6 +110,23 @@ def _armar_entrada(texto: str, ficha: str) -> str:
     return "\n".join(bloques)
 
 
+def _olvidar_hilo(agente, config: dict) -> None:
+    """Borra el checkpoint del hilo cuando el turno termino sin pausa para revision humana.
+
+    El agente de Reservas guarda el estado de cada hilo para poder reanudarlo tras
+    una pausa, pero ademas recibe el historial completo en cada turno: sin este
+    borrado el estado acumulado se sumaba al historial reenviado y el modelo veia
+    cada mensaje repetido (y pagaba por ello). Una pausa pendiente conserva su
+    checkpoint hasta que se resuelve. Un fallo al borrar no interrumpe la respuesta."""
+    guardado = getattr(agente, "checkpointer", None)
+    if guardado is None:
+        return
+    try:
+        guardado.delete_thread(config["configurable"]["thread_id"])
+    except Exception as error:
+        log.warning("No se pudo borrar el checkpoint del hilo: %s", type(error).__name__)
+
+
 def ejecutar(
     agente, texto: str, sesion_id: str, historial: list[dict] | None = None,
     fallback: str = "Disculpa, no te entendi bien. Me lo repites?",
@@ -166,6 +186,7 @@ def ejecutar(
             "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
         )
     respuesta = extraer_texto(resultado["messages"][-1])
+    _olvidar_hilo(agente, config)
 
     if _parece_llamada_de_tool(respuesta):
         # Queda registrado: es la metrica que decide si el modelo alcanza para la
@@ -199,4 +220,5 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
     )
     if resultado.get("__interrupt__"):
         raise RuntimeError("La revisión produjo una segunda interrupción inesperada")
+    _olvidar_hilo(agente, config)
     return extraer_texto(resultado["messages"][-1])
