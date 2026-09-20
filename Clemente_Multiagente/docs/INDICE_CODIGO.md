@@ -2,7 +2,7 @@
 
 Generado por `docs/verificar_documentacion.py`. Incluye codigo propio; excluye datos, caches y dependencias.
 
-Archivos Python analizados: **96**. Elementos con descripcion: **633/633**.
+Archivos Python analizados: **99**. Elementos con descripcion: **674/674**.
 
 Esta cobertura comprueba presencia de docstrings y sintaxis; no equivale a una prueba funcional ni garantiza por si sola la exactitud de cada descripcion.
 
@@ -26,13 +26,13 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/autorizacion.py#L1) | Autorizacion local: propiedad por sesion y confirmaciones fuera del LLM. |
-| [_db](../app/agentes/autorizacion.py#L23) | Abre SQLite, crea las tablas de propiedad y propuestas si faltan y cede la conexion. |
-| [vincular](../app/agentes/autorizacion.py#L39) | Persiste la propiedad de reserva_id para sesion. |
-| [es_propietario](../app/agentes/autorizacion.py#L50) | Devuelve si SQLite vincula exactamente reserva_id con sesion; no usa el telefono. |
-| [reservas_propias](../app/agentes/autorizacion.py#L56) | Devuelve las reservas vinculadas a sesion que todavia existen en servicio. |
-| [descartar](../app/agentes/autorizacion.py#L65) | Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas. |
-| [proponer](../app/agentes/autorizacion.py#L71) | Prepara crear, modificar o cancelar sin escribir una reserva en el servicio. |
-| [confirmar](../app/agentes/autorizacion.py#L136) | Solo un mensaje completo confirma; el LLM no interpreta ni ejecuta el permiso. |
+| [_db](../app/agentes/autorizacion.py#L25) | Abre SQLite, crea las tablas de propiedad y propuestas si faltan y cede la conexion. |
+| [vincular](../app/agentes/autorizacion.py#L41) | Persiste la propiedad de reserva_id para sesion. |
+| [es_propietario](../app/agentes/autorizacion.py#L52) | Devuelve si SQLite vincula exactamente reserva_id con sesion; no usa el telefono. |
+| [reservas_propias](../app/agentes/autorizacion.py#L58) | Devuelve las reservas vinculadas a sesion que todavia existen en servicio. |
+| [descartar](../app/agentes/autorizacion.py#L67) | Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas. |
+| [proponer](../app/agentes/autorizacion.py#L73) | Prepara crear, modificar o cancelar sin escribir una reserva en el servicio. |
+| [confirmar](../app/agentes/autorizacion.py#L137) | Solo un mensaje completo confirma; el LLM no interpreta ni ejecuta el permiso. |
 
 ## app/agentes/base.py
 
@@ -40,9 +40,10 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/agentes/base.py#L1) | Andamiaje comun de los tres agentes. |
 | [construir_agente](../app/agentes/base.py#L37) | Construye el agente LangChain con modelo, prompt y herramientas recibidos. |
-| [_parece_llamada_de_tool](../app/agentes/base.py#L65) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
-| [ejecutar](../app/agentes/base.py#L84) | Invoca al agente y devuelve solo su texto de respuesta. |
-| [reanudar_revision](../app/agentes/base.py#L157) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
+| [_parece_llamada_de_tool](../app/agentes/base.py#L68) | Detecta la falla mas comun de los modelos locales chicos (llama3.2): en vez |
+| [_armar_entrada](../app/agentes/base.py#L87) | Antepone al mensaje los datos del sistema que el modelo no debe adivinar. |
+| [ejecutar](../app/agentes/base.py#L100) | Invoca al agente y devuelve solo su texto de respuesta. |
+| [reanudar_revision](../app/agentes/base.py#L173) | Reanuda el checkpoint del agente con Command(resume) y la decision recibida. |
 
 ## app/agentes/contexto.py
 
@@ -52,14 +53,30 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [ContextoConversacion](../app/agentes/contexto.py#L23) | Viaja del orquestador a las tools y vuelve con lo que ellas anotaron. |
 | [telefono_de](../app/agentes/contexto.py#L34) | El telefono del cliente cuando el canal lo trae en el identificador de sesion. |
 
+## app/agentes/fecha.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/fecha.py#L1) | Reloj del restaurante: fecha, hora y dia de la semana en America/Lima. |
+| [_zona_lima](../app/agentes/fecha.py#L17) | ZoneInfo de America/Lima; sin base de zonas (Windows, imagen slim) cae a UTC-5 fijo. |
+| [_reloj](../app/agentes/fecha.py#L34) | Instante actual con zona horaria de Lima; las pruebas lo reemplazan por uno fijo. |
+| [ahora](../app/agentes/fecha.py#L39) | Fecha y hora actuales en America/Lima, siempre con tzinfo. |
+| [hoy](../app/agentes/fecha.py#L44) | Fecha de hoy en Lima, no la del servidor. |
+| [nombre_dia](../app/agentes/fecha.py#L49) | Nombre en espanol del dia de la semana de `fecha`. |
+| [dia_declarado](../app/agentes/fecha.py#L54) | Dia de la semana mencionado en `texto` ("el Sábado"), sin tilde, o None si no hay ninguno. |
+| [contradiccion_dia](../app/agentes/fecha.py#L63) | Mensaje para el agente si el dia declarado no cae en `fecha_iso`; None si coincide. |
+| [es_pasada](../app/agentes/fecha.py#L85) | True si `fecha_iso` es anterior a hoy en Lima. Una fecha invalida lanza ValueError. |
+| [describir_ahora](../app/agentes/fecha.py#L90) | Fecha, dia y hora de este instante, como se le muestra al modelo en cada turno. |
+| [proximos_dias](../app/agentes/fecha.py#L96) | Los proximos `cantidad` dias a partir de manana, como pares (nombre, fecha). |
+
 ## app/agentes/incidencias.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/incidencias.py#L1) | Agente de Incidencias y Experiencia. |
-| [obtener_agente](../app/agentes/incidencias.py#L29) | Construye una vez el agente de incidencias con su prompt y herramientas y lo reutiliza. |
-| [responder](../app/agentes/incidencias.py#L37) | Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio. |
-| [reiniciar](../app/agentes/incidencias.py#L51) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
+| [obtener_agente](../app/agentes/incidencias.py#L31) | Construye una vez el agente de incidencias con su prompt y herramientas y lo reutiliza. |
+| [responder](../app/agentes/incidencias.py#L39) | Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio. |
+| [reiniciar](../app/agentes/incidencias.py#L53) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
 
 ## app/agentes/memoria.py
 
@@ -90,20 +107,26 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/rag/indice.py#L1) | Indice vectorial (RAG) del catalogo validado del restaurante -- Sesion 13. |
-| [_extraer_texto](../app/agentes/rag/indice.py#L34) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta. |
-| [_cargar_documentos](../app/agentes/rag/indice.py#L59) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
-| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L105) | Devuelve la coleccion Chroma, construyendola la primera vez. |
-| [buscar](../app/agentes/rag/indice.py#L132) | Busqueda semantica sobre el catalogo validado del restaurante. |
+| [_extraer_texto](../app/agentes/rag/indice.py#L46) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta. |
+| [_cargar_documentos](../app/agentes/rag/indice.py#L71) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
+| [construir_o_cargar_indice](../app/agentes/rag/indice.py#L126) | Devuelve la coleccion Chroma, construyendola la primera vez. |
+| [_id_seguro](../app/agentes/rag/indice.py#L153) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
+| [_cliente_azure_search](../app/agentes/rag/indice.py#L158) | SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
+| [_empujar_a_azure_search](../app/agentes/rag/indice.py#L170) | Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. No borra los retirados. |
+| [indexar_en_azure_search](../app/agentes/rag/indice.py#L189) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
+| [_asegurar_azure_search_indexado](../app/agentes/rag/indice.py#L202) | Primera consulta del proceso: si el indice esta vacio, lo puebla -- misma |
+| [_buscar_azure_search](../app/agentes/rag/indice.py#L218) | Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador. |
+| [buscar](../app/agentes/rag/indice.py#L241) | Busqueda semantica sobre el catalogo validado del restaurante. |
 
 ## app/agentes/reservas.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/reservas.py#L1) | Agente de Reservas y Capacidad. |
-| [obtener_agente](../app/agentes/reservas.py#L42) | Construye y reutiliza el agente de reservas con checkpoint SQLite y middleware HITL. |
-| [responder](../app/agentes/reservas.py#L79) | Ejecuta el agente de reservas con texto, sesion, historial y contexto. |
-| [resolver_revision](../app/agentes/reservas.py#L95) | Reanuda el agente de reservas pausado en sesion_id con la decision del personal. |
-| [reiniciar](../app/agentes/reservas.py#L103) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
+| [obtener_agente](../app/agentes/reservas.py#L44) | Construye y reutiliza el agente de reservas con checkpoint SQLite y middleware HITL. |
+| [responder](../app/agentes/reservas.py#L81) | Ejecuta el agente de reservas con texto, sesion, historial y contexto. |
+| [resolver_revision](../app/agentes/reservas.py#L97) | Reanuda el agente de reservas pausado en sesion_id con la decision del personal. |
+| [reiniciar](../app/agentes/reservas.py#L105) | Fuerza reconstruir el agente. Lo usan los tests y el banco de modelos: |
 
 ## app/agentes/tools/__init__.py
 
@@ -121,6 +144,13 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [buscar_en_catalogo](../app/agentes/tools/catalogo_tools.py#L18) | Busca en el catalogo validado del restaurante: horarios, ubicacion, carta, |
 | [consultar_politica](../app/agentes/tools/catalogo_tools.py#L38) | Consulta una politica concreta (cancelacion, anticipacion, no-show, alergias, |
 
+## app/agentes/tools/fecha_tools.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../app/agentes/tools/fecha_tools.py#L1) | Tool de fecha y hora, compartida por los tres agentes. |
+| [get_current_datetime](../app/agentes/tools/fecha_tools.py#L19) | Devuelve la fecha, el dia de la semana y la hora actuales del restaurante |
+
 ## app/agentes/tools/incidencias_tools.py
 
 | Elemento | Descripcion |
@@ -135,14 +165,15 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/agentes/tools/reservas_tools.py#L1) | Tools del Agente de Reservas y Capacidad. |
-| [consultar_disponibilidad](../app/agentes/tools/reservas_tools.py#L26) | Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar. |
-| [crear_reserva](../app/agentes/tools/reservas_tools.py#L53) | Prepara un resumen de reserva; NO escribe la reserva. |
-| [buscar_mis_reservas](../app/agentes/tools/reservas_tools.py#L78) | Lista reservas propias de la sesion cuyo telefono coincide con el recibido. |
-| [consultar_reserva_por_codigo](../app/agentes/tools/reservas_tools.py#L94) | Consulta una reserva propia por codigo, normalizado a mayusculas. |
-| [modificar_reserva](../app/agentes/tools/reservas_tools.py#L115) | Prepara un cambio de una reserva propia, sin ejecutarlo. |
-| [cancelar_reserva](../app/agentes/tools/reservas_tools.py#L135) | Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo. |
-| [escalar_a_staff](../app/agentes/tools/reservas_tools.py#L144) | Deja el caso armado para una persona del restaurante. Usar con grupos grandes, |
-| [solicitar_excepcion_grupo](../app/agentes/tools/reservas_tools.py#L179) | Solicita al staff revisar un grupo de más de 10 personas. |
+| [_rechazo_de_fecha](../app/agentes/tools/reservas_tools.py#L26) | Texto de rechazo si el dia de la semana no cae en la fecha o la fecha ya paso; None si esta bien. |
+| [consultar_disponibilidad](../app/agentes/tools/reservas_tools.py#L52) | Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar. |
+| [crear_reserva](../app/agentes/tools/reservas_tools.py#L86) | Prepara un resumen de reserva; NO escribe la reserva. |
+| [buscar_mis_reservas](../app/agentes/tools/reservas_tools.py#L116) | Lista reservas propias de la sesion cuyo telefono coincide con el recibido. |
+| [consultar_reserva_por_codigo](../app/agentes/tools/reservas_tools.py#L132) | Consulta una reserva propia por codigo, normalizado a mayusculas. |
+| [modificar_reserva](../app/agentes/tools/reservas_tools.py#L153) | Prepara un cambio de una reserva propia, sin ejecutarlo. |
+| [cancelar_reserva](../app/agentes/tools/reservas_tools.py#L178) | Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo. |
+| [escalar_a_staff](../app/agentes/tools/reservas_tools.py#L187) | Deja el caso armado para una persona del restaurante. Usar con grupos grandes, |
+| [solicitar_excepcion_grupo](../app/agentes/tools/reservas_tools.py#L222) | Solicita al staff revisar un grupo de más de 10 personas. |
 
 ## app/communication/__init__.py
 
@@ -263,8 +294,8 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 |---|---|
 | [modulo](../app/config.py#L1) | Configuracion unica del proyecto, leida del entorno (.env). |
 | [Config](../app/config.py#L23) | Configuracion inmutable de Flask, modelos, seguridad, servicios y observabilidad. |
-| [Config.falta_credencial](../app/config.py#L54) | Nombre de la variable de entorno que falta para poder llamar al modelo. |
-| [Config.desde_entorno](../app/config.py#L68) | Construye Config a partir de variables de entorno y los valores predeterminados. |
+| [Config.falta_credencial](../app/config.py#L58) | Nombre de la variable de entorno que falta para poder llamar al modelo. |
+| [Config.desde_entorno](../app/config.py#L77) | Construye Config a partir de variables de entorno y los valores predeterminados. |
 
 ## app/contratos.py
 
@@ -423,8 +454,8 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [proveedor_de](../app/llm.py#L145) | De que casa es un ID de modelo. Sin adivinar: prefijos conocidos. |
 | [resolver_modelo](../app/llm.py#L165) | Devuelve el chat model ya instanciado segun AGENT_MODEL. |
 | [resolver_embeddings](../app/llm.py#L265) | Modelo de embeddings del RAG, segun EMBEDDINGS_BACKEND. |
-| [nombre_embeddings](../app/llm.py#L292) | Etiqueta del modelo de embeddings activo, para versionar la coleccion de Chroma. |
-| [extraer_texto](../app/llm.py#L300) | Texto plano de un AIMessage, ignorando bloques de razonamiento extendido. |
+| [nombre_embeddings](../app/llm.py#L302) | Etiqueta del modelo de embeddings activo, para versionar la coleccion de Chroma. |
+| [extraer_texto](../app/llm.py#L312) | Texto plano de un AIMessage, ignorando bloques de razonamiento extendido. |
 
 ## app/observabilidad/__init__.py
 
@@ -496,9 +527,9 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../app/orquestador/informacion.py#L1) | El orquestador respondiendo por si mismo: la funcion de *proxy*. |
-| [obtener_agente](../app/orquestador/informacion.py#L32) | Construye y reutiliza el agente LangChain del componente de informacion del orquestador. |
-| [responder](../app/orquestador/informacion.py#L43) | Responde una consulta general con el agente de lectura del orquestador. |
-| [reiniciar](../app/orquestador/informacion.py#L60) | Fuerza reconstruir el agente: lo usan los tests y el banco de modelos. |
+| [obtener_agente](../app/orquestador/informacion.py#L34) | Construye y reutiliza el agente LangChain del componente de informacion del orquestador. |
+| [responder](../app/orquestador/informacion.py#L45) | Responde una consulta general con el agente de lectura del orquestador. |
+| [reiniciar](../app/orquestador/informacion.py#L62) | Fuerza reconstruir el agente: lo usan los tests y el banco de modelos. |
 
 ## app/reservas/__init__.py
 
@@ -862,6 +893,31 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [preparar.Metrica.measure](../tests/test_eval_robustez.py#L17) | Lanza el error configurado en lugar de producir un juicio valido. |
 | [test_error_del_juez_no_se_cuenta_como_juicio_valido](../tests/test_eval_robustez.py#L25) | Verifica que error del juez no se cuenta como juicio valido. |
 | [test_agotamiento_no_se_oculta_como_error_del_juez](../tests/test_eval_robustez.py#L35) | Verifica que agotamiento no se oculta como error del juez. |
+
+## tests/test_fecha.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/test_fecha.py#L1) | Reloj de Lima, tool de fecha y validacion dia/fecha; sin LLM ni base de datos. |
+| [reloj_fijo](../tests/test_fecha.py#L22) | Fija el instante del reloj de Lima para que las fechas de las pruebas no dependan del dia real. |
+| [servicio](../tests/test_fecha.py#L28) | Servicio de reservas JSON temporal conectado a las tools. |
+| [runtime](../tests/test_fecha.py#L35) | Runtime simulado con sesion identificada y contexto vacio. |
+| [test_hoy_es_la_fecha_de_lima_y_no_la_del_servidor](../tests/test_fecha.py#L40) | Verifica que a las 21:00 de Lima hoy sigue siendo lunes aunque en UTC ya sea martes. |
+| [test_dia_declarado_ignora_tildes_y_mayusculas](../tests/test_fecha.py#L46) | Verifica que se reconoce el dia escrito de cualquier forma y None si no hay ninguno. |
+| [test_contradiccion_dia_fecha](../tests/test_fecha.py#L54) | Verifica que 'viernes' con el 10 de octubre (sabado) devuelve la contradiccion y no elige. |
+| [test_proximos_dias_empieza_manana](../tests/test_fecha.py#L63) | Verifica que la lista de proximos dias arranca en manana segun Lima. |
+| [test_tool_de_fecha_responde_con_la_hora_de_lima](../tests/test_fecha.py#L68) | Verifica que get_current_datetime resuelve hoy y manana con el reloj de Lima. |
+| [test_consultar_disponibilidad_rechaza_contradiccion_sin_consultar](../tests/test_fecha.py#L75) | Verifica que un dia y fecha que no coinciden no llegan al servicio y quedan marcados. |
+| [test_consultar_disponibilidad_rechaza_contradiccion_sin_consultar.no_debe_llamarse](../tests/test_fecha.py#L77) | Falla la prueba si la tool consulta el servicio pese a la contradiccion. |
+| [test_crear_reserva_con_contradiccion_no_deja_propuesta](../tests/test_fecha.py#L87) | Verifica que la contradiccion dia/fecha no prepara el resumen CONFIRMO ni escribe. |
+| [test_modificar_reserva_con_contradiccion_no_prepara_cambio](../tests/test_fecha.py#L98) | Verifica que modificar tambien compara el dia con la nueva fecha. |
+| [test_hoy_de_lima_no_se_rechaza_como_fecha_pasada](../tests/test_fecha.py#L108) | Verifica que reservar para hoy a las 21:00 de Lima funciona aunque UTC ya sea manana. |
+| [test_ayer_de_lima_si_es_fecha_pasada](../tests/test_fecha.py#L117) | Verifica que una fecha anterior a hoy en Lima se rechaza en la tool y no consulta disponibilidad. |
+| [test_autorizacion_usa_el_reloj_de_lima_y_no_la_fecha_del_proceso](../tests/test_fecha.py#L126) | Verifica que la validacion del servidor no toma date.today(): con Lima en el 15/09 el 18/09 no es pasado. |
+| [test_la_fecha_viaja_en_cada_turno_y_no_en_el_system_prompt](../tests/test_fecha.py#L136) | Verifica que la fecha de Lima se antepone a cada mensaje y el prompt del agente no la congela. |
+| [test_la_fecha_viaja_en_cada_turno_y_no_en_el_system_prompt.AgenteFalso](../tests/test_fecha.py#L146) | Agente que guarda lo que recibe y responde con un texto fijo. |
+| [test_la_fecha_viaja_en_cada_turno_y_no_en_el_system_prompt.AgenteFalso.invoke](../tests/test_fecha.py#L148) | Guarda los mensajes del turno y devuelve una respuesta simulada. |
+| [test_los_tres_agentes_tienen_la_tool_de_fecha](../tests/test_fecha.py#L160) | Verifica que reservas, incidencias e informacion pueden consultar la fecha. |
 
 ## tests/test_guardrails.py
 
