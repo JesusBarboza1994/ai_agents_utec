@@ -14,7 +14,11 @@ Requiere:
 Uso:
     python scripts/benchmark_reservas.py [URL_BASE] [--n N]
 
-Dos escenarios, cada uno con N peticiones concurrentes (10-20 por defecto):
+La URL por defecto es 127.0.0.1 y NO localhost: en Windows, `requests`
+resuelve localhost por IPv6 (::1) primero y espera ~2 s antes de caer a IPv4,
+lo que infla TODAS las latencias medidas (ver docs/VALIDACION_...).
+
+Tres escenarios (A y B con N peticiones concurrentes, 15 por defecto; C secuencial):
 
   A. Anti-doble-booking: N clientes DISTINTOS piden la MISMA mesa/turno
      (personas=8, que en el catalogo demo solo cubre la mesa S01). Se
@@ -24,10 +28,15 @@ Dos escenarios, cada uno con N peticiones concurrentes (10-20 por defecto):
   B. Idempotencia: N peticiones IDENTICAS (mismo telefono+fecha+hora+
      personas) en paralelo. Se espera que TODAS devuelvan el mismo id de
      reserva -- un reintento de webhook no debe duplicar nada.
+
+  C. Escritura individual: N reservas creadas UNA POR UNA, sin concurrencia
+     ni candado disputado. Es la latencia que veria un cliente real de
+     WhatsApp, y sirve de linea base para leer A y B.
 """
 
 from __future__ import annotations
 
+import random
 import statistics
 import sys
 import time
@@ -37,7 +46,10 @@ from datetime import date, timedelta
 
 import requests
 
-FECHA = str(date.today() + timedelta(days=5))
+# Fecha al azar por corrida (dentro del limite de 90 dias de validaciones.py):
+# las reservas de corridas anteriores quedan en la tabla, y repetir siempre la
+# misma fecha/turno agotaria las mesas y falsearia los resultados.
+FECHA = str(date.today() + timedelta(days=random.randint(5, 85)))
 
 
 def _post(url: str, payload: dict) -> tuple[int, dict, float]:
@@ -99,12 +111,46 @@ def escenario_idempotencia(base_url: str, n: int) -> bool:
     return ok
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    base_url = next((a for a in args if not a.startswith("--")), "http://localhost:5000").rstrip("/")
+def escenario_escritura_individual(base_url: str, n: int) -> bool:
+    print(f"\n=== C. Escritura individual: {n} reservas una por una, sin concurrencia ===")
+    url = f"{base_url}/api/reservas"
+    duraciones = []
+    creadas = 0
+    ids = []
+    for i in range(n):
+        payload = {"nombre": f"[PRUEBA] Individual {i}", "telefono": f"8{uuid.uuid4().int % 10**8:08d}",
+                   "fecha": FECHA, "hora": "19:00", "personas": 2, "zona": "salon"}
+        estado, cuerpo, duracion = _post(url, payload)
+        duraciones.append(duracion)
+        if estado == 201:
+            creadas += 1
+            ids.append(cuerpo["id"])
+    _reportar_latencias("creacion", duraciones)
+    print(f"  201 creadas: {creadas} de {n}")
+    for reserva_id in ids:  # cancelar (UPDATE, no DELETE) para liberar mesas en corridas repetidas
+        requests.post(f"{url}/{reserva_id}/cancelar", timeout=30)
+    ok = creadas == n
+    print("  RESULTADO:", "OK" if ok else "FALLO -- ninguna reserva se creo (sin mesas libres o error)")
+    return ok
+
+
+def _parsear_args(args: list[str]) -> tuple[str, int]:
+    base_url = "http://127.0.0.1:5000"
     n = 15
-    if "--n" in args:
-        n = int(args[args.index("--n") + 1])
+    i = 0
+    while i < len(args):
+        if args[i] == "--n":
+            n = int(args[i + 1])
+            i += 2
+        else:
+            if not args[i].startswith("--"):
+                base_url = args[i]
+            i += 1
+    return base_url.rstrip("/"), n
+
+
+def main() -> None:
+    base_url, n = _parsear_args(sys.argv[1:])
 
     try:
         salud = requests.get(f"{base_url}/api/reservas/disponibilidad", params={
@@ -124,6 +170,7 @@ def main() -> None:
     resultados = [
         escenario_anti_doble_booking(base_url, n),
         escenario_idempotencia(base_url, n),
+        escenario_escritura_individual(base_url, min(n, 5)),
     ]
     print("\n" + ("TODO OK" if all(resultados) else "HAY FALLOS -- revisar arriba"))
     raise SystemExit(0 if all(resultados) else 1)

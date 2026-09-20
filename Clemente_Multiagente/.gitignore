@@ -26,3 +26,5 @@ app/agentes/datos/
 
 .DS_Store
 .claude/
+app/reservas/datos/clemente.db
+

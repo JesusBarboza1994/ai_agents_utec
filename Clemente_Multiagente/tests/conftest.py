@@ -28,6 +28,7 @@ def aislar_estado(tmp_path, monkeypatch):
     for clave in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LANGSMITH_API_KEY", "TRELLO_API_KEY", "TRELLO_TOKEN", "TRELLO_MCP_URL"):
         monkeypatch.delenv(clave, raising=False)
     monkeypatch.setenv("CLEMENTE_BACKEND_INCIDENCIAS", "json")
+    monkeypatch.setenv("CLEMENTE_BACKEND_RESERVAS", "json")
     monkeypatch.setattr(autorizacion, "ARCHIVO", tmp_path / "autorizaciones.sqlite3")
     monkeypatch.setattr(memoria, "ARCHIVO", tmp_path / "clientes.json")
     monkeypatch.setattr(trazas, "ARCHIVO_CONVERSACIONES", tmp_path / "conversaciones.jsonl")

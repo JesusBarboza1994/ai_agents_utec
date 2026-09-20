@@ -68,3 +68,20 @@ def cancelar(reserva_id):
     if reserva is None:
         return jsonify(error="Reserva no encontrada."), 404
     return jsonify(reserva.__dict__)
+
+
+@bp.patch("/<reserva_id>")
+def modificar(reserva_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        reserva = obtener_servicio().modificar_reserva(
+            reserva_id,
+            fecha=body.get("fecha"),
+            hora=body.get("hora"),
+            personas=body.get("personas"),
+        )
+    except (ReservaInvalida, ValueError) as err:
+        return jsonify(error=str(err)), 400
+    if reserva is None:
+        return jsonify(error="Reserva no encontrada."), 404
+    return jsonify(reserva.__dict__)

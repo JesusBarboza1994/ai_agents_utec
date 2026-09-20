@@ -11,6 +11,7 @@ that's not a real cost; a future non-Flask caller (a worker, a script) would
 need `with app.app_context():` around it, or this gets revisited then.
 """
 
+import os
 from contextlib import contextmanager
 
 from flask import current_app
@@ -25,7 +26,9 @@ _pools: dict[str, psycopg2.pool.SimpleConnectionPool] = {}
 
 def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
     if database_url not in _pools:
-        pool = psycopg2.pool.SimpleConnectionPool(1, 5, database_url)
+        pool = psycopg2.pool.SimpleConnectionPool(
+            1, int(os.environ.get("CLEMENTE_DB_POOL_MAX", "5")), database_url
+        )
         conn = pool.getconn()
         try:
             migrate.apply_pending(conn)

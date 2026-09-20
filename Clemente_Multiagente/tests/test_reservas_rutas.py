@@ -84,3 +84,30 @@ def test_crear_y_cancelar_reserva(cliente):
     cancelada = cliente.post(f"/api/reservas/{creada['id']}/cancelar")
     assert cancelada.status_code == 200
     assert cancelada.get_json()["estado"] == "cancelada"
+
+
+def test_modificar_reserva_cambia_la_hora(cliente):
+    creada = cliente.post("/api/reservas", json={
+        "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
+        "hora": "20:00", "personas": 2, "zona": "salon",
+    }).get_json()
+    respuesta = cliente.patch(f"/api/reservas/{creada['id']}", json={"hora": "21:00"})
+    assert respuesta.status_code == 200
+    datos = respuesta.get_json()
+    assert datos["id"] == creada["id"]
+    assert datos["hora"] == "21:00"
+    assert datos["estado"] == "modificada"
+
+
+def test_modificar_reserva_con_hora_invalida_devuelve_400(cliente):
+    creada = cliente.post("/api/reservas", json={
+        "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
+        "hora": "20:00", "personas": 2, "zona": "salon",
+    }).get_json()
+    respuesta = cliente.patch(f"/api/reservas/{creada['id']}", json={"hora": "17:30"})
+    assert respuesta.status_code == 400
+    assert "turno" in respuesta.get_json()["error"]
+
+
+def test_modificar_reserva_inexistente_devuelve_404(cliente):
+    assert cliente.patch("/api/reservas/R-NOEXISTE", json={"hora": "21:00"}).status_code == 404
