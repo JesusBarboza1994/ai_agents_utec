@@ -13,7 +13,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 
-ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
+from . import fecha as reloj
+
+ARCHIVO =Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
 _lock = RLock()
 DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al restaurante que verifique tu identidad para recuperarla."
@@ -104,9 +106,8 @@ def proponer(contexto, accion, datos, servicio):
         personas = datos.get("personas") or anterior.get("personas")
         if not isinstance(personas, int) or not 1 <= personas <= 10:
             return "No se preparó la reserva: admite de 1 a 10 personas; grupos mayores requieren coordinación con el restaurante."
-        from datetime import date
         try:
-            if date.fromisoformat(fecha) < date.today():
+            if reloj.es_pasada(fecha):
                 raise ValueError()
         except (ValueError, TypeError):
             return "Indica una fecha válida que no esté en el pasado."

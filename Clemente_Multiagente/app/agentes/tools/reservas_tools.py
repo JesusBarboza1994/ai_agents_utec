@@ -14,17 +14,44 @@ from langchain.tools import ToolRuntime, tool
 
 from . import con_traza
 
+from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
 from .. import autorizacion
+from .. import fecha as reloj
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
 
 
+def _rechazo_de_fecha(runtime: ToolRuntime, fecha: str | None, dia_semana: str) -> str | None:
+    """Texto de rechazo si el dia de la semana no cae en la fecha o la fecha ya paso; None si esta bien.
+
+    La contradiccion deja `guardrail_fecha` en el contexto y en la traza: el
+    servidor no elige entre "viernes" y "el 13", lo pregunta el agente. Una
+    fecha con formato invalido no se rechaza aqui: sigue su camino de siempre."""
+    if not fecha:
+        return None
+    contradiccion = reloj.contradiccion_dia(dia_semana, fecha)
+    if contradiccion:
+        runtime.context.datos["guardrail_fecha"] = {
+            "estado": "contradiccion", "dia_declarado": dia_semana, "fecha": fecha,
+        }
+        registrar("guardrail_fecha", runtime.context.sesion_id, agente="reservas",
+                  detalle={"dia_declarado": dia_semana, "fecha": fecha})
+        return contradiccion
+    try:
+        if reloj.es_pasada(fecha):
+            return "Indica una fecha válida que no esté en el pasado."
+    except ValueError:
+        pass
+    return None
+
+
 @tool
 @con_traza
 def consultar_disponibilidad(
-    fecha: str, hora: str, personas: int, runtime: ToolRuntime, zona: str = ""
+    fecha: str, hora: str, personas: int, runtime: ToolRuntime, zona: str = "",
+    dia_semana: str = "",
 ) -> str:
     """Consulta que mesas hay libres. Usar SIEMPRE antes de afirmar que hay o no hay lugar.
 
@@ -33,7 +60,13 @@ def consultar_disponibilidad(
         hora: turno en formato HH:MM (12:00, 13:00, 14:00, 19:00, 20:00, 21:00 o 22:00).
         personas: numero de comensales.
         zona: opcional, "salon", "terraza" o "barra".
+        dia_semana: el dia de la semana que dijo el cliente ("viernes"), si lo dijo.
+            El servidor comprueba que coincida con la fecha antes de consultar.
     """
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    if rechazo:
+        return rechazo
+
     if personas > LIMITE_GRUPO_AUTONOMO:
         return (
             f"Grupo de {personas} personas: excede lo que se confirma por chat. "
@@ -52,7 +85,7 @@ def consultar_disponibilidad(
 @con_traza
 def crear_reserva(
     nombre: str, telefono: str, fecha: str, hora: str, personas: int,
-    runtime: ToolRuntime, zona: str = "", notas: str = "",
+    runtime: ToolRuntime, zona: str = "", notas: str = "", dia_semana: str = "",
 ) -> str:
     """Prepara un resumen de reserva; NO escribe la reserva.
     Usar cuando se conocen los datos. El cliente debe enviar despues CONFIRMO
@@ -66,7 +99,12 @@ def crear_reserva(
         personas: numero de comensales.
         zona: opcional, zona preferida.
         notas: alergias, ocasion especial u otra indicacion del cliente.
+        dia_semana: el dia de la semana que dijo el cliente, si lo dijo; el servidor
+            rechaza el resumen si no coincide con la fecha.
     """
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    if rechazo:
+        return rechazo
     return autorizacion.proponer(runtime.context, "crear", {
         "nombre": nombre, "telefono": telefono, "fecha": fecha, "hora": hora,
         "personas": personas, "zona": zona, "notas": notas,
@@ -113,7 +151,8 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
 @tool
 @con_traza
 def modificar_reserva(
-    reserva_id: str, runtime: ToolRuntime, fecha: str = "", hora: str = "", personas: int = 0
+    reserva_id: str, runtime: ToolRuntime, fecha: str = "", hora: str = "", personas: int = 0,
+    dia_semana: str = "",
 ) -> str:
     """Prepara un cambio de una reserva propia, sin ejecutarlo.
     El servidor exige despues CONFIRMO con el codigo del resumen.
@@ -123,7 +162,11 @@ def modificar_reserva(
         fecha: nueva fecha YYYY-MM-DD, vacio si no cambia.
         hora: nueva hora HH:MM, vacio si no cambia.
         personas: nuevo numero de personas, 0 si no cambia.
+        dia_semana: el dia de la semana que dijo el cliente para la nueva fecha, si lo dijo.
     """
+    rechazo = _rechazo_de_fecha(runtime, fecha or None, dia_semana)
+    if rechazo:
+        return rechazo
     return autorizacion.proponer(runtime.context, "modificar", {
         "reserva_id": reserva_id.strip().upper(), "fecha": fecha or None,
         "hora": hora or None, "personas": personas or None,
