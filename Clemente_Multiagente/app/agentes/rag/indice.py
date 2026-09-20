@@ -156,6 +156,7 @@ def _id_seguro(id_crudo: str) -> str:
 
 
 def _cliente_azure_search():
+    """SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError."""
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
 
@@ -167,6 +168,7 @@ def _cliente_azure_search():
 
 
 def _empujar_a_azure_search(cliente, documentos) -> int:
+    """Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. No borra los retirados."""
     embeddings = resolver_embeddings()
     vectores = embeddings.embed_documents([d.page_content for d in documentos])
 
@@ -214,6 +216,7 @@ def _asegurar_azure_search_indexado():
 
 
 def _buscar_azure_search(pregunta: str, k: int) -> list[Fragmento]:
+    """Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador."""
     from azure.search.documents.models import VectorizedQuery
 
     _asegurar_azure_search_indexado()
