@@ -7,7 +7,7 @@ fechas invalidas, telefonos con formato incorrecto, y texto libre
 longitud (vector de inyeccion de prompt persistente).
 """
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -19,8 +19,14 @@ from app.reservas.validaciones import (
     clave_idempotencia,
     validar_datos_reserva,
 )
+# _validar_turno compara contra la hora de Lima (app.agentes.fecha.hoy()), no
+# la del runner (UTC en CI). Los casos limite de este archivo (ayer, hoy,
+# 91 dias) tienen que construirse con la misma referencia: entre las 00:00 y
+# las 05:00 UTC, "ayer" en UTC todavia es "hoy" en Lima, y date.today() los
+# volvia flaky en esa ventana.
+from app.agentes.fecha import hoy as hoy_lima
 
-MAÑANA = str(date.today() + timedelta(days=1))
+MAÑANA = str(hoy_lima() + timedelta(days=1))
 
 
 def _datos(**overrides):
@@ -72,19 +78,19 @@ def test_personas_en_los_limites_se_acepta(personas):
 
 def test_fecha_en_el_pasado_se_rechaza():
     """Verifica que una fecha en el pasado se rechaza."""
-    ayer = str(date.today() - timedelta(days=1))
+    ayer = str(hoy_lima() - timedelta(days=1))
     with pytest.raises(ReservaInvalida, match="pasado"):
         validar_datos_reserva(**_datos(fecha=ayer))
 
 
 def test_fecha_hoy_se_acepta():
     """Verifica que la fecha de hoy se acepta."""
-    validar_datos_reserva(**_datos(fecha=str(date.today())))
+    validar_datos_reserva(**_datos(fecha=str(hoy_lima())))
 
 
 def test_fecha_muy_lejana_se_rechaza():
     """Verifica que una fecha mas alla de los dias maximos a futuro se rechaza."""
-    lejos = str(date.today() + timedelta(days=91))
+    lejos = str(hoy_lima() + timedelta(days=91))
     with pytest.raises(ReservaInvalida, match="90"):
         validar_datos_reserva(**_datos(fecha=lejos))
 
