@@ -9,6 +9,11 @@ from .entorno import guardar_json
 
 
 def ejecutar(destino):
+    """Comprueba tablero y catalogo MCP y registra un reclamo sintetico mediante el orquestador.
+
+    Persiste evidencias bajo destino; requiere credenciales y crea una tarjeta
+    real de prueba. Tambien comprueba que no se publiquen herramientas de
+    cierre, borrado, movimiento o compensacion."""
     from app.incidencias.servicio_trello import ServicioIncidenciasTrello, hay_credenciales
     from app.incidencias.servicio_mcp import ServicioIncidenciasMCP
     from app.incidencias.servicio_json import ServicioIncidenciasJSON

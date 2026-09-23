@@ -26,6 +26,7 @@ def test_no_hay_disponibilidad_fuera_de_turno(servicio_reservas):
 
 
 def test_asigna_la_mesa_mas_ajustada(servicio_reservas):
+    """Verifica que asigna la mesa mas ajustada."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", FECHA, "20:00", 2, "salon"
     )
@@ -40,6 +41,7 @@ def test_una_mesa_no_se_reserva_dos_veces(servicio_reservas):
 
 
 def test_cancelar_libera_la_mesa(servicio_reservas):
+    """Verifica que cancelar libera la mesa."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", FECHA, "20:00", 2, "salon"
     )
@@ -52,6 +54,7 @@ def test_cancelar_libera_la_mesa(servicio_reservas):
 
 
 def test_modificar_hora_conserva_la_reserva(servicio_reservas):
+    """Verifica que modificar hora conserva la reserva."""
     reserva = servicio_reservas.crear_reserva(
         "Ana", "999111222", FECHA, "20:00", 2, "salon"
     )
@@ -62,6 +65,7 @@ def test_modificar_hora_conserva_la_reserva(servicio_reservas):
 
 
 def test_sin_mesa_para_el_grupo_lanza_error(servicio_reservas):
+    """Verifica que sin mesa para el grupo lanza error."""
     with pytest.raises(ValueError):
         servicio_reservas.crear_reserva("Grupo", "999111222", FECHA, "20:00", 30, "")
 

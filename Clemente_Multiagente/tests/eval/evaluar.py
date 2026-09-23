@@ -77,6 +77,10 @@ def _verificar_texto(respuesta: str, turno: dict) -> list[str]:
 
 
 def evaluar(guiones: list[dict]) -> dict:
+    """Ejecuta guiones con historial y compara ruta, texto y escalamiento con lo esperado.
+
+    Devuelve detalle y precision por agente; usa el modelo real sin juez LLM
+    y las comprobaciones de texto son reglas, no una evaluacion semantica completa."""
     from app.contratos import MensajeEntrante
     from app.observabilidad.trazas import metricas
     from app.orquestador import responder
@@ -163,6 +167,9 @@ def _fijar_modelo(modelo: str) -> None:
 
 
 def main() -> None:
+    """Selecciona modelo y guion, muestra costo aproximado y guarda la evaluacion funcional.
+
+    Consume API real; --si omite la pregunta para iniciar."""
     parser = argparse.ArgumentParser(description="Evaluacion de Clemente contra el modelo real")
     parser.add_argument("--modelo", help="modelo de esta corrida; cambia tambien de proveedor")
     parser.add_argument("--solo", help="ejecuta un unico guion por su id")

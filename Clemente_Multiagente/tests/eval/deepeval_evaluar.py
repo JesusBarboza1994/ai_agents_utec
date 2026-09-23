@@ -117,6 +117,10 @@ def _tools_del_turno(sesion_id: str, desde: int):
 
 def _caso_de_prueba(mensaje: str, respuesta: str, agente: str, esperada: str | None,
                     tools: list | None = None):
+    """Construye LLMTestCase con entrada, respuesta, referencia y herramientas observadas.
+
+    Solo informacion incorpora contexto recuperado; esta recuperacion es
+    posterior al turno y no acredita por si sola lo que vio el agente."""
     from deepeval.test_case import LLMTestCase
 
     return LLMTestCase(
@@ -131,6 +135,11 @@ def _caso_de_prueba(mensaje: str, respuesta: str, agente: str, esperada: str | N
 
 
 def evaluar(guiones: list[dict], metricas: dict) -> dict:
+    """Ejecuta guiones contra el orquestador y mide las metricas asignadas a cada ruta.
+
+    Conserva historial, extrae tools de trazas y devuelve detalle y agregados.
+    Separa errores del juez de juicios validos y propaga PresupuestoAgotado.
+    Consume APIs del asistente y del juez."""
     from app.contratos import MensajeEntrante
     from app.orquestador import responder
 
@@ -300,6 +309,9 @@ def _fijar_modelo(modelo: str) -> None:
 
 
 def main() -> None:
+    """Selecciona modelo, juez y guiones de la CLI y guarda la evaluacion DeepEval.
+
+    Muestra estimacion de gasto y pide inicio salvo --si; consume APIs reales."""
     parser = argparse.ArgumentParser(description="Evaluacion de Clemente con DeepEval")
     parser.add_argument("--modelo", help="modelo de esta corrida; cambia tambien de proveedor")
     parser.add_argument("--juez", help="modelo que califica (por defecto, el mismo que responde)")

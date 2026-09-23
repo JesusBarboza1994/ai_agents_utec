@@ -13,6 +13,7 @@ need `with app.app_context():` around it, or this gets revisited then.
 
 import os
 from contextlib import contextmanager
+from threading import Lock
 
 from flask import current_app
 
@@ -21,7 +22,8 @@ import psycopg2.pool
 
 from . import migrate
 
-_pools: dict[str, psycopg2.pool.SimpleConnectionPool] = {}
+_pools: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
+_pool_lock = Lock()
 
 
 def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
@@ -40,6 +42,7 @@ def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
 
 @contextmanager
 def connection():
+    """Presta una conexion del pool; confirma al salir, revierte ante error y siempre devuelve la conexion."""
     database_url = current_app.config["CLEMENTE"].database_url
     if not database_url:
         raise RuntimeError("CLEMENTE_DATABASE_URL is not configured.")

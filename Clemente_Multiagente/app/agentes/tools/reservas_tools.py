@@ -37,7 +37,7 @@ def consultar_disponibilidad(
     if personas > LIMITE_GRUPO_AUTONOMO:
         return (
             f"Grupo de {personas} personas: excede lo que se confirma por chat. "
-            "Usa escalar_a_staff con el detalle del pedido."
+            "Reúne nombre, teléfono, fecha y hora, y usa solicitar_excepcion_grupo."
         )
 
     opciones = servicio_reservas().consultar_disponibilidad(fecha, hora, personas, zona or None)
@@ -76,10 +76,15 @@ def crear_reserva(
 @tool
 @con_traza
 def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
-    """Lista las reservas asociadas a un telefono. Usar antes de modificar o cancelar."""
+    """Lista reservas propias de la sesion cuyo telefono coincide con el recibido.
+
+    Usar antes de modificar o cancelar. Conocer el telefono no concede acceso;
+    sin registros autorizados devuelve rechazo y marca guardrail_autorizacion.
+    """
     reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
                 if r.telefono == telefono]
     if not reservas:
+        runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
     return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
 
@@ -87,13 +92,19 @@ def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
 @tool
 @con_traza
 def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
-    """Busca una reserva por su codigo (por ejemplo R-51BA96), cuando el cliente lo da
-    en vez del telefono. Usar antes de modificar o cancelar si solo tienes el codigo."""
+    """Consulta una reserva propia por codigo, normalizado a mayusculas.
+
+    Usar antes de modificar o cancelar cuando el cliente da el codigo. Verifica
+    propiedad de la sesion del runtime antes de leer; un codigo ajeno o inexistente
+    devuelve el mismo rechazo y marca guardrail_autorizacion sin revelar datos.
+    """
     codigo = reserva_id.strip().upper()
     if not autorizacion.es_propietario(runtime.context.sesion_id, codigo):
+        runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
     reserva = servicio_reservas().obtener_reserva(codigo)
     if reserva is None:
+        runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
     return (f"{reserva.id}: {reserva.nombre}, {reserva.personas} personas, {reserva.fecha} "
             f"{reserva.hora}, zona {reserva.zona}, estado {reserva.estado}.")
@@ -160,4 +171,36 @@ def escalar_a_staff(motivo: str, detalle: str, runtime: ToolRuntime) -> str:
         "Pedido marcado para el equipo del restaurante. Informar al cliente que el caso "
         "quedo anotado, que la mesa TODAVIA no esta confirmada y que una persona del "
         "restaurante lo va a contactar. No menciones ningun codigo: todavia no existe."
+    )
+
+
+@tool
+@con_traza
+def solicitar_excepcion_grupo(
+    nombre: str, telefono: str, fecha: str, hora: str, personas: int,
+    runtime: ToolRuntime, zona: str = "", notas: str = "",
+) -> str:
+    """Solicita al staff revisar un grupo de más de 10 personas.
+
+    Esta herramienta se pausa antes de ejecutarse. Solo una aprobación humana
+    permite que el orquestador abra el caso; una denegación no crea ticket.
+    """
+    if personas <= LIMITE_GRUPO_AUTONOMO:
+        return "No requiere excepción: usa el flujo normal de disponibilidad y reserva."
+
+    runtime.context.escalado = True
+    runtime.context.datos["escalamiento"] = {
+        "origen": "reservas_hitl",
+        "motivo": f"excepción aprobada para grupo de {personas} personas",
+        "detalle": (
+            f"Nombre: {nombre}; teléfono: {telefono}; fecha: {fecha}; hora: {hora}; "
+            f"zona: {zona or 'sin preferencia'}; notas: {notas or 'sin notas'}"
+        ),
+    }
+    runtime.context.datos["revision_humana"] = {
+        "estado": "aprobada", "flujo": "reservas", "decision": "approve",
+    }
+    return (
+        "El equipo aprobó tramitar la excepción. La mesa aún no está confirmada; "
+        "el orquestador debe registrar el caso y comunicar el código real."
     )

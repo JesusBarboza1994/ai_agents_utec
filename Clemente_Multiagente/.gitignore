@@ -26,5 +26,6 @@ app/agentes/datos/
 
 .DS_Store
 .claude/
+guardrails_service/models/
 app/reservas/datos/clemente.db
 

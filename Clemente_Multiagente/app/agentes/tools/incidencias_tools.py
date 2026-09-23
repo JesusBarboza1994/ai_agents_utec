@@ -24,6 +24,10 @@ def registrar_incidencia(
     """Registra el reclamo del cliente con estado, responsable y plazo. Llamar una vez que
     se sabe QUE paso y CUANDO; no hace falta tener todos los detalles.
 
+    La sesion procede del runtime del servidor. Si reserva_id no pertenece a
+    esa sesion, rechaza el registro. Guarda la incidencia devuelta en contexto;
+    la entrega a Trello depende del backend y no se acredita solo con el codigo.
+
     Args:
         descripcion: que ocurrio, en palabras del cliente, con la fecha si la menciono.
         tipo: "espera", "servicio", "producto", "reserva" u "otro".
@@ -48,8 +52,11 @@ def registrar_incidencia(
 @tool
 @con_traza
 def consultar_incidencia(incidencia_id: str, runtime: ToolRuntime) -> str:
-    """Consulta el estado de una incidencia ya registrada, para responder al cliente
-    que pregunta por un reclamo anterior."""
+    """Consulta el estado de un reclamo de la misma sesion del runtime.
+
+    Normaliza el codigo y devuelve estado, tipo, fecha y plazo. Un caso ajeno
+    o inexistente devuelve rechazo sin revelar sus datos; no cambia el estado.
+    """
     for incidencia in servicio_incidencias().listar_incidencias():
         if incidencia.id == incidencia_id.strip().upper() and incidencia.sesion_id == runtime.context.sesion_id:
             return (
@@ -64,7 +71,9 @@ def consultar_incidencia(incidencia_id: str, runtime: ToolRuntime) -> str:
 def verificar_reserva_del_reclamo(telefono_o_codigo: str, runtime: ToolRuntime) -> str:
     """Comprueba si el cliente tenia reserva, para no discutir con el sobre lo que dice
     que le paso. Acepta el telefono o el codigo de la reserva. Usar cuando el reclamo
-    menciona una reserva."""
+    menciona una reserva. Verifica propiedad de la sesion antes de leer por codigo;
+    por telefono filtra exclusivamente reservas propias. No revela reservas ajenas
+    ni considera el conocimiento del telefono como prueba de identidad."""
     dato = telefono_o_codigo.strip()
 
     if dato.upper().startswith("R-"):

@@ -10,6 +10,7 @@ from tests.seguridad import red_team_reservas as redteam
 
 
 def test_aislamiento_incluso_tras_error(tmp_path, monkeypatch):
+    """Verifica que aislamiento incluso tras error."""
     from app.reservas import servicio_json as reservas
     from app.agentes import autorizacion
     from app.incidencias import backend_activo
@@ -33,9 +34,11 @@ def test_aislamiento_incluso_tras_error(tmp_path, monkeypatch):
 
 
 def test_error_del_objetivo_deja_evidencia_y_no_respuesta(tmp_path, monkeypatch):
+    """Verifica que error del objetivo deja evidencia y no respuesta."""
     import app.orquestador
     from app.observabilidad.trazas import registrar
     def fallo(mensaje, historial):
+        """Simula un fallo del objetivo o motor para comprobar conservacion de evidencias y errores."""
         registrar("error", mensaje.sesion_id, detalle={"error": "fallo simulado"})
         return SimpleNamespace(texto="No puedo atenderte")
     monkeypatch.setattr(app.orquestador, "responder", fallo)
@@ -49,21 +52,26 @@ def test_error_del_objetivo_deja_evidencia_y_no_respuesta(tmp_path, monkeypatch)
 
 
 def test_rechaza_historial_en_vez_de_ignorar_turnos():
+    """Verifica que rechaza historial en vez de ignorar turnos."""
     callback = redteam.construir_callback("sistema")
     with pytest.raises(ValueError, match="un turno"):
         asyncio.run(callback("hola", ["turno previo"]))
 
 
 def test_fallo_de_deepteam_conserva_casos_parciales(tmp_path, monkeypatch):
+    """Verifica que fallo de deepteam conserva casos parciales."""
     import deepteam.red_teamer
     import tests.eval.juez
     monkeypatch.setattr(tests.eval.juez, "construir_juez", lambda modelo: object())
     class Motor:
+        """Doble DeepTeam que conserva un ataque parcial y falla como si se agotara el saldo."""
         risk_assessment = None
         attack_simulator = SimpleNamespace(test_cases=[SimpleNamespace(model_dump=lambda **kw: {"input": "ataque sintetico"})])
         def __init__(self, **kw):
+            """Comprueba que el motor simulado se configure sin concurrencia adicional."""
             assert kw["max_concurrent"] == 1
         def red_team(self, **kw):
+            """Verifica opciones del montaje y lanza el agotamiento simulado tras conservar un caso."""
             assert kw["run_all_attacks"] is True
             assert kw["ignore_errors"] is False
             assert kw["_upload_to_confident"] is False
@@ -76,10 +84,12 @@ def test_fallo_de_deepteam_conserva_casos_parciales(tmp_path, monkeypatch):
 
 
 def test_main_guarda_estado_error_antes_de_propagar(tmp_path, monkeypatch):
+    """Verifica que main guarda estado error antes de propagar."""
     monkeypatch.setattr(redteam, "CARPETA_RESULTADOS", tmp_path)
     monkeypatch.setattr(redteam, "RAIZ", tmp_path)
     monkeypatch.setattr("sys.argv", ["redteam", "--humo", "--si"])
     def fallo(*args):
+        """Simula un fallo del objetivo o motor para comprobar conservacion de evidencias y errores."""
         raise RuntimeError("fallo simulado")
     monkeypatch.setattr(redteam, "ejecutar", fallo)
     with pytest.raises(RuntimeError, match="fallo simulado"):

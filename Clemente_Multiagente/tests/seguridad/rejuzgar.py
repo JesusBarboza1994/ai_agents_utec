@@ -7,6 +7,10 @@ from .entorno import guardar_json
 
 
 def ejecutar(destino):
+    """Reevalua solo juicios con error de la corrida previa y guarda resultados incrementalmente.
+
+    Conserva la respuesta original del objetivo, exige schema al juez y
+    consume su API; no vuelve a ejecutar el ataque contra el asistente."""
     from deepteam.test_case import RTTestCase
     from tests.eval.juez import construir_juez
     from .red_team_reservas import construir_escenarios

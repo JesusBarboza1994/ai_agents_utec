@@ -19,11 +19,17 @@ TARIFAS = {"gpt-5.6-terra": ("openai", 2, 12),
 
 
 class PresupuestoAgotado(RuntimeError):
+    """Error que detiene la evaluacion antes de una llamada que excederia el limite reservado."""
     pass
 
 
 class Presupuesto:
+    """Control persistente de gasto estimado por proveedor para la campana de evaluacion.
+
+    Reserva costo antes de enviar y lo ajusta con uso reportado; no sustituye
+    la factura del proveedor ni intercepta transportes fuera de activo."""
     def __init__(self, archivo, limite=4.0):
+        """Carga el libro de cargos existente o inicia uno con limite por proveedor y bloqueo local."""
         self.archivo = archivo
         self.lock = RLock()
         self.datos = json.loads(archivo.read_text()) if archivo.exists() else {
@@ -32,6 +38,11 @@ class Presupuesto:
         }
 
     def preparar(self, request):
+        """Valida la peticion, limita salida y reserva costo antes de enviarla al proveedor.
+
+        Solo contempla modelos, hosts y endpoints declarados; rechaza streaming
+        o configuraciones desconocidas con ValueError y exceso con PresupuestoAgotado.
+        Devuelve peticion ajustada y cargo; hosts ajenos pasan sin cargo."""
         if request.url.host not in {"api.openai.com", "api.anthropic.com"}:
             return request, None
         datos = json.loads(request.content)
@@ -65,6 +76,10 @@ class Presupuesto:
         return nuevo, cargo
 
     def cerrar(self, cargo, response):
+        """Actualiza el cargo con HTTP y uso reportado y persiste el libro.
+
+        Sin cargo no actua; si falla HTTP o falta uso mantiene la reserva estimada
+        para no descontar gasto incierto."""
         if cargo is None:
             return
         with self.lock:
@@ -87,9 +102,17 @@ class Presupuesto:
 
     @contextmanager
     def activo(self):
+        """Intercepta temporalmente send de httpx y httpx2, sincrono y asincrono.
+
+        Aplica preparar y cerrar mientras dura el contexto y restaura los metodos
+        al salir. Si hay un loop inactivo, drena tareas pendientes y su executor."""
         import httpx2
         def envolver_sync(original):
+            """Construye el wrapper sincrono que aplica la reserva y contabilizacion a send."""
             def enviar(cliente, request, **kwargs):
+                """Reserva costo, envia con el transporte original y contabiliza el uso si hay cargo.
+
+                Lee el cuerpo antes de cerrar el cargo; un error de envio conserva la reserva."""
                 request, cargo = self.preparar(request)
                 respuesta = original(cliente, request, **kwargs)
                 if cargo is not None:
@@ -98,7 +121,11 @@ class Presupuesto:
                 return respuesta
             return enviar
         def envolver_async(original):
+            """Construye el wrapper asincrono que aplica la reserva y contabilizacion a send."""
             async def enviar(cliente, request, **kwargs):
+                """Reserva costo, envia con el transporte original y contabiliza el uso si hay cargo.
+
+                Lee el cuerpo antes de cerrar el cargo; un error de envio conserva la reserva."""
                 request, cargo = self.preparar(request)
                 respuesta = await original(cliente, request, **kwargs)
                 if cargo is not None:
@@ -123,6 +150,7 @@ class Presupuesto:
                     pendientes = asyncio.all_tasks(loop)
                     if pendientes:
                         async def drenar():
+                            """Espera las tareas pendientes sin propagar sus excepciones y cierra el executor del loop."""
                             await asyncio.gather(*pendientes, return_exceptions=True)
                             await loop.shutdown_default_executor()
                         loop.run_until_complete(drenar())

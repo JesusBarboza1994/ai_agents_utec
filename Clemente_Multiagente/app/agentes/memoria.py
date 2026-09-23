@@ -6,7 +6,7 @@ preferencias, historial) y que hasta ahora no existia: en la prueba del
 2026-09-06 el agente no reconocia al cliente entre conversaciones aunque su
 reserva estuviera guardada en disco.
 
-Se distingue de la memoria de corto plazo (`app/comunicacion/sesiones.py`, el
+Se distingue de la memoria de corto plazo (`app/communication/services/sesiones.py`, el
 historial del hilo, que vive en RAM y se pierde al reiniciar): esta se guarda en
 disco y esta indexada por **telefono**, no por sesion. Por eso sobrevive al
 reinicio del servidor, al cambio de pestana del webchat y al cierre del chat.
@@ -26,6 +26,9 @@ ARCHIVO = Path(__file__).parent / "datos" / "clientes.json"
 
 
 def _leer() -> dict[str, dict]:
+    """Carga los perfiles del JSON; devuelve un diccionario vacio si falta o no puede leerse.
+
+    Tolera OSError y JSON mal formado; no valida aqui la estructura del contenido."""
     if not ARCHIVO.exists():
         return {}
     try:
@@ -35,6 +38,9 @@ def _leer() -> dict[str, dict]:
 
 
 def _escribir(clientes: dict[str, dict]) -> None:
+    """Guarda todos los perfiles en JSON UTF-8, creando la carpeta si falta.
+
+    Ignora OSError para que un fallo de memoria auxiliar no interrumpa el chat."""
     try:
         ARCHIVO.parent.mkdir(parents=True, exist_ok=True)
         ARCHIVO.write_text(json.dumps(clientes, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -72,14 +78,18 @@ def recordar(
 
 
 def perfil_de(sesion_id: str, telefono: str | None = None) -> dict | None:
+    """Busca el perfil por la clave derivada de sesion_id y telefono; devuelve None si falta."""
     clave = _clave(sesion_id, telefono)
     return _leer().get(clave) if clave else None
 
 
 def ficha_del_cliente(sesion_id: str) -> str:
     """
-    Resumen de una linea que se inyecta en el turno del agente: quien es el
-    cliente y que reservas vigentes tiene. Cadena vacia si no lo conocemos.
+    Resume hasta tres reservas no canceladas vinculadas por el servidor a sesion_id.
+
+    Devuelve texto para inyectar en el turno del agente o cadena vacia si no
+    hay reservas propias vigentes. No concede identidad por telefono ni lee
+    el perfil auxiliar como prueba de propiedad; consulta autorizacion y servicio.
     """
     # No inferir identidad del prefijo whatsapp ni de un telefono dicho al LLM.
     # Solo se inyectan reservas vinculadas por el servidor a esta sesion.

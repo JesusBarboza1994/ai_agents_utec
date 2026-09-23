@@ -32,18 +32,30 @@ DURACION_TURNO_HORAS = 2
 
 
 class ServicioReservasJSON:
+    """Implementa disponibilidad y reservas sobre el mapa de mesas y un archivo JSON.
+
+    La autorizacion por sesion pertenece a otra capa; estos metodos no la
+    comprueban. La lectura y escritura de JSON no constituyen una transaccion
+    con bloqueo entre procesos."""
     def __init__(self, archivo_reservas: Path | None = None) -> None:
+        """Selecciona el archivo de reservas y carga las mesas desde ARCHIVO_MESAS.
+
+        Los errores del mapa de mesas se propagan; no crea reservas al instanciarse."""
         self.archivo_reservas = archivo_reservas or ARCHIVO_RESERVAS
         self.mesas = json.loads(ARCHIVO_MESAS.read_text(encoding="utf-8"))["mesas"]
 
     # ---------------------------- persistencia ----------------------------
 
     def _leer(self) -> list[dict]:
+        """Carga las reservas del JSON o devuelve lista vacia si el archivo no existe.
+
+        Los errores de lectura y JSON mal formado se propagan."""
         if not self.archivo_reservas.exists():
             return []
         return json.loads(self.archivo_reservas.read_text(encoding="utf-8"))
 
     def _escribir(self, reservas: list[dict]) -> None:
+        """Sobrescribe el JSON de reservas en UTF-8, creando la carpeta si es necesario."""
         self.archivo_reservas.parent.mkdir(parents=True, exist_ok=True)
         self.archivo_reservas.write_text(
             json.dumps(reservas, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -90,12 +102,16 @@ class ServicioReservasJSON:
         return opciones
 
     def obtener_reserva(self, reserva_id: str) -> Reserva | None:
+        """Busca una reserva por id y devuelve su dataclass, o None si no existe."""
         for r in self._leer():
             if r["id"] == reserva_id:
                 return Reserva(**r)
         return None
 
     def buscar_reservas_de(self, telefono: str) -> list[Reserva]:
+        """Devuelve las reservas del telefono exacto, incluidas las canceladas.
+
+        No comprueba propiedad de sesion: el acceso del cliente se protege en las tools."""
         return [Reserva(**r) for r in self._leer() if r["telefono"] == telefono]
 
     # ------------------------------ escrituras -----------------------------
@@ -141,6 +157,11 @@ class ServicioReservasJSON:
         self, reserva_id: str, fecha: str | None = None, hora: str | None = None,
         personas: int | None = None,
     ) -> Reserva | None:
+        """Modifica una reserva no cancelada y vuelve a comprobar disponibilidad.
+
+        Conserva los valores omitidos y excluye la propia reserva de las mesas
+        ocupadas; puede reasignar mesa y zona. Persiste estado modificada y devuelve
+        Reserva, o None si no hay registro vigente; sin mesa lanza ValueError."""
         reservas = self._leer()
         for r in reservas:
             if r["id"] != reserva_id or r["estado"] == "cancelada":
@@ -166,6 +187,9 @@ class ServicioReservasJSON:
         return None
 
     def cancelar_reserva(self, reserva_id: str) -> Reserva | None:
+        """Persiste estado cancelada para el id recibido y devuelve el registro.
+
+        Devuelve None si no existe; cancelar libera la mesa para consultas posteriores."""
         reservas = self._leer()
         for r in reservas:
             if r["id"] == reserva_id:

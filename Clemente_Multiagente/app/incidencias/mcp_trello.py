@@ -85,6 +85,7 @@ def _backend():
 
 
 def _como_dict(incidencia: Incidencia) -> dict:
+    """Convierte la dataclass Incidencia en un diccionario para la respuesta estructurada MCP."""
     return dict(incidencia.__dict__)
 
 
@@ -99,9 +100,11 @@ def _como_dict(incidencia: Incidencia) -> dict:
 def crear_ticket(
     descripcion: str, sesion_id: str, tipo: str = "otro", reserva_id: str = "",
 ) -> dict:
-    """Abre un ticket de incidencia en el tablero del restaurante y se lo asigna al
-    equipo. Devuelve el ticket con su codigo, su responsable y el plazo en horas en
-    que el restaurante debe responder.
+    """Registra una incidencia con el backend del servidor y devuelve sus datos estructurados.
+
+    Incluye codigo, responsable declarado y plazo en horas. El backend puede
+    conservar el caso solo en JSON si Trello falla; este resultado no acredita
+    asignacion de un miembro de Trello ni notificacion efectiva al personal.
 
     Args:
         descripcion: que le ocurrio al cliente, en sus palabras, con la fecha si la menciono.

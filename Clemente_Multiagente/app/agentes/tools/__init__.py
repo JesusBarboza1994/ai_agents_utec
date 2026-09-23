@@ -39,6 +39,10 @@ def con_traza(funcion):
 
     @functools.wraps(funcion)
     def envoltura(*args, **kwargs):
+        """Ejecuta la herramienta original y registra nombre, resultado y duracion por sesion.
+
+        Obtiene la sesion del runtime inyectado; si la herramienta falla, registra
+        el error y lo propaga. Devuelve el resultado original sin modificarlo."""
         runtime = kwargs.get("runtime") or next(
             (a for a in args if hasattr(a, "context")), None
         )

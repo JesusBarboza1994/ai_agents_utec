@@ -21,18 +21,31 @@ _CLAVE_SESION_PROCESO = secrets.token_hex(32)
 
 @dataclass(frozen=True)
 class Config:
+    """Configuracion inmutable de Flask, modelos, seguridad, servicios y observabilidad.
+
+    Sus valores describen la configuracion elegida; no prueban conectividad
+    ni que un proveedor o validador este disponible."""
     secret_key: str = _CLAVE_SESION_PROCESO
     twilio_auth_token: str = ""
     twilio_account_sid: str = ""
     twilio_whatsapp_from: str = ""
+    twilio_webhook_url: str = ""
     database_url: str = ""
     chat_session_days: int = 7
+    hitl_token: str = ""
+    guardrails_url: str = ""
+    guardrails_token: str = ""
+    guardrails_timeout: float = 3.0
     # LLM: por acuerdo del equipo, el razonamiento corre sobre API
     # (claude u openai). Ollama queda como respaldo sin conexion.
     agent_model: str = "openai"
     modelo: str = ""                       # ID concreto del modelo activo
     embeddings_backend: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
+    # RAG del catalogo: "chroma" (local, default) o "azure_search" (push directo
+    # al indice de Azure AI Search, sin Blob Storage ni indexer -- ver
+    # app/agentes/rag/indice.py).
+    rag_backend: str = "chroma"
 
     # Backends de datos
     backend_reservas: str = "json"
@@ -53,10 +66,19 @@ class Config:
                 return "AZURE_OPENAI_API_KEY"
             if not os.getenv("AZURE_OPENAI_ENDPOINT"):
                 return "AZURE_OPENAI_ENDPOINT"
+        if self.rag_backend == "azure_search":
+            if not os.getenv("AZURE_SEARCH_ENDPOINT"):
+                return "AZURE_SEARCH_ENDPOINT"
+            if not os.getenv("AZURE_SEARCH_API_KEY"):
+                return "AZURE_SEARCH_API_KEY"
         return ""
 
     @classmethod
     def desde_entorno(cls) -> "Config":
+        """Construye Config a partir de variables de entorno y los valores predeterminados.
+
+        Selecciona el modelo segun AGENT_MODEL y convierte timeout y banderas;
+        un timeout no numerico produce ValueError. No comprueba credenciales remotas."""
         agent_model = os.getenv("AGENT_MODEL", "openai")
         modelos = {
             "claude": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
@@ -68,12 +90,18 @@ class Config:
             twilio_auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
             twilio_account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             twilio_whatsapp_from=os.getenv("TWILIO_WHATSAPP_FROM", ""),
+            twilio_webhook_url=os.getenv("TWILIO_WEBHOOK_URL", ""),
             database_url=os.getenv("CLEMENTE_DATABASE_URL", ""),
             chat_session_days=int(os.getenv("CLEMENTE_CHAT_SESSION_DAYS", "7")),
+            hitl_token=os.getenv("CLEMENTE_HITL_TOKEN", ""),
+            guardrails_url=os.getenv("CLEMENTE_GUARDRAILS_URL", ""),
+            guardrails_token=os.getenv("CLEMENTE_GUARDRAILS_TOKEN", ""),
+            guardrails_timeout=float(os.getenv("CLEMENTE_GUARDRAILS_TIMEOUT", "3")),
             agent_model=agent_model,
             modelo=modelos.get(agent_model, agent_model),
             embeddings_backend=os.getenv("EMBEDDINGS_BACKEND", "ollama"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            rag_backend=os.getenv("RAG_BACKEND", "chroma"),
             backend_reservas=os.getenv("CLEMENTE_BACKEND_RESERVAS", "json"),
             langsmith_tracing=os.getenv("LANGSMITH_TRACING", "true").lower() == "true",
             langsmith_project=os.getenv("LANGSMITH_PROJECT", "clemente-grupo02"),

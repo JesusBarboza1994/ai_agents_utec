@@ -18,6 +18,10 @@ from .config import Config
 
 
 def create_app(config: Config | None = None) -> Flask:
+    """Crea la aplicacion Flask con la configuracion recibida o la del entorno.
+
+    Configura cookies, limite de peticion, observabilidad y blueprints; devuelve
+    la aplicacion sin iniciar el servidor ni comprobar servicios externos."""
     config = config or Config.desde_entorno()
 
     app = Flask(

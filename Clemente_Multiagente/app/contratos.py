@@ -63,6 +63,7 @@ class RespuestaClemente:
 
 @dataclass
 class OpcionDisponibilidad:
+    """Mesa disponible para una fecha y hora, con zona, identificador y capacidad."""
     fecha: str                      # "2026-09-12"
     hora: str                       # "20:00"
     zona: str                       # "salon" | "terraza" | "barra"
@@ -72,6 +73,9 @@ class OpcionDisponibilidad:
 
 @dataclass
 class Reserva:
+    """Registro de reserva con contacto, mesa, turno, estado y fecha de creacion.
+
+    La dataclass transporta datos; no valida disponibilidad ni autorizacion."""
     id: str
     nombre: str
     telefono: str
@@ -101,23 +105,41 @@ class ServicioReservas(Protocol):
     def consultar_disponibilidad(
         self, fecha: str, hora: str, personas: int, zona: str | None = None,
         excluir_reserva_id: str | None = None,
-    ) -> list[OpcionDisponibilidad]: ...
+    ) -> list[OpcionDisponibilidad]:
+        """Devuelve mesas libres para fecha, hora y personas, filtradas opcionalmente por zona.
+
+        excluir_reserva_id permite consultar un cambio sin bloquear la mesa propia."""
+        ...
 
     def crear_reserva(
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
-    ) -> Reserva: ...
+    ) -> Reserva:
+        """Persiste una reserva y devuelve su registro; la falta de mesa produce ValueError.
 
-    def obtener_reserva(self, reserva_id: str) -> Reserva | None: ...
+        La capa de autorizacion debe comprobar el permiso antes de llamar al servicio."""
+        ...
 
-    def buscar_reservas_de(self, telefono: str) -> list[Reserva]: ...
+    def obtener_reserva(self, reserva_id: str) -> Reserva | None:
+        """Devuelve la reserva identificada o None si no existe; no comprueba propiedad aqui."""
+        ...
+
+    def buscar_reservas_de(self, telefono: str) -> list[Reserva]:
+        """Devuelve los registros del telefono indicado; el llamador debe comprobar autorizacion."""
+        ...
 
     def modificar_reserva(
         self, reserva_id: str, fecha: str | None = None, hora: str | None = None,
         personas: int | None = None,
-    ) -> Reserva | None: ...
+    ) -> Reserva | None:
+        """Actualiza los campos recibidos de una reserva vigente, conservando los omitidos.
 
-    def cancelar_reserva(self, reserva_id: str) -> Reserva | None: ...
+        Devuelve None si no existe o no se puede modificar; sin mesa produce ValueError."""
+        ...
+
+    def cancelar_reserva(self, reserva_id: str) -> Reserva | None:
+        """Marca la reserva como cancelada y devuelve el registro, o None si no existe."""
+        ...
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +148,9 @@ class ServicioReservas(Protocol):
 
 @dataclass
 class Incidencia:
+    """Caso de atencion vinculado a una sesion, con tipo, estado, responsable y plazo.
+
+    Puede referenciar una reserva; la dataclass no crea tickets externos."""
     id: str
     sesion_id: str
     descripcion: str
@@ -138,12 +163,20 @@ class Incidencia:
 
 
 class ServicioIncidencias(Protocol):
+    """Contrato de creacion, consulta, anotacion y cierre de incidencias.
+
+    Los backends JSON, Trello y MCP implementan estas firmas; que exista
+    el metodo de cierre no significa que este expuesto como herramienta al agente."""
     def crear_incidencia(
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
         reserva_id: str | None = None,
-    ) -> Incidencia: ...
+    ) -> Incidencia:
+        """Registra un caso de la sesion y devuelve su codigo, estado inicial y plazo."""
+        ...
 
-    def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]: ...
+    def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]:
+        """Devuelve los casos, filtrados por estado cuando se proporciona ese argumento."""
+        ...
 
     def anotar(self, incidencia_id: str, texto: str) -> bool:
         """
@@ -156,7 +189,9 @@ class ServicioIncidencias(Protocol):
         """
         ...
 
-    def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None: ...
+    def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None:
+        """Cierra el caso con una nota opcional; devuelve el registro o None si no existe."""
+        ...
 
 
 # --------------------------------------------------------------------------
