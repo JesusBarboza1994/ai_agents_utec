@@ -78,6 +78,7 @@ class ServicioReservasPostgres:
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
     ) -> Reserva:
+        """Valida y sanea los datos y crea la reserva bajo lock de mesas; una clave de idempotencia repetida devuelve la existente sin duplicar ni bajo concurrencia real."""
         datos = validar_datos_reserva(
             nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
             personas=personas, zona=zona, notas=notas,
@@ -129,6 +130,7 @@ class ServicioReservasPostgres:
             raise
 
     def _reserva_activa_por_clave(self, clave: str) -> Reserva | None:
+        """Busca por idempotency_key una reserva no cancelada; None si no hay ninguna."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "

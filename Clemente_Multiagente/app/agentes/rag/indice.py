@@ -80,6 +80,7 @@ def _cargar_documentos():
     por_encabezado = MarkdownHeaderTextSplitter(headers_to_split_on=ENCABEZADOS)
     por_tamano = RecursiveCharacterTextSplitter(chunk_size=TAMANO_MAXIMO, chunk_overlap=SOLAPE)
     documentos, ids = [], []
+    repetidos: dict[str, int] = {}
 
     for archivo in sorted(CARPETA_DOCUMENTOS.rglob("*")):
         if not archivo.is_file() or archivo.suffix.lower() not in EXTENSIONES_ADMITIDAS:
@@ -118,7 +119,11 @@ def _cargar_documentos():
                         "contenido": chunk,
                     },
                 ))
-                ids.append(f"{archivo.name}::{titulo or 'raiz'}::{i}")
+                id_base = f"{archivo.name}::{titulo or 'raiz'}::{i}"
+                # Dos secciones con el mismo titulo en un archivo compartirian id y una pisaria a la otra.
+                veces = repetidos.get(id_base, 0)
+                repetidos[id_base] = veces + 1
+                ids.append(id_base if veces == 0 else f"{id_base}~{veces}")
 
     return documentos, ids
 
@@ -156,6 +161,7 @@ def _id_seguro(id_crudo: str) -> str:
 
 
 def _cliente_azure_search():
+    """SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError."""
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
 
@@ -166,19 +172,24 @@ def _cliente_azure_search():
     )
 
 
-def _empujar_a_azure_search(cliente, documentos) -> int:
+def _empujar_a_azure_search(cliente, documentos, ids) -> int:
+    """Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure.
+
+    El id de cada chunk es archivo, seccion y numero DENTRO de la seccion (los mismos
+    que usa Chroma), no su posicion en toda la lista: agregar o quitar una seccion
+    ya no cambia el id de las demas y reindexar no deja copias viejas."""
     embeddings = resolver_embeddings()
     vectores = embeddings.embed_documents([d.page_content for d in documentos])
 
     acciones = [
         {
-            "id": _id_seguro(f"{d.metadata['fuente']}::{d.metadata['seccion']}::{i}"),
+            "id": _id_seguro(id_chunk),
             "document": d.metadata["fuente"],
             "section": d.metadata["seccion"],
             "content": d.metadata["contenido"],
             "content_vector": vector,
         }
-        for i, (d, vector) in enumerate(zip(documentos, vectores))
+        for id_chunk, d, vector in zip(ids, documentos, vectores)
     ]
     resultado = cliente.merge_or_upload_documents(documents=acciones)
     return sum(1 for r in resultado if r.succeeded)
@@ -188,13 +199,38 @@ def indexar_en_azure_search(forzar: bool = False) -> int:
     """Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa
     mergeOrUpload, asi que correrlo de nuevo tras editar un documento actualiza
     solo lo que cambio en vez de duplicar."""
-    documentos, _ = _cargar_documentos()
+    documentos, ids = _cargar_documentos()
     if not documentos:
         return 0
     cliente = _cliente_azure_search()
-    total = _empujar_a_azure_search(cliente, documentos)
+    total = _empujar_a_azure_search(cliente, documentos, ids)
     print(f"[rag] Empujados {total}/{len(documentos)} chunks a Azure AI Search.")
+    if total == len(documentos):
+        borrados = _borrar_obsoletos_azure_search(cliente, {_id_seguro(i) for i in ids})
+        if borrados:
+            print(f"[rag] Borrados {borrados} chunks que ya no estan en el catalogo.")
+    else:
+        print("[rag] No se borraron chunks obsoletos: la carga no fue completa.")
     return total
+
+
+def _borrar_obsoletos_azure_search(cliente, ids_vigentes: set[str]) -> int:
+    """Borra del indice los chunks cuyo id ya no existe en el catalogo; devuelve cuantos borro.
+
+    Sin esto, un documento editado o retirado seguia apareciendo en las busquedas
+    junto a su version nueva. Solo se llama tras una carga completa, y nunca con un
+    catalogo vacio, para que un error de carpeta no vacie el indice."""
+    existentes: list[str] = []
+    while True:
+        pagina = [r["id"] for r in cliente.search(
+            search_text="*", select=["id"], top=1000, skip=len(existentes))]
+        existentes += pagina
+        if len(pagina) < 1000:
+            break
+    obsoletos = [{"id": i} for i in existentes if i not in ids_vigentes]
+    if obsoletos:
+        cliente.delete_documents(documents=obsoletos)
+    return len(obsoletos)
 
 
 def _asegurar_azure_search_indexado():
@@ -206,14 +242,15 @@ def _asegurar_azure_search_indexado():
         return
     cliente = _cliente_azure_search()
     if cliente.get_document_count() == 0:
-        documentos, _ = _cargar_documentos()
+        documentos, ids = _cargar_documentos()
         if documentos:
-            total = _empujar_a_azure_search(cliente, documentos)
+            total = _empujar_a_azure_search(cliente, documentos, ids)
             print(f"[rag] Indexados {total}/{len(documentos)} chunks del catalogo (azure_search).")
     _azure_search_verificado = True
 
 
 def _buscar_azure_search(pregunta: str, k: int) -> list[Fragmento]:
+    """Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador."""
     from azure.search.documents.models import VectorizedQuery
 
     _asegurar_azure_search_indexado()

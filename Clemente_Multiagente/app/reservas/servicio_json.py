@@ -120,6 +120,7 @@ class ServicioReservasJSON:
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
     ) -> Reserva:
+        """Valida y sanea los datos, y persiste la reserva; una clave de idempotencia repetida devuelve la existente sin duplicar."""
         datos = validar_datos_reserva(
             nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
             personas=personas, zona=zona, notas=notas,

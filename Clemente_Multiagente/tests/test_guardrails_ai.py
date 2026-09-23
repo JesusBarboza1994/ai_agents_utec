@@ -54,19 +54,60 @@ def test_usa_validated_output_y_no_el_original(monkeypatch):
     assert resultado.texto == "texto corregido"
 
 
-def test_caida_del_framework_no_elimina_controles_existentes(monkeypatch):
-    """Verifica que caida del framework no elimina controles existentes."""
+def _cae(monkeypatch, error):
+    """Hace que la llamada HTTP al servicio de Guardrails AI falle con el error recibido."""
+    def falla(*_args, **_kwargs):
+        """Lanza el error simulado en lugar de consultar al servicio."""
+        raise error
+    monkeypatch.setattr(guardrails_ai.requests, "post", falla)
+
+
+def test_caida_del_servicio_bloquea_la_entrada_por_defecto(monkeypatch):
+    """Con el servicio configurado, una caida, un timeout o un HTTP 500 bloquean el mensaje."""
     import requests
 
-    def caido(*_args, **_kwargs):
-        """Lanza un error de conexion simulado para comprobar el respaldo de controles locales."""
-        raise requests.ConnectionError("servicio caído")
+    for error in (requests.ConnectionError("caido"), requests.Timeout("lento"),
+                  requests.HTTPError("500"), ValueError("respuesta ilegible")):
+        _cae(monkeypatch, error)
+        resultado = guardrails_ai.validar_entrada("mesa para dos", "sesion-error", config())
+        assert resultado.permitido is False, type(error).__name__
+        assert resultado.disponible is False
 
-    monkeypatch.setattr(guardrails_ai.requests, "post", caido)
+
+def test_respuesta_sin_veredicto_no_se_toma_como_aprobada(monkeypatch):
+    """Verifica que un 200 sin el campo `valid` no deja pasar el mensaje."""
+    monkeypatch.setattr(guardrails_ai.requests, "post", lambda *_a, **_k: RespuestaHTTP({}))
+    assert guardrails_ai.validar_entrada("hola", "sesion-x", config()).permitido is False
+
+
+def test_el_equipo_puede_volver_a_fail_open_con_la_variable(monkeypatch):
+    """Verifica que CLEMENTE_GUARDRAILS_FALLA_CERRADA=0 restaura la politica anterior de continuar."""
+    import requests
+
+    monkeypatch.setenv("CLEMENTE_GUARDRAILS_FALLA_CERRADA", "0")
+    _cae(monkeypatch, requests.ConnectionError("caido"))
     resultado = guardrails_ai.validar_entrada("mesa para dos", "sesion-error", config())
-    assert resultado.permitido is True
-    assert resultado.texto == "mesa para dos"
-    assert resultado.disponible is False
+    assert resultado.permitido is True and resultado.disponible is False
+
+
+def test_la_salida_sigue_fail_open_porque_la_operacion_ya_se_ejecuto(monkeypatch):
+    """Verifica que una caida en la validacion de salida no tapa una respuesta ya generada."""
+    import requests
+
+    _cae(monkeypatch, requests.ConnectionError("caido"))
+    assert guardrails_ai.validar_salida("Reserva R-1 confirmada", "s", config()).permitido is True
+
+
+def test_la_traza_del_fallo_no_guarda_el_texto_del_error(monkeypatch):
+    """Verifica que la traza guarda el tipo de la excepcion y no su mensaje (puede traer URLs)."""
+    import requests
+    from app.observabilidad import trazas
+
+    trazas._trazas.clear()
+    _cae(monkeypatch, requests.ConnectionError("http://interno.azure.local:8443/secreto"))
+    guardrails_ai.validar_entrada("hola", "s-traza", config())
+    detalle = [t.detalle for t in trazas._trazas if t.evento == "guardrail_error"][-1]
+    assert detalle["error"] == "ConnectionError" and "interno" not in str(detalle)
 
 
 def test_url_vacia_deja_el_servicio_externo_desactivado_sin_llamada(monkeypatch):

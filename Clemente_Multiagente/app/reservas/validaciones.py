@@ -56,6 +56,7 @@ def _sanear_texto(valor: str, *, maximo: int, campo: str) -> str:
 
 
 def _validar_turno(fecha: str, hora: str, personas: int) -> None:
+    """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO."""
     if hora not in TURNOS_VALIDOS:
         raise ReservaInvalida(
             f"'{hora}' no es un turno valido. Turnos disponibles: {', '.join(TURNOS_VALIDOS)}."
@@ -70,7 +71,13 @@ def _validar_turno(fecha: str, hora: str, personas: int) -> None:
         fecha_obj = date.fromisoformat(fecha)
     except (ValueError, TypeError):
         raise ReservaInvalida("La fecha debe tener formato YYYY-MM-DD.")
-    hoy = date.today()
+    # Import diferido (no al tope del modulo): app.agentes importa, en cadena,
+    # de vuelta a app.reservas.validaciones (via autorizacion.py). Al tope
+    # del modulo eso rompe con ImportError circular si algo importa
+    # validaciones.py primero; aqui adentro ya no hay ciclo porque para
+    # cuando esta funcion se llama, todos los modulos terminaron de cargar.
+    from ..agentes import fecha as reloj
+    hoy = reloj.hoy()
     if fecha_obj < hoy:
         raise ReservaInvalida("La fecha no puede estar en el pasado.")
     if fecha_obj > hoy + timedelta(days=DIAS_MAX_A_FUTURO):

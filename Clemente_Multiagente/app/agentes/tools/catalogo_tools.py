@@ -10,7 +10,27 @@ from langchain.tools import ToolRuntime, tool
 
 from . import con_traza
 
+from ...seguridad.errores import registrar_error
 from ..rag import buscar
+
+FALLO_CATALOGO = (
+    "No se pudo consultar el catálogo en este momento. No inventes la respuesta: "
+    "dile al cliente que lo confirmas con el equipo del restaurante."
+)
+
+
+def _consultar(pregunta: str, k: int, runtime: ToolRuntime, tool_nombre: str) -> list | None:
+    """Llama `buscar()` y devuelve los fragmentos, o None si el indice fallo.
+
+    El error (indice no construido, Ollama caido, Azure Search sin credenciales o
+    con vectores de otra dimension) se registra solo con su tipo; el texto de la
+    excepcion nunca llega al modelo porque puede traer URLs o nombres de recursos."""
+    try:
+        return buscar(pregunta, k=k)
+    except Exception as error:
+        sesion = getattr(getattr(runtime, "context", None), "sesion_id", "desconocida")
+        registrar_error(sesion, "rag", error, agente=tool_nombre)
+        return None
 
 
 @tool
@@ -22,11 +42,9 @@ def buscar_en_catalogo(pregunta: str, runtime: ToolRuntime) -> str:
     Args:
         pregunta: la consulta del cliente, tal como la formulo.
     """
-    try:
-        fragmentos = buscar(pregunta, k=4)
-    except Exception as error:  # indice no construido, Ollama caido, etc.
-        return f"No se pudo consultar el catalogo ({error}). Escalar al equipo del restaurante."
-
+    fragmentos = _consultar(pregunta, 4, runtime, "buscar_en_catalogo")
+    if fragmentos is None:
+        return FALLO_CATALOGO
     if not fragmentos:
         return "El catalogo no tiene respuesta para esa consulta."
 
@@ -43,11 +61,9 @@ def consultar_politica(tema: str, runtime: ToolRuntime) -> str:
     Args:
         tema: por ejemplo "cancelacion", "anticipacion", "grupos grandes".
     """
-    try:
-        fragmentos = buscar(f"politica de {tema}", k=3)
-    except Exception as error:
-        return f"No se pudo consultar la politica ({error})."
-
+    fragmentos = _consultar(f"politica de {tema}", 3, runtime, "consultar_politica")
+    if fragmentos is None:
+        return FALLO_CATALOGO
     if not fragmentos:
         return f"No hay politica publicada sobre {tema}."
     return "\n\n".join(f"[{f.fuente}] {f.texto}" for f in fragmentos)

@@ -26,6 +26,7 @@ bp = Blueprint("reservas_debug", __name__, url_prefix="/api/reservas")
 
 @bp.post("")
 def crear():
+    """POST /api/reservas: crea una reserva validando y saneando el cuerpo; 400 si los datos son invalidos."""
     body = request.get_json(silent=True) or {}
     try:
         reserva = obtener_servicio().crear_reserva(
@@ -44,6 +45,7 @@ def crear():
 
 @bp.get("/disponibilidad")
 def disponibilidad():
+    """GET /api/reservas/disponibilidad: lista opciones disponibles para fecha, hora, personas y zona dadas."""
     fecha = request.args.get("fecha", "")
     hora = request.args.get("hora", "")
     personas = request.args.get("personas", type=int)
@@ -56,6 +58,7 @@ def disponibilidad():
 
 @bp.get("/<reserva_id>")
 def detalle(reserva_id):
+    """GET /api/reservas/<id>: devuelve la reserva o 404 si no existe."""
     reserva = obtener_servicio().obtener_reserva(reserva_id)
     if reserva is None:
         return jsonify(error="Reserva no encontrada."), 404
@@ -64,6 +67,7 @@ def detalle(reserva_id):
 
 @bp.post("/<reserva_id>/cancelar")
 def cancelar(reserva_id):
+    """POST /api/reservas/<id>/cancelar: cancela la reserva o 404 si no existe."""
     reserva = obtener_servicio().cancelar_reserva(reserva_id)
     if reserva is None:
         return jsonify(error="Reserva no encontrada."), 404
@@ -72,6 +76,7 @@ def cancelar(reserva_id):
 
 @bp.patch("/<reserva_id>")
 def modificar(reserva_id):
+    """PATCH /api/reservas/<id>: cambia fecha/hora/personas validando; 400 si son invalidas, 404 si no existe."""
     body = request.get_json(silent=True) or {}
     try:
         reserva = obtener_servicio().modificar_reserva(

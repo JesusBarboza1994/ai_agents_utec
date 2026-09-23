@@ -106,6 +106,28 @@ def test_guardrails_ai_bloquea_sin_invocar_orquestador(cliente, monkeypatch):
     assert "evadir" in datos["respuesta"]
 
 
+def test_guardrails_caido_no_llega_al_agente(cliente, monkeypatch):
+    """Con Guardrails AI configurado pero caido, el mensaje se rechaza antes del orquestador."""
+    import requests
+    from dataclasses import replace
+
+    cliente.application.config["CLEMENTE"] = replace(
+        cliente.application.config["CLEMENTE"], guardrails_url="http://guardrails.local",
+    )
+
+    def cae(*_args, **_kwargs):
+        """Simula que el servicio de Guardrails AI no responde."""
+        raise requests.ConnectionError("caido")
+
+    monkeypatch.setattr("app.seguridad.guardrails_ai.requests.post", cae)
+    monkeypatch.setattr(
+        "app.communication.services.chat_service.responder_orquestador",
+        lambda *_args, **_kwargs: pytest.fail("con el validador caido no debe llegar al agente"),
+    )
+    datos = cliente.post("/api/chat", json={"mensaje": "quiero una mesa"}).get_json()
+    assert datos["agente"] == "seguridad"
+
+
 def test_chat_sin_mensaje_es_error(cliente):
     """Verifica que chat sin mensaje es error."""
     assert cliente.post("/api/chat", json={}).status_code == 400
@@ -134,6 +156,7 @@ def test_webhook_normaliza_el_canal(cliente, monkeypatch):
 
 
 def test_el_historial_se_acumula_en_la_sesion(cliente):
+    """Verifica que el historial de la sesion acumula los turnos de cliente y de Clemente entre llamadas a /api/chat."""
     from app.communication.services.sesiones import obtener_sesion
 
     sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]
