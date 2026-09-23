@@ -50,8 +50,9 @@ class ServicioReservasPostgres:
         """Consulta una reserva por identificador; devuelve None si no existe. La propiedad se valida en la capa de autorizacion."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas WHERE id = %s",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id WHERE r.id = %s",
                 (reserva_id,),
             )
             fila = cur.fetchone()
@@ -61,8 +62,9 @@ class ServicioReservasPostgres:
         """Consulta reservas del telefono indicado; la capa de herramientas limita el acceso a la sesion propietaria."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas WHERE telefono = %s",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id WHERE r.telefono = %s",
                 (telefono,),
             )
             filas = cur.fetchall()
@@ -113,10 +115,10 @@ class ServicioReservasPostgres:
                 )
                 cur.execute(
                     "INSERT INTO reservas (id, nombre, telefono, fecha, hora, personas, "
-                    "zona, mesa_id, estado, notas, creada, idempotency_key) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "mesa_id, estado, notas, creada, idempotency_key) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (reserva.id, reserva.nombre, reserva.telefono, reserva.fecha,
-                     reserva.hora, reserva.personas, reserva.zona, reserva.mesa_id,
+                     reserva.hora, reserva.personas, reserva.mesa_id,
                      reserva.estado, reserva.notas, reserva.creada, reserva.idempotency_key),
                 )
                 return reserva
@@ -133,9 +135,10 @@ class ServicioReservasPostgres:
         """Busca por idempotency_key una reserva no cancelada; None si no hay ninguna."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas "
-                "WHERE idempotency_key = %s AND estado != 'cancelada'",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id "
+                "WHERE r.idempotency_key = %s AND r.estado != 'cancelada'",
                 (clave,),
             )
             fila = cur.fetchone()
@@ -148,9 +151,10 @@ class ServicioReservasPostgres:
         """Bloquea la reserva activa y mesas candidatas, verifica disponibilidad y actualiza fecha, turno y capacidad."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas WHERE id = %s AND estado != 'cancelada' "
-                "FOR UPDATE",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id "
+                "WHERE r.id = %s AND r.estado != 'cancelada' FOR UPDATE",
                 (reserva_id,),
             )
             fila = cur.fetchone()
@@ -171,14 +175,14 @@ class ServicioReservasPostgres:
                 raise ValueError("No hay disponibilidad para ese cambio")
 
             cur.execute(
-                "UPDATE reservas SET fecha=%s, hora=%s, personas=%s, mesa_id=%s, zona=%s, "
+                "UPDATE reservas SET fecha=%s, hora=%s, personas=%s, mesa_id=%s, "
                 "estado='modificada' WHERE id=%s",
-                (nueva_fecha, nueva_hora, nuevas_personas,
-                 opciones[0].mesa_id, opciones[0].zona, reserva_id),
+                (nueva_fecha, nueva_hora, nuevas_personas, opciones[0].mesa_id, reserva_id),
             )
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas WHERE id = %s",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id WHERE r.id = %s",
                 (reserva_id,),
             )
             return self._construir(cur.fetchone())
@@ -193,8 +197,9 @@ class ServicioReservasPostgres:
                 return None
             cur.execute("UPDATE reservas SET estado='cancelada' WHERE id=%s", (reserva_id,))
             cur.execute(
-                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
-                "estado, notas, creada FROM reservas WHERE id = %s",
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id WHERE r.id = %s",
                 (reserva_id,),
             )
             return self._construir(cur.fetchone())
