@@ -156,7 +156,6 @@ def test_webhook_normaliza_el_canal(cliente, monkeypatch):
 
 
 def test_el_historial_se_acumula_en_la_sesion(cliente):
-    """Verifica que el historial se acumula en la sesion."""
     from app.communication.services.sesiones import obtener_sesion
 
     sid = cliente.post("/api/chat", json={"mensaje": "hola"}).get_json()["sesion_id"]

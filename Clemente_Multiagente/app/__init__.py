@@ -10,6 +10,8 @@ app con configuracion distinta en las pruebas (sin trazas, con datos de
 prueba) sin duplicar codigo.
 """
 
+import os
+
 from flask import Flask
 
 from .config import Config
@@ -40,5 +42,13 @@ def create_app(config: Config | None = None) -> Flask:
     from .observabilidad.rutas import bp as bp_observabilidad
     app.register_blueprint(bp_comunicacion)
     app.register_blueprint(bp_observabilidad)
+
+    # Rutas de depuracion de reservas (crear/consultar/cancelar SIN pasar
+    # por el LLM ni por la confirmacion de autorizacion.py): solo para
+    # probar persistencia y rendimiento a mano. Apagado por defecto -- no
+    # tiene autenticacion, nunca debe prenderse con trafico real.
+    if os.getenv("CLEMENTE_DEBUG_ROUTES") == "1":
+        from .reservas.rutas import bp as bp_reservas_debug
+        app.register_blueprint(bp_reservas_debug)
 
     return app

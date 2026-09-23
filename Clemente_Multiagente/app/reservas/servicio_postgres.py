@@ -23,10 +23,11 @@ El catalogo de mesas (`datos/mesas.json`) se sigue subiendo con
 import uuid
 from datetime import datetime
 
+import psycopg2.errors
+
 from ..contratos import OpcionDisponibilidad, Reserva
 from ..db.connection import connection
-
-TURNOS_VALIDOS = ["12:00", "13:00", "14:00", "19:00", "20:00", "21:00", "22:00"]
+from .validaciones import TURNOS_VALIDOS, clave_idempotencia, validar_cambio_turno, validar_datos_reserva
 
 
 class ServicioReservasPostgres:
@@ -77,29 +78,66 @@ class ServicioReservasPostgres:
         self, nombre: str, telefono: str, fecha: str, hora: str,
         personas: int, zona: str, notas: str = "",
     ) -> Reserva:
-        """Bloquea mesas candidatas, asigna la menor disponible e inserta una reserva; sin disponibilidad lanza ValueError."""
-        with connection() as conn, conn.cursor() as cur:
-            opciones = self._opciones_libres(cur, fecha, hora, personas, zona, None, lock=True)
-            if not opciones:
-                raise ValueError(
-                    f"Sin mesas para {personas} personas el {fecha} a las {hora}"
-                    + (f" en {zona}" if zona else "")
-                )
+        datos = validar_datos_reserva(
+            nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
+            personas=personas, zona=zona, notas=notas,
+        )
+        clave = clave_idempotencia(datos["telefono"], datos["fecha"], datos["hora"], datos["personas"])
 
-            reserva = Reserva(
-                id=f"R-{uuid.uuid4().hex[:6].upper()}",
-                nombre=nombre, telefono=telefono, fecha=fecha, hora=hora,
-                personas=personas, zona=opciones[0].zona, mesa_id=opciones[0].mesa_id,
-                notas=notas, creada=datetime.now().isoformat(timespec="seconds"),
-            )
+        # Pre-chequeo barato, fuera del lock de mesas: cubre el caso comun
+        # (reintento secuencial) sin pelear el lock. La garantia real bajo
+        # concurrencia real es el indice unico parcial `ux_reservas_idempotencia`
+        # (migracion 0003) -- si dos peticiones identicas pasan este SELECT a
+        # la vez, el INSERT de la segunda revienta con UniqueViolation y el
+        # except mas abajo la resuelve igual, sin duplicar.
+        existente = self._reserva_activa_por_clave(clave)
+        if existente is not None:
+            return existente
+
+        try:
+            with connection() as conn, conn.cursor() as cur:
+                opciones = self._opciones_libres(cur, datos["fecha"], datos["hora"], datos["personas"], datos["zona"] or None, None, lock=True)
+                if not opciones:
+                    raise ValueError(
+                        f"Sin mesas para {datos['personas']} personas el {datos['fecha']} a las {datos['hora']}"
+                        + (f" en {datos['zona']}" if datos["zona"] else "")
+                    )
+
+                reserva = Reserva(
+                    id=f"R-{uuid.uuid4().hex[:6].upper()}",
+                    nombre=datos["nombre"], telefono=datos["telefono"], fecha=datos["fecha"],
+                    hora=datos["hora"], personas=datos["personas"], zona=opciones[0].zona,
+                    mesa_id=opciones[0].mesa_id, notas=datos["notas"],
+                    creada=datetime.now().isoformat(timespec="seconds"), idempotency_key=clave,
+                )
+                cur.execute(
+                    "INSERT INTO reservas (id, nombre, telefono, fecha, hora, personas, "
+                    "zona, mesa_id, estado, notas, creada, idempotency_key) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (reserva.id, reserva.nombre, reserva.telefono, reserva.fecha,
+                     reserva.hora, reserva.personas, reserva.zona, reserva.mesa_id,
+                     reserva.estado, reserva.notas, reserva.creada, reserva.idempotency_key),
+                )
+                return reserva
+        except psycopg2.errors.UniqueViolation:
+            # Dos peticiones identicas pasaron el pre-chequeo a la vez: una
+            # gano el indice unico, esta perdio. No es un error para quien
+            # llamo -- es el mismo pedido, se devuelve la reserva que ya quedo.
+            existente = self._reserva_activa_por_clave(clave)
+            if existente is not None:
+                return existente
+            raise
+
+    def _reserva_activa_por_clave(self, clave: str) -> Reserva | None:
+        with connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO reservas (id, nombre, telefono, fecha, hora, personas, "
-                "zona, mesa_id, estado, notas, creada) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (reserva.id, reserva.nombre, reserva.telefono, reserva.fecha,
-                 reserva.hora, reserva.personas, reserva.zona, reserva.mesa_id,
-                 reserva.estado, reserva.notas, reserva.creada),
+                "SELECT id, nombre, telefono, fecha, hora, personas, zona, mesa_id, "
+                "estado, notas, creada FROM reservas "
+                "WHERE idempotency_key = %s AND estado != 'cancelada'",
+                (clave,),
             )
-            return reserva
+            fila = cur.fetchone()
+        return self._construir(fila) if fila else None
 
     def modificar_reserva(
         self, reserva_id: str, fecha: str | None = None, hora: str | None = None,
@@ -121,6 +159,7 @@ class ServicioReservasPostgres:
             nueva_fecha = fecha or actual.fecha
             nueva_hora = hora or actual.hora
             nuevas_personas = personas or actual.personas
+            validar_cambio_turno(fecha=nueva_fecha, hora=nueva_hora, personas=nuevas_personas)
 
             opciones = self._opciones_libres(
                 cur, nueva_fecha, nueva_hora, nuevas_personas,
