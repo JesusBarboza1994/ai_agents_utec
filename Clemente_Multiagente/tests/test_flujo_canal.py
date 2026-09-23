@@ -264,7 +264,7 @@ def test_postgres_real_nunca_guarda_la_tarjeta_cruda(monkeypatch):
             channel="whatsapp", chat_key=key, text="mi tarjeta 4111111111111111"))
         chat_id = chat_service._abrir_chat(
             MensajeEntrante(sesion_id="whatsapp-" + key, texto="", canal="whatsapp"),
-            chat_service.IdentidadCanal(chat_key=key))
+            chat_service.IdentidadCanal(chat_key=key), key)
         rows = chat_service.messages_repository.get_recent_messages(chat_id, session_days=7)
     assert len(rows) == 2
     assert rows[-1]["content"] == reply
