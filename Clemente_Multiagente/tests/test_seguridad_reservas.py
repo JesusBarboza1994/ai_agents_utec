@@ -279,6 +279,7 @@ def test_reset_invalida_permiso_sin_perder_propiedad(entorno):
 
 
 def test_confirmaciones_simultaneas_no_duplican_la_reserva(entorno):
+    """Verifica que dos CONFIRMO concurrentes del mismo token solo escriben una reserva, sin duplicar."""
     # `connection()` (app/db/connection.py) lee la config vía `current_app`,
     # que es un proxy atado al contexto de Flask -- y ese contexto no cruza
     # threads solo (misma historia que ya documenta app/agentes/contexto.py
@@ -298,6 +299,7 @@ def test_confirmaciones_simultaneas_no_duplican_la_reserva(entorno):
     _, token = propuesta_crear()
 
     def confirmar_en_su_propio_contexto():
+        """Confirma en un app_context propio, necesario porque el contexto de Flask no cruza threads."""
         if app is None:
             return autorizacion.confirmar("propietario", token, servicio)
         with app.app_context():

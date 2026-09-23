@@ -16,12 +16,14 @@ FECHA = str(date.today() + timedelta(days=3))
 
 
 def test_hay_disponibilidad_en_turno_valido(servicio_reservas):
+    """Verifica que hay disponibilidad en un turno valido, con mesas de capacidad suficiente."""
     opciones = servicio_reservas.consultar_disponibilidad(FECHA, "20:00", 4)
     assert opciones
     assert all(o.capacidad >= 4 for o in opciones)
 
 
 def test_no_hay_disponibilidad_fuera_de_turno(servicio_reservas):
+    """Verifica que no hay disponibilidad para un horario fuera de los turnos validos."""
     assert servicio_reservas.consultar_disponibilidad(FECHA, "17:30", 2) == []
 
 
@@ -34,6 +36,7 @@ def test_asigna_la_mesa_mas_ajustada(servicio_reservas):
 
 
 def test_una_mesa_no_se_reserva_dos_veces(servicio_reservas):
+    """Verifica que al crear una reserva la mesa asignada deja de contar como disponible."""
     libres_antes = servicio_reservas.consultar_disponibilidad(FECHA, "20:00", 2)
     servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
     libres_despues = servicio_reservas.consultar_disponibilidad(FECHA, "20:00", 2)
@@ -71,6 +74,7 @@ def test_sin_mesa_para_el_grupo_lanza_error(servicio_reservas):
 
 
 def test_datos_invalidos_lanzan_error_sin_escribir_nada(servicio_reservas):
+    """Verifica que un pedido con hora invalida lanza error y no ocupa ninguna mesa."""
     with pytest.raises(ValueError):
         servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "17:30", 2, "salon")
     assert servicio_reservas.consultar_disponibilidad(FECHA, "20:00", 2)  # nada quedo ocupado
@@ -86,6 +90,7 @@ def test_crear_reserva_es_idempotente_para_el_mismo_pedido(servicio_reservas):
 
 
 def test_idempotencia_no_bloquea_un_pedido_distinto(servicio_reservas):
+    """Verifica que un pedido con distinta cantidad de personas no se confunde con el anterior por la clave de idempotencia."""
     r1 = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
     r2 = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 4, "salon")
     assert r1.id != r2.id
