@@ -5,7 +5,7 @@ import threading
 from flask import Response, current_app, jsonify, request
 
 from ...observabilidad.trazas import registrar
-from ..services import message_service, outbound_whatsapp_service, whatsapp_service
+from ..services import outbound_whatsapp_service, whatsapp_service
 
 # Twilio expects TwiML back; an empty <Response/> means "no automated reply".
 _TWIML_ACK = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
@@ -36,16 +36,17 @@ def handle_webhook():
 
     message = whatsapp_service.parse_inbound(request.form)
     if message.chat_key:
-        _process_in_background(message, session_days=config.chat_session_days)
+        _process_in_background(message)
 
     return Response(_TWIML_ACK, mimetype="text/xml")
 
 
-def _process_in_background(message, *, session_days: int) -> None:
+def _process_in_background(message) -> None:
     """
     Off the request thread on purpose: storing the message, generating the
     reply and Twilio's REST API are all I/O the ack shouldn't wait on. Needs
-    its own Flask app context -- `current_app` doesn't cross threads.
+    its own Flask app context -- `current_app` doesn't cross threads, y el
+    flujo compartido lee de el la base y la ventana de historial.
 
     Trade-off, on purpose: a storage failure here only gets traced, it can no
     longer turn into a 503 that makes Twilio retry delivery (the ack already
@@ -59,7 +60,7 @@ def _process_in_background(message, *, session_days: int) -> None:
         with app.app_context():
             config = app.config["CLEMENTE"]
             try:
-                reply = message_service.process_incoming_message(message, session_days=session_days)
+                reply = whatsapp_service.process_inbound(message)
                 if reply is None:
                     return
                 outbound_whatsapp_service.send_whatsapp_message(

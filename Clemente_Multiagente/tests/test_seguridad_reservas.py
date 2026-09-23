@@ -346,8 +346,8 @@ def test_whatsapp_prepara_y_confirma_con_propiedad_del_canal(entorno, monkeypatc
     """WhatsApp usa el flujo protegido y exige confirmacion en otro turno para escribir."""
     import re
     from app import create_app
-    from app.communication.services import message_service
-    from app.communication.services.message_service import IncomingMessage
+    from app.communication.services import chat_service, whatsapp_service
+    from app.communication.services.whatsapp_service import IncomingMessage
     from flask import has_app_context
     servicio, _ = entorno
     llamados = []
@@ -360,20 +360,20 @@ def test_whatsapp_prepara_y_confirma_con_propiedad_del_canal(entorno, monkeypatc
     monkeypatch.setattr(grafo, "NODOS", {"reservas": nodo_reservas})
     monkeypatch.setattr(grafo, "_nodo_planificador", lambda estado: {
         "plan": ["reservas"], "paso": 0, "respuestas": [], "motivo_ruta": "test"})
-    monkeypatch.setattr(message_service, "_get_or_create_chat", lambda *_args: "chat-prueba")
-    monkeypatch.setattr(message_service.messages_repository, "get_recent_messages",
+    monkeypatch.setattr(chat_service, "_abrir_chat", lambda *_args: "chat-prueba")
+    monkeypatch.setattr(chat_service.messages_repository, "get_recent_messages",
                         lambda *_args, **_kwargs: list(almacenados))
-    monkeypatch.setattr(message_service.messages_repository, "append_message",
+    monkeypatch.setattr(chat_service.messages_repository, "append_message",
                         lambda chat_id, role, content, **kwargs: almacenados.append({"role": role, "content": content}))
-    monkeypatch.setattr(message_service.chats_repository, "touch", lambda *_args: None)
+    monkeypatch.setattr(chat_service.chats_repository, "touch", lambda *_args: None)
     app = create_app()
     with app.app_context():
-        primera = message_service.process_incoming_message(IncomingMessage(
-            channel="whatsapp", chat_key="900000001", text="mesa para dos"), session_days=7)
+        primera = whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="900000001", text="mesa para dos"))
         assert servicio.buscar_reservas_de("900000001") == []
         token = re.search(r"CONFIRMO [0-9A-F]{8}", primera)[0]
-        segunda = message_service.process_incoming_message(IncomingMessage(
-            channel="whatsapp", chat_key="900000001", text=token), session_days=7)
+        segunda = whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="900000001", text=token))
         creada = servicio.buscar_reservas_de("900000001")[0]
     assert len(llamados) == 1
     assert creada.id in segunda
