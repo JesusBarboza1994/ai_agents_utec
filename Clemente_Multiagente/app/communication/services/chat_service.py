@@ -187,12 +187,9 @@ def handle_incoming_message(
     elif validacion is not None:
         entrante.texto = validacion.texto
         cliente = _ficha_del_cliente(chat_key, entrante.sesion_id)
-        # TODO: falta enviarle `cliente` al orquestador -- nombre, telefono y lo
-        # que traiga `data` (alergias, preferencias, idioma) ya vienen al mismo
-        # nivel, listos para inyectarse en el turno. Hoy el agente redescubre en
-        # cada conversacion a quien ya conoce, y la ficha de `agentes/memoria.py`
-        # sigue leyendose de un JSON en disco en vez de esta fila.
-        respuesta = responder_orquestador(entrante, historial=historial)
+        respuesta = responder_orquestador(
+            entrante, historial=historial, cliente=cliente, chat_key=chat_key,
+        )
 
     salida = validar_salida(
         respuesta.texto, entrante.sesion_id, _configuracion(),

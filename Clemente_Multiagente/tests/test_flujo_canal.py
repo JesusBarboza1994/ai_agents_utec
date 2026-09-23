@@ -40,7 +40,7 @@ def _patch_repositories(monkeypatch, calls, recientes=None):
     )
 
 
-def _eco(entrante, historial=None):
+def _eco(entrante, historial=None, cliente=None, chat_key=None):
     """Orquestador falso: responde sin modelo y deja ver la sesion y el historial recibidos."""
     return RespuestaClemente(texto=f"eco: {entrante.texto}", agente="informacion",
                              sesion_id=entrante.sesion_id, motivo_ruta="prueba")
@@ -230,7 +230,7 @@ def test_identidad_estable_e_historial_sin_repetir_el_mensaje_del_turno(monkeypa
         lambda chat_id, role, content, **k: almacenados.append({"role": role, "content": content}))
 
     recibido = []
-    def responder(entrante, historial=None):
+    def responder(entrante, historial=None, cliente=None, chat_key=None):
         """Captura identidad e historial y responde con un correo, para comprobar la redaccion."""
         recibido.append((entrante.sesion_id, list(historial)))
         return RespuestaClemente(texto="contacto persona@example.com", agente="informacion",
@@ -293,6 +293,53 @@ def test_la_ficha_del_cliente_se_consulta_antes_de_llamar_al_orquestador(monkeyp
     assert consultas == ["51999111222", "51999111222"]
     assert ficha["alergias"] == "mani"          # viene del jsonb, al mismo nivel
     assert "data" not in ficha
+
+
+def _orquestador_que_captura(recibido):
+    """Orquestador falso que anota `cliente` y `chat_key` tal como los recibe."""
+    def responder(entrante, historial=None, cliente=None, chat_key=None):
+        """Guarda lo recibido y responde sin modelo."""
+        recibido.update(cliente=cliente, chat_key=chat_key)
+        return RespuestaClemente(texto="ok", agente="informacion",
+                                 sesion_id=entrante.sesion_id, motivo_ruta="prueba")
+    return responder
+
+
+def test_whatsapp_le_pasa_la_ficha_y_el_chat_key_al_orquestador(monkeypatch):
+    """La ficha leida de `customers` y el chat_key del canal llegan al orquestador en el turno."""
+    calls, recibido = {}, {}
+    _patch_repositories(monkeypatch, calls)
+    ficha = {"id": "customer-1", "chat_key": "51999111222", "first_name": "Ana",
+             "last_name": None, "phone": "51999111222", "alergias": "mani"}
+    monkeypatch.setattr(
+        "app.communication.services.chat_service.customers_repository.get_customer",
+        lambda chat_key: ficha)
+    monkeypatch.setattr("app.communication.services.chat_service.responder_orquestador",
+                        _orquestador_que_captura(recibido))
+
+    with _app().app_context():
+        whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="51999111222", text="hola"))
+
+    assert recibido["cliente"] == ficha
+    assert recibido["chat_key"] == "51999111222"
+
+
+def test_webchat_usa_el_sesion_id_como_chat_key_ante_el_orquestador(monkeypatch):
+    """Sin identidad de canal, el chat_key del webchat es su sesion_id, y la ficha viaja igual."""
+    calls, recibido = {}, {}
+    _patch_repositories(monkeypatch, calls)
+    monkeypatch.setattr(
+        "app.communication.services.chat_service.customers_repository.get_customer",
+        lambda chat_key: None)
+    monkeypatch.setattr("app.communication.services.chat_service.responder_orquestador",
+                        _orquestador_que_captura(recibido))
+
+    with _app().app_context():
+        chat_service.handle_incoming_message(MensajeEntrante(sesion_id="web-ficha", texto="hola"))
+
+    assert recibido["chat_key"] == "web-ficha"
+    assert recibido["cliente"] == {}        # cliente nuevo: sin ficha, pero el argumento llega
 
 
 def test_un_fallo_al_leer_el_cliente_no_corta_el_turno(monkeypatch):
