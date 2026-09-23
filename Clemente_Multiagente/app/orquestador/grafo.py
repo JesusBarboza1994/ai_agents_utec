@@ -640,8 +640,18 @@ def _respuesta_de_limite(entrante: MensajeEntrante, texto: str, motivo: str) -> 
     )
 
 
-def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) -> RespuestaClemente:
+def responder(
+    entrante: MensajeEntrante, historial: list[dict] | None = None,
+    cliente: dict | None = None, chat_key: str | None = None,
+) -> RespuestaClemente:
     """Punto de entrada del orquestador: lo unico que llama la capa de comunicacion.
+
+    `cliente` es la ficha que comunicacion ya resolvio contra `customers` en
+    Postgres (`customers_repository.get_customer`, columnas tipadas + jsonb
+    `data` al mismo nivel); `chat_key` viaja aparte porque no siempre se puede
+    derivar del `sesion_id` (ver `ContextoConversacion.chat_key`). Ninguno de
+    los dos es obligatorio: sin ellos el turno sigue funcionando como hasta
+    ahora, solo que el agente no trae identidad previa del cliente.
 
     Antes de gastar una llamada al modelo rechaza un mensaje demasiado largo o una
     rafaga de mensajes (ver `limites`), y serializa los turnos de una misma
@@ -654,10 +664,13 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
     with limites.un_turno_a_la_vez(entrante.sesion_id) as turno:
         if not turno:
             return _respuesta_de_limite(entrante, limites.MENSAJE_OCUPADO, "turno anterior sin terminar")
-        return _responder_turno(entrante, historial)
+        return _responder_turno(entrante, historial, cliente, chat_key)
 
 
-def _responder_turno(entrante: MensajeEntrante, historial: list[dict] | None = None) -> RespuestaClemente:
+def _responder_turno(
+    entrante: MensajeEntrante, historial: list[dict] | None = None,
+    cliente: dict | None = None, chat_key: str | None = None,
+) -> RespuestaClemente:
     """
     Atiende un turno ya admitido por los limites de `responder`.
 
@@ -673,7 +686,10 @@ def _responder_turno(entrante: MensajeEntrante, historial: list[dict] | None = N
     El bloqueo PII y Guardrails AI del canal pertenecen a _atender: invocar
     esta funcion directamente no ejecuta esas validaciones HTTP.
     """
-    contexto = ContextoConversacion(sesion_id=entrante.sesion_id, canal=entrante.canal)
+    contexto = ContextoConversacion(
+        sesion_id=entrante.sesion_id, canal=entrante.canal,
+        chat_key=chat_key or "", cliente=cliente or {},
+    )
     estado_inicial: EstadoConversacion = {
         "sesion_id": entrante.sesion_id,
         "mensaje": entrante.texto,
