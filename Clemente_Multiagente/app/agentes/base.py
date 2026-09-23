@@ -142,7 +142,7 @@ def ejecutar(
     conversacion nueva.
 
     Recorta el historial, agrega la ficha de reservas propias y el mensaje
-    actual, e invoca con recursion_limit=12 y thread_id de flujo y sesion.
+    actual, e invoca con recursion_limit=30 y thread_id de flujo y sesion.
     Si hay interrupcion HITL, guarda la solicitud en contexto y devuelve
     un aviso de revision. Si el texto parece una llamada de tool, registra
     el guardrail y devuelve fallback. Los errores de invocacion se propagan:
@@ -167,7 +167,7 @@ def ejecutar(
     mensajes.append({"role": "user", "content": entrada})
 
     config = {
-        "recursion_limit": 12,
+        "recursion_limit": 30,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
@@ -212,7 +212,7 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
     from langgraph.types import Command
 
     config = {
-        "recursion_limit": 12,
+        "recursion_limit": 30,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke(
