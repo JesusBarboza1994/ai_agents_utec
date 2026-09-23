@@ -11,6 +11,7 @@ from .base import construir_agente, ejecutar, reanudar_revision
 from .contexto import ContextoConversacion
 from .prompts import PROMPT_RESERVAS
 from .tools.catalogo_tools import consultar_politica
+from .tools.cliente_tools import actualizar_datos_cliente
 from .tools.fecha_tools import get_current_datetime
 from .tools.reservas_tools import (
     buscar_mis_reservas,
@@ -34,6 +35,7 @@ TOOLS = [
     cancelar_reserva,
     escalar_a_staff,
     solicitar_excepcion_grupo,
+    actualizar_datos_cliente,   # guarda nombre/apellido/DNI que el cliente da al identificarse
     consultar_politica,   # fuente unica de verdad: no duplicamos las politicas aqui
     get_current_datetime,   # "manana" y "este viernes" salen del reloj de Lima, no del modelo
 ]
