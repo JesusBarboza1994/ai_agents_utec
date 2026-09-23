@@ -11,6 +11,7 @@ that's not a real cost; a future non-Flask caller (a worker, a script) would
 need `with app.app_context():` around it, or this gets revisited then.
 """
 
+import os
 from contextlib import contextmanager
 from threading import Lock
 
@@ -25,18 +26,18 @@ _pools: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
 _pool_lock = Lock()
 
 
-def _pool_for(database_url: str) -> psycopg2.pool.ThreadedConnectionPool:
-    """Obtiene o crea el pool de Postgres para la URL y aplica migraciones al inicializarlo."""
-    with _pool_lock:
-        if database_url not in _pools:
-            pool = psycopg2.pool.ThreadedConnectionPool(1, 5, database_url)
-            conn = pool.getconn()
-            try:
-                migrate.apply_pending(conn)
-            finally:
-                pool.putconn(conn)
-            _pools[database_url] = pool
-        return _pools[database_url]
+def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
+    if database_url not in _pools:
+        pool = psycopg2.pool.SimpleConnectionPool(
+            1, int(os.environ.get("CLEMENTE_DB_POOL_MAX", "5")), database_url
+        )
+        conn = pool.getconn()
+        try:
+            migrate.apply_pending(conn)
+        finally:
+            pool.putconn(conn)
+        _pools[database_url] = pool
+    return _pools[database_url]
 
 
 @contextmanager

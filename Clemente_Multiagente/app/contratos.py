@@ -87,6 +87,10 @@ class Reserva:
     estado: Literal["confirmada", "cancelada", "modificada", "pendiente_staff"] = "confirmada"
     notas: str = ""
     creada: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    # Clave natural (telefono+fecha+hora+personas, ver app/reservas/validaciones.py)
+    # que crear_reserva usa para no duplicar el mismo pedido. No es identidad
+    # de negocio -- eso lo sigue siendo `id` -- solo evita reintentos.
+    idempotency_key: str = ""
 
 
 class ServicioReservas(Protocol):

@@ -14,6 +14,7 @@ from pathlib import Path
 from threading import RLock
 
 from . import fecha as reloj
+from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
 ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
@@ -175,6 +176,8 @@ def confirmar(sesion, texto, servicio):
                 r = servicio.cancelar_reserva(**datos)
             if r is None:
                 return "No se pudo completar la operación. Solicita revisar la reserva.", {}
+        except ReservaInvalida as err:
+            return f"No se pudo completar la operación: {err}", {}
         except ValueError:
             return "No se pudo completar la operación: la disponibilidad o los datos cambiaron. Solicita un nuevo resumen.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
