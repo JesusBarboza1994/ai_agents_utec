@@ -178,6 +178,34 @@ Falta lo administrativo, y es de Adrián:
 4. **Reparto de la entrega final**: quién arma el informe, quién el diagrama, quién graba o
    presenta la demostración, y en qué fecha congelamos el código.
 
+### 7.4 Validación, idempotencia y endpoints de depuración de reservas — cerrado
+
+La validación de datos de reserva vivía solo en `app/agentes/autorizacion.py` (la capa que
+arma el resumen antes del `CONFIRMO`): protegía el camino LLM → agente, pero nada más. Un
+caller distinto (los endpoints de depuración nuevos, o WhatsApp el día que `llm_bridge` deje
+de ser un mock) podía escribir en la base sin pasar por ningún chequeo — turnos fuera de
+catálogo, fechas pasadas, teléfonos con cualquier formato. `nombre`/`notas` además vuelven al
+LLM en cada turno futuro vía `ficha_del_cliente()`, sin límite de longitud: superficie de
+inyección de prompt persistente, no solo "datos sucios".
+
+- **`app/reservas/validaciones.py`** (nuevo): `validar_datos_reserva`/`validar_cambio_turno`
+  compartidas por `ServicioReservasJSON` y `ServicioReservasPostgres` — turno, personas 1-10,
+  fecha no pasada y máx. 90 días a futuro, teléfono por regex, nombre/notas saneados y acotados
+  (100/300 caracteres). `TURNOS_VALIDOS` unificado ahí; antes estaba duplicado en 3 archivos.
+- **Idempotencia**: `crear_reserva` calcula una clave natural (hash de
+  teléfono+fecha+hora+personas) sin que el caller mande nada. En Postgres, columna
+  `idempotency_key` + índice único parcial (migración `0003_reservas_idempotencia_y_unicidad.sql`)
+  es la garantía real bajo concurrencia; el pre-chequeo en Python solo evita pelear el lock de
+  mesas en el caso común. Mismo índice agrega `ux_reservas_turno_mesa` (UNIQUE fecha+hora+mesa_id)
+  como red de seguridad a nivel de base, además del `SELECT ... FOR UPDATE` a nivel de app.
+- **`app/reservas/rutas.py`** (nuevo): `POST/GET /api/reservas...` para crear/consultar/cancelar
+  reservas sin pasar por el LLM ni por el intercambio `CONFIRMO`. Registrado solo con
+  `CLEMENTE_DEBUG_ROUTES=1` (ver `app/__init__.py`) — sin autenticación, nunca debe estar
+  prendido con tráfico real. `scripts/benchmark_reservas.py` ejercita esto con peticiones
+  concurrentes reales para probar el lock y la idempotencia (no un mock).
+- Verificado contra Postgres real: 15 peticiones concurrentes a la misma mesa → exactamente 1
+  gana; 15 peticiones idénticas (reintento simulado) → exactamente 1 reserva.
+
 ## 8. Cadencia sugerida
 
 - Un punto de control corto por semana (30 minutos): qué avanzó cada frente, qué está bloqueado,

@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 
+from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
+
 ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
 _lock = RLock()
@@ -102,16 +104,24 @@ def proponer(contexto, accion, datos, servicio):
         fecha = datos.get("fecha") or anterior.get("fecha")
         hora = datos.get("hora") or anterior.get("hora")
         personas = datos.get("personas") or anterior.get("personas")
-        if not isinstance(personas, int) or not 1 <= personas <= 10:
-            return "No se preparó la reserva: admite de 1 a 10 personas; grupos mayores requieren coordinación con el restaurante."
-        from datetime import date
         try:
-            if date.fromisoformat(fecha) < date.today():
-                raise ValueError()
-        except (ValueError, TypeError):
-            return "Indica una fecha válida que no esté en el pasado."
-        if accion == "crear" and (not datos["nombre"].strip() or not datos["telefono"].strip()):
-            return "Faltan el nombre y/o el teléfono de contacto."
+            if accion == "crear":
+                # Validacion completa (turno + telefono + nombre/notas
+                # saneados): la unica fuente de verdad vive en
+                # app/reservas/validaciones.py, la misma que corren
+                # crear_reserva/modificar_reserva del backend, para que un
+                # dato invalido nunca dependa de que esta capa lo repita bien.
+                saneado = validar_datos_reserva(
+                    nombre=datos.get("nombre", ""), telefono=datos.get("telefono", ""),
+                    fecha=fecha, hora=hora, personas=personas,
+                    zona=datos.get("zona", ""), notas=datos.get("notas", ""),
+                )
+                datos.update(saneado)
+                fecha, hora, personas = saneado["fecha"], saneado["hora"], saneado["personas"]
+            else:
+                validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
+        except ReservaInvalida as err:
+            return f"No se preparó la operación: {err}"
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Crear reserva' if accion == 'crear' else 'Modificar reserva ' + datos['reserva_id']}: "
@@ -174,6 +184,8 @@ def confirmar(sesion, texto, servicio):
                 r = servicio.cancelar_reserva(**datos)
             if r is None:
                 return "No se pudo completar la operación. Solicita revisar la reserva.", {}
+        except ReservaInvalida as err:
+            return f"No se pudo completar la operación: {err}", {}
         except ValueError:
             return "No se pudo completar la operación: la disponibilidad o los datos cambiaron. Solicita un nuevo resumen.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
