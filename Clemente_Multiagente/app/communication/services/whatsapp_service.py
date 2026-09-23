@@ -1,17 +1,27 @@
 """
-Twilio WhatsApp adapter: request validation and payload translation.
+Canal de WhatsApp (Twilio): todo lo propio del proveedor, y nada mas.
 
-Only Twilio-specific concerns live here (signature, addressing, the BSUID
-quirk). The actual conversation flow is channel-agnostic -- see
-`message_service.handle_incoming_message`, which this only feeds.
+Aqui viven la firma de la peticion, las direcciones `whatsapp:`, el BSUID y la
+traduccion del formulario de Twilio al turno normalizado. El razonamiento y el
+almacenamiento no son asunto de este modulo: `process_inbound` arma el
+`MensajeEntrante` y se lo entrega a `chat_service.handle_incoming_message`, el
+mismo flujo que usa el webchat -- alli se resuelven cliente, chat, historial,
+seguridad y orquestador.
+
+Un canal nuevo se agrega igual: un controller y un adaptador que traduzcan su
+payload a `MensajeEntrante` + `IdentidadCanal`. No se duplica nada del flujo.
 """
+
+from dataclasses import dataclass
 
 import base64
 import hashlib
 import hmac
 import re
 
-from .message_service import IncomingMessage
+from ...contratos import MensajeEntrante
+from ...observabilidad.trazas import registrar
+from . import chat_service
 
 WHATSAPP_PREFIX = "whatsapp:"
 
@@ -93,6 +103,24 @@ def media_content_type(form) -> str | None:
     return form.get("MediaContentType0") or None
 
 
+# --------------------------------------------------------------------------
+# Entrada del canal: traducir y delegar
+# --------------------------------------------------------------------------
+
+@dataclass
+class IncomingMessage:
+    """El turno de WhatsApp ya traducido: lo que `parse_inbound` produce."""
+
+    channel: str
+    chat_key: str
+    text: str
+    sender_name: str | None = None
+    sender_phone: str | None = None
+    channel_number: str | None = None       # la direccion propia del negocio en el canal
+    provider_message_id: str | None = None  # el id de Twilio para este mensaje (dedup futuro)
+    unsupported_reason: str | None = None   # cuando no hay texto utilizable
+
+
 def parse_inbound(form) -> IncomingMessage:
     """Translates Twilio's raw form payload into Clemente's channel-agnostic contract."""
     text = (form.get("Body") or "").strip()
@@ -108,3 +136,40 @@ def parse_inbound(form) -> IncomingMessage:
         provider_message_id=form.get("MessageSid") or None,
         unsupported_reason=f"media sin manejar ({media_type})" if not text and media_type else None,
     )
+
+
+def process_inbound(message: IncomingMessage) -> str | None:
+    """Atiende un turno de WhatsApp y devuelve el texto que hay que responder.
+
+    Devuelve None cuando no hay nada que contestar: sin `chat_key`, o un
+    mensaje sin texto -- media que Clemente todavia no lee, que solo se traza.
+
+    El `sesion_id` del hilo es estable entre mensajes (`whatsapp-<chat_key>`),
+    porque de el cuelgan la propiedad de las reservas y las revisiones
+    pendientes del orquestador.
+    """
+    if not message.chat_key:
+        return None
+    if not message.text:
+        if message.unsupported_reason:
+            registrar(
+                "mensaje_no_soportado", message.chat_key,
+                detalle={"motivo": message.unsupported_reason},
+            )
+        return None
+
+    respuesta = chat_service.handle_incoming_message(
+        MensajeEntrante(
+            sesion_id=f"{message.channel}-{message.chat_key}",
+            texto=message.text,
+            canal=message.channel,
+            nombre_cliente=message.sender_name,
+            telefono=message.sender_phone,
+        ),
+        chat_service.IdentidadCanal(
+            chat_key=message.chat_key,
+            channel_number=message.channel_number,
+            provider_message_id=message.provider_message_id,
+        ),
+    )
+    return respuesta.texto
