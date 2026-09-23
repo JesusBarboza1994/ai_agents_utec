@@ -26,6 +26,15 @@ class ContextoConversacion(BaseModel):
     sesion_id: str = "desconocida"
     canal: str = "webchat"
 
+    # --- lo que manda comunicacion, ya resuelto contra `customers` (Postgres) ---
+    # `chat_key` explicito porque comunicacion no siempre lo puede derivar del
+    # `sesion_id` como hace `chat_key_de` (webchat sin telefono, BSUID, etc.).
+    # `cliente` es el dict que arma `customers_repository.get_customer`: columnas
+    # tipadas (first_name, last_name, phone) y el jsonb `data` desestructurado al
+    # mismo nivel. Vacio cuando el cliente es nuevo o el canal no lo mando.
+    chat_key: str = ""
+    cliente: dict[str, Any] = Field(default_factory=dict)
+
     # --- canal de vuelta: lo escriben las tools, lo lee el orquestador ---
     escalado: bool = False              # `escalar_a_staff` lo pone en True
     datos: dict[str, Any] = Field(default_factory=dict)   # reserva creada, incidencia, etc.
@@ -42,3 +51,16 @@ def telefono_de(sesion_id: str) -> str | None:
     if sesion_id.startswith("whatsapp-"):
         return sesion_id.removeprefix("whatsapp-") or None
     return None
+
+
+def chat_key_de(sesion_id: str) -> str | None:
+    """
+    El `chat_key` de Twilio (tabla `customers`), reconstruido del sesion_id.
+
+    Misma extraccion que `telefono_de` -- WhatsApp arma la sesion como
+    "whatsapp-<chat_key>" -- pero con el nombre correcto: el chat_key puede
+    ser un telefono real o un id de negocio enmascarado (BSUID), y las tools
+    que actualizan el perfil del cliente no deberian asumir que siempre es
+    un numero.
+    """
+    return telefono_de(sesion_id)
