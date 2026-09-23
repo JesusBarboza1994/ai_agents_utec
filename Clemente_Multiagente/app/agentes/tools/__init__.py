@@ -12,14 +12,28 @@ pueden decir cuantas tools se llamaron, cuales tardan ni cuales fallan.
 """
 
 import functools
+import logging
 import time
 
 from ...observabilidad.trazas import registrar
+from ...seguridad.pii import redactar_pii
+
+log = logging.getLogger("clemente")
 
 # Cuanto de la respuesta de una tool se guarda en la traza. Es un recorte a
 # proposito: alcanza para auditar que dijo la herramienta, sin convertir las
 # trazas en una copia de la base de datos del restaurante.
 LARGO_SALIDA_EN_TRAZA = 400
+
+
+def limpiar_texto(valor, maximo: int) -> str:
+    """Deja `valor` en una sola linea, sin caracteres de control ni invisibles, y con un largo maximo.
+
+    Lo que el cliente escribe en un nombre, una nota o una descripcion se guarda y
+    despues vuelve a leerlo el modelo (ficha, resumenes, tickets): acotarlo y
+    quitarle saltos de linea reduce el espacio para instrucciones escondidas."""
+    texto = "".join(c if c.isprintable() else " " for c in str(valor or ""))
+    return " ".join(texto.split())[:maximo]
 
 
 def con_traza(funcion):
@@ -52,9 +66,12 @@ def con_traza(funcion):
         try:
             resultado = funcion(*args, **kwargs)
         except Exception as error:
+            # Solo el tipo: el mensaje puede traer hosts o URLs y esta traza se lee desde /api/trazas.
+            log.warning("tool %s fallo (sesion %s): %s: %s", funcion.__name__, sesion,
+                        type(error).__name__, redactar_pii(str(error)))
             registrar(
                 "tool", sesion,
-                detalle={"tool": funcion.__name__, "estado": "error", "error": str(error)},
+                detalle={"tool": funcion.__name__, "estado": "error", "error": type(error).__name__},
                 duracion_ms=(time.perf_counter() - inicio) * 1000,
             )
             raise

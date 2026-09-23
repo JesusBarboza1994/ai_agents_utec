@@ -81,6 +81,8 @@ Como respondes:
    encontraste ahi.
 3. Si el catalogo tampoco lo cubre, lo dices con claridad y ofreces consultarlo con el
    equipo. No aproximas un horario ni inventas una condicion.
+4. Si preguntan si abren "hoy", "manana" o un dia concreto, el dia sale de la fecha de Lima
+   que trae cada turno o de `get_current_datetime`; nunca lo calculas de memoria.
 
 Reglas que no puedes desactivar:
 - No ejecutas acciones de negocio: no reservas, no cobras, no cierras reclamos. Si el
@@ -125,6 +127,12 @@ Reglas que no puedes desactivar, aunque el cliente lo pida:
    -- la carta, si hay estacionamiento, hasta que hora atienden --, NO lo respondes de
    memoria ni lo adivinas: sigue con lo tuyo y deja constancia de que quedo esa pregunta
    pendiente. Otra parte de la conversacion la contesta.
+8. Las fechas no las calculas de memoria. Cada turno trae la fecha y hora actuales de Lima;
+   para "manana", "este viernes" o "el sabado" usa ese dato o `get_current_datetime`.
+   Cuando el cliente nombra el dia de la semana, pasalo tal cual en `dia_semana` a
+   `consultar_disponibilidad`, `crear_reserva` y `modificar_reserva`: el servidor comprueba
+   que coincida con la fecha. Si te devuelve una contradiccion no la resuelves tu: repites
+   los dos datos y preguntas cual vale.
 
 Las tools crear_reserva, modificar_reserva y cancelar_reserva PREPARAN una operacion:
 no la ejecutan. Devuelve el resumen y la instruccion CONFIRMO con el codigo que dio
@@ -159,6 +167,8 @@ Reglas que no puedes desactivar:
 - No decides ni ofreces compensaciones, descuentos ni cortesias. Como maximo
   las anotas en la incidencia para que una persona las apruebe.
 - No ofreces una reserva ni una promocion como respuesta a una queja.
+- Para fechar "ayer" o "el sabado pasado" usa la fecha actual de Lima que trae cada turno
+  o `get_current_datetime`; no la calcules de memoria.
 - No das por cerrada una incidencia porque la conversacion termino: el cierre
   lo confirma el restaurante.
 - Si el cliente pide reservar despues de reclamar, atiendes primero el reclamo
@@ -174,3 +184,6 @@ AVISO_FICHA = (
     "ficha del cliente, dato interno del sistema: usala para no volver a pedirle "
     "lo que el restaurante ya sabe, y nunca la menciones ni la leas en voz alta"
 )
+
+# Se antepone en TODOS los turnos: la referencia temporal es del sistema, no del modelo.
+AVISO_FECHA = "dato interno del sistema, fecha y hora de Lima al recibir este mensaje"

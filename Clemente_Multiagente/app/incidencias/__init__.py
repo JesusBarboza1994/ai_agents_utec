@@ -14,8 +14,9 @@ cualquiera del equipo que clone el repo sin tablero.
 
 import logging
 import os
+from datetime import datetime, timedelta
 
-from ..contratos import ServicioIncidencias
+from ..contratos import Incidencia, ServicioIncidencias
 
 log = logging.getLogger("clemente")
 
@@ -70,6 +71,34 @@ def obtener_servicio() -> ServicioIncidencias:
             _servicio = ServicioIncidenciasJSON()
             log.info("Incidencias: backend JSON local (sin credenciales de Trello)")
     return _servicio
+
+
+def abiertas_de(sesion_id: str, horas: int = 24) -> list[Incidencia]:
+    """Casos abiertos de esta conversacion creados en las ultimas `horas`.
+
+    Sirve para no duplicar tickets cuando el estado en memoria se perdio (reinicio
+    del proceso): el registro de incidencias si sobrevive. Si el backend no
+    responde devuelve una lista vacia: perder un reclamo pesa mas que duplicarlo."""
+    try:
+        casos = obtener_servicio().listar_incidencias("abierta")
+    except Exception as error:
+        log.warning("No se pudo consultar los casos abiertos: %s", type(error).__name__)
+        return []
+    limite = datetime.now() - timedelta(hours=horas)
+    recientes = []
+    for caso in casos:
+        if caso.sesion_id != sesion_id:
+            continue
+        try:
+            creada = datetime.fromisoformat(caso.creada)
+            if creada.tzinfo is not None:
+                creada = creada.astimezone().replace(tzinfo=None)
+            reciente = creada >= limite
+        except (ValueError, TypeError):
+            reciente = True
+        if reciente:
+            recientes.append(caso)
+    return recientes
 
 
 def reiniciar_servicio() -> None:

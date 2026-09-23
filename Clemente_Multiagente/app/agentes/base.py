@@ -13,15 +13,19 @@ Aqui viven tres cosas transversales:
   3. el guardrail de salida que descarta tool-calls escritas como texto.
 """
 
+import hashlib
 import json
+import logging
 import warnings
-from datetime import date
 
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import registrar
+from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
-from .prompts import AVISO_FICHA
+from .prompts import AVISO_FECHA, AVISO_FICHA
+
+log = logging.getLogger("clemente")
 
 # Historial que se le pasa a un agente: solo turnos de texto (user/assistant).
 # Los mensajes de tool no viajan entre agentes porque cada uno tiene tools
@@ -34,6 +38,15 @@ LIMITE_TURNOS_HISTORIAL = 12
 warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*", category=UserWarning)
 
 
+def id_de_hilo(flujo: str, sesion_id: str) -> str:
+    """Id del hilo del checkpoint: un hash de la sesion, para que el telefono no viaje a LangSmith.
+
+    LangGraph copia el thread_id a la metadata de cada ejecucion y la metadata no
+    pasa por la redaccion de `seguridad/trazado.py`. Es estable: reanudar una
+    revision humana calcula el mismo id que el turno que la pauso."""
+    return f"{flujo}:{hashlib.sha256(sesion_id.encode()).hexdigest()[:16]}"
+
+
 def construir_agente(
     prompt_sistema: str, tools: list, temperature: float = 0.1,
     middleware: list | None = None, checkpointer=None,
@@ -43,6 +56,9 @@ def construir_agente(
 
     `context_schema` es lo que permite que las tools reciban el `sesion_id` sin
     pedirselo al modelo, y que devuelvan `escalado` y `datos` al orquestador.
+
+    La fecha NO va en el system prompt: el agente se construye una vez por
+    proceso y quedaba congelada. Viaja en cada turno, ver `_armar_entrada`.
     """
     from langchain.agents import create_agent
 
@@ -50,7 +66,7 @@ def construir_agente(
 
     return create_agent(
         model=resolver_modelo(temperature=temperature),
-        system_prompt=f"{prompt_sistema}\n\nFecha de hoy: {date.today().isoformat()}.",
+        system_prompt=prompt_sistema,
         tools=tools,
         context_schema=ContextoConversacion,
         middleware=[*middleware_pii(), *(middleware or [])],
@@ -79,6 +95,36 @@ def _parece_llamada_de_tool(texto: str) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(datos, dict) and bool(_CLAVES_DE_TOOL & set(datos))
+
+
+def _armar_entrada(texto: str, ficha: str) -> str:
+    """Antepone al mensaje los datos del sistema que el modelo no debe adivinar.
+
+    Siempre la fecha y hora de Lima de este turno; la ficha del cliente solo
+    cuando existe. Van pegados al mensaje y no al system prompt para que
+    cambien turno a turno."""
+    bloques = [f"[{AVISO_FECHA}: {fecha.describir_ahora()}]"]
+    if ficha:
+        bloques.append(f"[{AVISO_FICHA}: {ficha}]")
+    bloques.append(texto)
+    return "\n".join(bloques)
+
+
+def _olvidar_hilo(agente, config: dict) -> None:
+    """Borra el checkpoint del hilo cuando el turno termino sin pausa para revision humana.
+
+    El agente de Reservas guarda el estado de cada hilo para poder reanudarlo tras
+    una pausa, pero ademas recibe el historial completo en cada turno: sin este
+    borrado el estado acumulado se sumaba al historial reenviado y el modelo veia
+    cada mensaje repetido (y pagaba por ello). Una pausa pendiente conserva su
+    checkpoint hasta que se resuelve. Un fallo al borrar no interrumpe la respuesta."""
+    guardado = getattr(agente, "checkpointer", None)
+    if guardado is None:
+        return
+    try:
+        guardado.delete_thread(config["configurable"]["thread_id"])
+    except Exception as error:
+        log.warning("No se pudo borrar el checkpoint del hilo: %s", type(error).__name__)
 
 
 def ejecutar(
@@ -110,7 +156,7 @@ def ejecutar(
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
     # contexto que pidio Boris en la asesoria del 2026-09-07 [08:22].
-    entrada = f"[{AVISO_FICHA}: {ficha}]\n{texto}" if ficha else texto
+    entrada = _armar_entrada(texto, ficha)
     if ficha:
         # La ficha entra por el prompt, no por una tool, asi que sin esta traza
         # el agente puede citar la reserva de un cliente y en el registro no
@@ -122,7 +168,7 @@ def ejecutar(
 
     config = {
         "recursion_limit": 12,
-        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+        "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
@@ -140,6 +186,7 @@ def ejecutar(
             "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
         )
     respuesta = extraer_texto(resultado["messages"][-1])
+    _olvidar_hilo(agente, config)
 
     if _parece_llamada_de_tool(respuesta):
         # Queda registrado: es la metrica que decide si el modelo alcanza para la
@@ -166,11 +213,12 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
 
     config = {
         "recursion_limit": 12,
-        "configurable": {"thread_id": f"{flujo}:{sesion_id}"},
+        "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke(
         Command(resume={"decisions": [decision]}), config=config, context=contexto,
     )
     if resultado.get("__interrupt__"):
         raise RuntimeError("La revisión produjo una segunda interrupción inesperada")
+    _olvidar_hilo(agente, config)
     return extraer_texto(resultado["messages"][-1])

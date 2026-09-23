@@ -47,6 +47,7 @@ que venia atendiendo, con una regla explicita de continuidad.
 
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Literal
@@ -59,10 +60,13 @@ from ..agentes import autorizacion
 from ..reservas import obtener_servicio as servicio_reservas
 from ..agentes.contexto import ContextoConversacion
 from ..contratos import MensajeEntrante, RespuestaClemente
-from ..incidencias import obtener_servicio as servicio_incidencias
+from ..incidencias import abiertas_de, obtener_servicio as servicio_incidencias
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import cronometro, registrar, registrar_conversacion
-from . import informacion
+from ..seguridad.errores import registrar_error
+from ..seguridad.pii import redactar_pii
+from ..seguridad.trazado import contexto_de_trazado
+from . import informacion, limites
 
 # Cuantos turnos del hilo ve el planificador. Suficiente para entender de que se
 # esta hablando, sin pagar el contexto completo en cada clasificacion.
@@ -91,6 +95,8 @@ _escalado_de: dict[str, str] = {}
 # agente vive en su checkpointer; aquí se conserva el contexto de negocio que
 # recibirá la tool cuando el staff reanude el mismo thread_id.
 _revisiones: dict[str, dict] = {}
+# Una revision se resuelve una sola vez: quien la reclama la saca de la cola bajo este candado.
+_lock_revisiones = threading.Lock()
 ARCHIVO_REVISIONES = Path(__file__).resolve().parent.parent / "agentes" / "datos" / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
@@ -146,6 +152,7 @@ class EstadoConversacion(TypedDict, total=False):
     plan: list[str]          # pasos en orden, p. ej. ["incidencias", "reservas"]
     paso: int                # cual de esos pasos toca ahora
     motivo_ruta: str
+    pendientes: list[str]    # temas que el tope de pasos dejo sin atender
 
     # --- lo que producen los nodos de trabajo ---
     respuestas: list[dict]   # [{"agente": "reservas", "texto": "..."}]
@@ -186,7 +193,9 @@ mal se atiende antes que lo que viene. Si el cliente pregunta un dato general y 
 quiere reservar, primero 'informacion' y despues 'reservas': el dato puede cambiar lo
 que quiera reservar.
 
-Nunca pongas dos veces el mismo paso, y nunca pongas mas de dos.
+Nunca pongas dos veces el mismo paso, y nunca pongas mas de dos. Si el mensaje trae mas
+temas de los que caben en dos pasos, atiende los dos mas importantes y escribe en `motivo`
+la palabra PENDIENTE: seguida de lo que quedo fuera, para que el cliente sepa que falta.
 
 REGLA DE CONTINUIDAD, tan importante como las anteriores: la conversacion es un hilo.
 Si el ultimo mensaje es una continuacion de lo que se venia hablando -- responde a una
@@ -254,6 +263,33 @@ def _resumen_del_hilo(historial: list[dict]) -> str:
     return "\n".join(lineas)
 
 
+# Como se nombra al cliente lo que quedo fuera del plan por el tope de pasos.
+TEMA_PENDIENTE = {
+    "informacion": "tu consulta sobre el restaurante",
+    "reservas": "la reserva",
+    "incidencias": "tu reclamo",
+    "otros": "el resto de lo que me escribiste",
+}
+
+
+def _pendientes_de(pasos: list[str], plan: list[str], motivo: str) -> list[str]:
+    """Temas que el tope dejo fuera: pasos validos que no entraron al plan, o lo que el planificador marco PENDIENTE.
+
+    Antes se descartaban en silencio y la respuesta parecia haber atendido todo.
+    Es la lista de lo que NO se hizo, no una priorizacion."""
+    fuera = [p for p in dict.fromkeys(pasos) if p in NODOS and p not in plan]
+    if not fuera and "PENDIENTE:" in (motivo or "").upper():
+        fuera = ["otros"]
+    return fuera
+
+
+def _aviso_pendientes(pendientes: list[str]) -> str:
+    """Frase para el cliente con lo que quedo fuera del turno; nunca afirma haberlo resuelto."""
+    temas = [TEMA_PENDIENTE.get(p, p) for p in pendientes]
+    lista = temas[0] if len(temas) == 1 else ", ".join(temas[:-1]) + " y " + temas[-1]
+    return f"Me queda pendiente {lista}: escríbeme sobre eso y lo vemos enseguida."
+
+
 def _limpiar_plan(pasos: list[str]) -> list[str]:
     """
     Deja el plan en algo ejecutable: sin repetidos, sin desconocidos y con tope.
@@ -291,7 +327,7 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
         # por nada. El plan vacio cae directo al cierre.
         registrar("plan", _sesion_de(estado),
                   detalle={"plan": [], "motivo": "turno sin texto"})
-        return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto", "respuestas": []}
+        return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto", "pendientes": [], "respuestas": []}
 
     venia_de = estado.get("ultimo_agente") or "ninguno"
     entrada = (
@@ -303,17 +339,19 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
     modelo = resolver_modelo(temperature=0.0, rol="enrutador").with_structured_output(
         PlanDeResolucion
     )
+    pendientes: list[str] = []
     try:
         decision = modelo.invoke([
             SystemMessage(content=PROMPT_PLANIFICADOR),
             HumanMessage(content=entrada),
         ])
         plan, motivo = _limpiar_plan(decision.pasos), decision.motivo
+        pendientes = _pendientes_de(decision.pasos, plan, motivo)
     except Exception as error:
         # Un planificador caido no puede tumbar la conversacion: se cae al agente
         # que venia atendiendo, y si no habia, al mas barato de equivocarse.
         plan = [estado.get("ultimo_agente") or "informacion"]
-        registrar("error", _sesion_de(estado), detalle={"error": f"planificacion: {error}"})
+        registrar_error(_sesion_de(estado), "planificacion", error)
         motivo = "fallback por error de planificacion"
 
     if not plan:
@@ -321,9 +359,9 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
 
     registrar(
         "plan", _sesion_de(estado), agente=plan[0],
-        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de},
+        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de, "pendientes": pendientes},
     )
-    return {"plan": plan, "paso": 0, "motivo_ruta": motivo, "respuestas": []}
+    return {"plan": plan, "paso": 0, "motivo_ruta": motivo, "pendientes": pendientes, "respuestas": []}
 
 
 def _nodo_trabajo(nombre: str):
@@ -406,8 +444,16 @@ def _sintetizar(respuestas: list[dict], sesion: str) -> str:
     except Exception as error:
         # Si la sintesis falla, el cliente recibe los dos textos pegados: feo,
         # pero completo. Perder una de las dos respuestas seria peor.
-        registrar("error", sesion, detalle={"error": f"sintesis: {error}"})
+        registrar_error(sesion, "sintesis", error)
         return pegado
+
+
+def _escalamiento_previo(sesion: str) -> str | None:
+    """Codigo del ticket de escalamiento que esta conversacion ya abrio, aunque el proceso se haya reiniciado."""
+    for caso in abiertas_de(sesion, horas=24):
+        if caso.descripcion.startswith("[escalado desde"):
+            return caso.id
+    return None
 
 
 def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
@@ -427,8 +473,9 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     servicio = servicio_incidencias()
     detalle = f"{escalamiento.get('motivo', '')}: {escalamiento.get('detalle', '')}"
 
-    abierto = _escalado_de.get(sesion)
+    abierto = _escalado_de.get(sesion) or _escalamiento_previo(sesion)
     if abierto:
+        _escalado_de[sesion] = abierto
         if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
             raise RuntimeError("No se pudo actualizar el caso existente")
         contexto.datos["incidencia"] = {"id": abierto, "actualizada": True}
@@ -485,7 +532,7 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
         try:
             codigo = _escalar(sesion, escalamiento, _mensaje_de(estado), contexto)
         except Exception as error:
-            registrar("error", sesion, detalle={"error": f"escalamiento: {error}"})
+            registrar_error(sesion, "escalamiento", error)
             contexto.escalado = False
             texto = "No pude registrar el caso para el restaurante. No hay una mesa confirmada por este escalamiento. Contacta directamente al local."
             return {"respuesta": texto, "ruta": respuestas[-1]["agente"], "contexto": contexto}
@@ -503,6 +550,10 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
             texto = " ".join(otros + [texto])
         if pendiente:
             texto += " " + pendiente
+
+    pendientes = estado.get("pendientes") or []
+    if pendientes:
+        texto = f"{texto} {_aviso_pendientes(pendientes)}"
 
     return {
         "respuesta": texto,
@@ -575,13 +626,40 @@ def reiniciar_grafo() -> None:
     for modulo in ("reservas", "incidencias"):
         __import__(f"app.agentes.{modulo}", fromlist=["reiniciar"]).reiniciar()
     _ultimo_agente.clear()
+    limites.reiniciar()
 
 
 # ---------------------------- API del modulo -------------------------------
 
+def _respuesta_de_limite(entrante: MensajeEntrante, texto: str, motivo: str) -> RespuestaClemente:
+    """Respuesta fija de seguridad para un mensaje limitado; no llama al modelo y deja traza."""
+    registrar("limite", entrante.sesion_id, detalle={"motivo": motivo})
+    return RespuestaClemente(
+        texto=texto, agente="seguridad", sesion_id=entrante.sesion_id,
+        motivo_ruta=f"limite: {motivo}", datos={"guardrail": "limite"},
+    )
+
+
 def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) -> RespuestaClemente:
+    """Punto de entrada del orquestador: lo unico que llama la capa de comunicacion.
+
+    Antes de gastar una llamada al modelo rechaza un mensaje demasiado largo o una
+    rafaga de mensajes (ver `limites`), y serializa los turnos de una misma
+    conversacion para que dos mensajes simultaneos no lean y escriban a la vez la
+    propuesta, la continuidad ni el ticket. El turno en si esta en `_responder_turno`."""
+    if limites.demasiado_largo(entrante.texto):
+        return _respuesta_de_limite(entrante, limites.MENSAJE_LARGO, "mensaje demasiado largo")
+    if limites.excede_frecuencia(entrante.sesion_id):
+        return _respuesta_de_limite(entrante, limites.MENSAJE_RAPIDO, "demasiados mensajes por minuto")
+    with limites.un_turno_a_la_vez(entrante.sesion_id) as turno:
+        if not turno:
+            return _respuesta_de_limite(entrante, limites.MENSAJE_OCUPADO, "turno anterior sin terminar")
+        return _responder_turno(entrante, historial)
+
+
+def _responder_turno(entrante: MensajeEntrante, historial: list[dict] | None = None) -> RespuestaClemente:
     """
-    Punto de entrada del orquestador: lo unico que llama la capa de comunicacion.
+    Atiende un turno ya admitido por los limites de `responder`.
 
     Crea el contexto y estado del turno. Primero intenta confirmar un permiso
     exacto mediante autorizacion.confirmar: esa operacion no llama al LLM.
@@ -604,6 +682,7 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
         "contexto": contexto,
         "plan": [],
         "paso": 0,
+        "pendientes": [],
         "respuestas": [],
         "ruta": "",
         "motivo_ruta": "",
@@ -623,17 +702,18 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
             # Un nuevo pedido invalida el resumen anterior; no se confirma algo
             # que quedo atras en la conversacion. Las tools pueden proponer otro.
             autorizacion.descartar(entrante.sesion_id)
-            final = obtener_grafo().invoke(estado_inicial)
+            with contexto_de_trazado():
+                final = obtener_grafo().invoke(estado_inicial)
     except Exception as error:
-        registrar("error", entrante.sesion_id, detalle={"error": str(error)})
+        registrar_error(entrante.sesion_id, "turno", error)
         texto_error = (
             "Disculpa, no puedo procesar tu mensaje en este momento. "
             "No puedo asegurar que la operación se haya completado. "
             "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso."
         )
         registrar_conversacion(
-            sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=texto_error,
-            agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {error}",
+            sesion_id=entrante.sesion_id, mensaje=redactar_pii(entrante.texto), respuesta=texto_error,
+            agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {type(error).__name__}",
             escalado=False, duracion_ms=(time.perf_counter() - inicio) * 1000,
         )
         return RespuestaClemente(
@@ -659,7 +739,7 @@ def responder(entrante: MensajeEntrante, historial: list[dict] | None = None) ->
     duracion = (time.perf_counter() - inicio) * 1000
 
     registrar_conversacion(
-        sesion_id=entrante.sesion_id, mensaje=entrante.texto, respuesta=final["respuesta"],
+        sesion_id=entrante.sesion_id, mensaje=redactar_pii(entrante.texto), respuesta=redactar_pii(final["respuesta"]),
         agente=final["ruta"], canal=entrante.canal, motivo_ruta=final["motivo_ruta"],
         escalado=contexto.escalado, duracion_ms=duracion, plan=plan,
     )
@@ -702,11 +782,32 @@ def revisiones_pendientes() -> list[dict]:
 
 
 def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> RespuestaClemente:
-    """Aprueba o rechaza la ejecución pausada y termina el turno en el cierre único."""
-    _cargar_revisiones()
-    pendiente = _revisiones.get(sesion_id)
+    """Aprueba o rechaza la ejecución pausada y termina el turno en el cierre único.
+
+    Una revisión se resuelve UNA sola vez: se reclama sacándola de la cola bajo un
+    candado antes de reanudar el agente. Un segundo approve, un reject posterior o
+    dos peticiones simultáneas reciben KeyError (404) y no reanudan nada. Si la
+    reanudación falla, la revisión vuelve a la cola para que el personal reintente."""
+    with _lock_revisiones:
+        _cargar_revisiones()
+        pendiente = _revisiones.pop(sesion_id, None)
     if pendiente is None:
         raise KeyError("No existe una revisión pendiente para esa sesión")
+    try:
+        respuesta = _ejecutar_resolucion(sesion_id, decision, motivo, pendiente)
+    except Exception:
+        with _lock_revisiones:
+            _revisiones[sesion_id] = pendiente
+        raise
+    _guardar_revisiones()
+    return respuesta
+
+
+def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: dict) -> RespuestaClemente:
+    """Reanuda el agente con la decisión del personal y arma la respuesta de cierre.
+
+    Recibe la revisión ya reclamada por `resolver_revision`; valida la decisión
+    (approve o reject) y propaga los errores del agente."""
     if decision not in {"approve", "reject"}:
         raise ValueError("La decisión debe ser approve o reject")
 
@@ -718,7 +819,8 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     decision_hitl = {"type": decision}
     if motivo:
         decision_hitl["message"] = motivo
-    texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
+    with contexto_de_trazado():
+        texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
     contexto.datos["revision_humana"] = {
         "estado": "aprobada" if decision == "approve" else "rechazada",
         "flujo": "reservas", "decision": decision, "motivo": motivo,
@@ -729,8 +831,6 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
         "contexto": contexto,
         "respuestas": [{"agente": "reservas", "texto": texto_agente}],
     })
-    _revisiones.pop(sesion_id, None)
-    _guardar_revisiones()
     registrar(
         "hitl_resuelto", sesion_id, agente="reservas",
         detalle={"decision": decision, "motivo": motivo},

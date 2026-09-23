@@ -17,6 +17,7 @@ FECHA = str(date.today() + timedelta(days=3))
 
 @pytest.fixture
 def cliente(monkeypatch):
+    """Cliente de pruebas con CLEMENTE_DEBUG_ROUTES=1, donde el blueprint de depuracion queda registrado."""
     monkeypatch.setenv("CLEMENTE_DEBUG_ROUTES", "1")
     app = create_app()
     app.config["TESTING"] = True
@@ -25,6 +26,7 @@ def cliente(monkeypatch):
 
 @pytest.fixture
 def cliente_sin_flag(monkeypatch):
+    """Cliente de pruebas sin CLEMENTE_DEBUG_ROUTES, donde el blueprint de depuracion no se registra."""
     monkeypatch.delenv("CLEMENTE_DEBUG_ROUTES", raising=False)
     app = create_app()
     app.config["TESTING"] = True
@@ -32,11 +34,13 @@ def cliente_sin_flag(monkeypatch):
 
 
 def test_rutas_de_depuracion_no_existen_sin_el_flag(cliente_sin_flag):
+    """Verifica que sin el flag las rutas de depuracion de reservas no existen (404)."""
     respuesta = cliente_sin_flag.post("/api/reservas", json={})
     assert respuesta.status_code == 404
 
 
 def test_crear_reserva_valida_devuelve_201(cliente):
+    """Verifica que POST /api/reservas con datos validos crea la reserva y devuelve 201."""
     respuesta = cliente.post("/api/reservas", json={
         "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
         "hora": "20:00", "personas": 2, "zona": "salon",
@@ -48,6 +52,7 @@ def test_crear_reserva_valida_devuelve_201(cliente):
 
 
 def test_crear_reserva_con_hora_invalida_devuelve_400_con_mensaje(cliente):
+    """Verifica que POST /api/reservas con una hora fuera de turno devuelve 400 con el mensaje de error."""
     respuesta = cliente.post("/api/reservas", json={
         "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
         "hora": "17:30", "personas": 2, "zona": "salon",
@@ -57,6 +62,7 @@ def test_crear_reserva_con_hora_invalida_devuelve_400_con_mensaje(cliente):
 
 
 def test_crear_reserva_dos_veces_es_idempotente_via_http(cliente):
+    """Verifica que dos POST identicos a /api/reservas devuelven la misma reserva, sin duplicar."""
     body = {"nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
             "hora": "20:00", "personas": 2, "zona": "salon"}
     r1 = cliente.post("/api/reservas", json=body).get_json()
@@ -65,6 +71,7 @@ def test_crear_reserva_dos_veces_es_idempotente_via_http(cliente):
 
 
 def test_consultar_disponibilidad(cliente):
+    """Verifica que GET /api/reservas/disponibilidad devuelve mesas con capacidad suficiente."""
     respuesta = cliente.get(f"/api/reservas/disponibilidad?fecha={FECHA}&hora=20:00&personas=4")
     assert respuesta.status_code == 200
     opciones = respuesta.get_json()
@@ -73,10 +80,12 @@ def test_consultar_disponibilidad(cliente):
 
 
 def test_detalle_de_reserva_inexistente_devuelve_404(cliente):
+    """Verifica que GET /api/reservas/<id> de una reserva inexistente devuelve 404."""
     assert cliente.get("/api/reservas/R-NOEXISTE").status_code == 404
 
 
 def test_crear_y_cancelar_reserva(cliente):
+    """Verifica que POST /api/reservas/<id>/cancelar cancela una reserva recien creada."""
     creada = cliente.post("/api/reservas", json={
         "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
         "hora": "21:00", "personas": 2, "zona": "salon",
@@ -87,6 +96,7 @@ def test_crear_y_cancelar_reserva(cliente):
 
 
 def test_modificar_reserva_cambia_la_hora(cliente):
+    """Verifica que PATCH /api/reservas/<id> cambia la hora y deja la reserva en estado modificada."""
     creada = cliente.post("/api/reservas", json={
         "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
         "hora": "20:00", "personas": 2, "zona": "salon",
@@ -100,6 +110,7 @@ def test_modificar_reserva_cambia_la_hora(cliente):
 
 
 def test_modificar_reserva_con_hora_invalida_devuelve_400(cliente):
+    """Verifica que PATCH /api/reservas/<id> con hora fuera de turno devuelve 400 sin modificar nada."""
     creada = cliente.post("/api/reservas", json={
         "nombre": "Ana", "telefono": "999111222", "fecha": FECHA,
         "hora": "20:00", "personas": 2, "zona": "salon",
@@ -110,4 +121,5 @@ def test_modificar_reserva_con_hora_invalida_devuelve_400(cliente):
 
 
 def test_modificar_reserva_inexistente_devuelve_404(cliente):
+    """Verifica que PATCH /api/reservas/<id> de una reserva inexistente devuelve 404."""
     assert cliente.patch("/api/reservas/R-NOEXISTE", json={"hora": "21:00"}).status_code == 404

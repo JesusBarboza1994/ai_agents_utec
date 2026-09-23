@@ -10,13 +10,18 @@ import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 from threading import RLock
 
+from . import fecha as reloj
 from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
 ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
+# Codigos equivocados que se toleran contra una misma propuesta; al llegar al tope se descarta.
+MAX_INTENTOS_CONFIRMO = 5
+_intentos_fallidos: dict[str, int] = {}
 _lock = RLock()
 DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al restaurante que verifique tu identidad para recuperarla."
 
@@ -64,8 +69,17 @@ def reservas_propias(sesion, servicio):
     return [r for codigo in ids if (r := servicio.obtener_reserva(codigo)) is not None]
 
 
+def _dia_y_fecha(fecha) -> str:
+    """Devuelve el dia y la fecha (sabado 2026-10-10); el dia lo calcula el servidor, para que el cliente vea si coincide con lo que quiso."""
+    try:
+        return f"{reloj.nombre_dia(date.fromisoformat(fecha))} {fecha}"
+    except (TypeError, ValueError):
+        return str(fecha)
+
+
 def descartar(sesion):
     """Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas."""
+    _intentos_fallidos.pop(sesion, None)
     with _db() as db:
         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
 
@@ -125,15 +139,16 @@ def proponer(contexto, accion, datos, servicio):
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Crear reserva' if accion == 'crear' else 'Modificar reserva ' + datos['reserva_id']}: "
-                   f"{datos.get('nombre') or anterior.get('nombre')}, {fecha} a las {hora}, {personas} personas")
+                   f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora}, {personas} personas")
         if accion == "crear":
             resumen += f", contacto {datos['telefono']}, zona {datos.get('zona') or 'según disponibilidad'}"
             if datos.get("notas"):
                 resumen += f", observaciones: {datos['notas']}"
     else:
         r = datos["anterior"]
-        resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {r['fecha']} a las {r['hora']}, {r['personas']} personas"
+        resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']}, {r['personas']} personas"
 
+    _intentos_fallidos.pop(sesion, None)
     codigo = secrets.token_hex(4).upper()
     with _db() as db:
         db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
@@ -163,8 +178,15 @@ def confirmar(sesion, texto, servicio):
             db.execute("BEGIN IMMEDIATE")
             fila = db.execute("SELECT codigo, accion, datos, vence FROM propuestas WHERE sesion=?", (sesion,)).fetchone()
             if not fila or not secrets.compare_digest(fila[0], match[1].upper()) or fila[3] < time.time():
+                if fila:
+                    _intentos_fallidos[sesion] = _intentos_fallidos.get(sesion, 0) + 1
+                    if _intentos_fallidos[sesion] >= MAX_INTENTOS_CONFIRMO:
+                        db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
+                        _intentos_fallidos.pop(sesion, None)
+                        return "Hubo demasiados intentos con un código inválido y la propuesta se canceló. Solicita un nuevo resumen; no se realizó ninguna operación.", {}
                 return "La confirmación no es válida o venció. Solicita un nuevo resumen; no se realizó ninguna operación.", {}
             db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
+            _intentos_fallidos.pop(sesion, None)
         _, accion, crudo, _ = fila
         datos = json.loads(crudo)
         anterior = datos.pop("anterior", None)

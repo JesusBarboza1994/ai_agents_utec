@@ -27,6 +27,7 @@ _pool_lock = Lock()
 
 
 def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
+    """Devuelve el pool cacheado para database_url, creandolo y migrando la base si es el primer uso."""
     if database_url not in _pools:
         pool = psycopg2.pool.SimpleConnectionPool(
             1, int(os.environ.get("CLEMENTE_DB_POOL_MAX", "5")), database_url
