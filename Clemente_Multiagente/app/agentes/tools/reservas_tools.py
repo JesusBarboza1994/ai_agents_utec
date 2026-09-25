@@ -10,6 +10,7 @@ El `sesion_id` no es un argumento del modelo: llega por `runtime: ToolRuntime`,
 el contexto que `create_agent` inyecta y que el modelo no ve.
 """
 
+import json
 import re
 
 from langchain.tools import ToolRuntime, tool
@@ -18,13 +19,29 @@ from . import con_traza, limpiar_texto
 
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
+from ...reservas.servicio_json import ARCHIVO_MESAS
 from ...reservas.validaciones import TELEFONO_RE, ReservaInvalida, validar_cambio_turno
 from .. import autorizacion
 from .. import fecha as reloj
 from ..contexto import ContextoConversacion, telefono_de
 
-# Grupos por encima de este tamano no los cierra el agente: van al staff.
-LIMITE_GRUPO_AUTONOMO = 10
+def _capacidad_de_la_mesa_mas_grande(por_defecto: int = 10) -> int:
+    """Personas que caben en la mesa mas grande del mapa de la operacion (mesas.json); `por_defecto` si no se puede leer."""
+    try:
+        mesas = json.loads(ARCHIVO_MESAS.read_text(encoding="utf-8"))["mesas"]
+        return max(int(mesa["capacidad"]) for mesa in mesas)
+    except (OSError, ValueError, KeyError):
+        return por_defecto
+
+
+# Grupos por encima de este tamano no los cierra el agente: van al staff. Son los que ninguna mesa
+# recibe: con la mesa mas grande en 8, pedir para 9 o 10 daba "no hay disponibilidad" en vez de pasar
+# al equipo, que si puede juntar mesas. Nunca pasa de 10, el maximo que acepta la validacion.
+LIMITE_GRUPO_AUTONOMO = min(10, _capacidad_de_la_mesa_mas_grande())
+MENSAJE_GRUPO_GRANDE = (
+    "Grupo de {personas} personas: excede lo que se confirma por chat. "
+    "Reúne nombre, teléfono, fecha y hora, y usa solicitar_excepcion_grupo."
+)
 
 
 def _normalizar_telefono(texto: str) -> str:
@@ -90,10 +107,7 @@ def consultar_disponibilidad(
         return rechazo
 
     if personas > LIMITE_GRUPO_AUTONOMO:
-        return (
-            f"Grupo de {personas} personas: excede lo que se confirma por chat. "
-            "Reúne nombre, teléfono, fecha y hora, y usa solicitar_excepcion_grupo."
-        )
+        return MENSAJE_GRUPO_GRANDE.format(personas=personas)
 
     # Las mismas reglas que crear_reserva: sin esto se afirmaba "hay lugar" para una hora que ya
     # paso hoy, para una fecha a mas de 90 dias o para un turno que el restaurante no tiene.
@@ -136,6 +150,8 @@ def crear_reserva(
     rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
     if rechazo:
         return rechazo
+    if personas > LIMITE_GRUPO_AUTONOMO:
+        return MENSAJE_GRUPO_GRANDE.format(personas=personas)
     telefono = _normalizar_telefono(telefono)
     if not any(c.isdigit() for c in telefono):
         # El modelo no trajo un numero (lo pierde entre turnos: el historial lo guarda tapado).

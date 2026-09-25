@@ -70,6 +70,25 @@ def test_disponibilidad_no_afirma_lugar_para_lo_que_no_se_puede_reservar(entorno
     assert esperado in texto and "Disponible" not in texto
 
 
+def test_el_limite_autonomo_es_lo_que_cabe_en_la_mesa_mas_grande():
+    """Con la mesa mas grande en 8 personas, el limite autonomo es 8: no se promete lo que ninguna mesa recibe."""
+    assert tools.LIMITE_GRUPO_AUTONOMO == 8
+
+
+@pytest.mark.parametrize("personas", [9, 10, 14])
+def test_los_grupos_que_no_caben_en_una_mesa_pasan_al_equipo(entorno, personas):
+    """Para 9 o 10 se decia "sin disponibilidad"; ahora consultar y crear mandan al staff, como con los grupos de mas de 10."""
+    consulta = tools.consultar_disponibilidad.func("2026-10-10", "20:00", personas, runtime())
+    crear = tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", personas, runtime())
+    for texto in (consulta, crear):
+        assert "solicitar_excepcion_grupo" in texto and "Sin disponibilidad" not in texto and "CONFIRMO" not in texto
+
+
+def test_un_grupo_de_8_sigue_reservandose_por_chat(entorno):
+    """El limite es inclusivo: para 8 personas hay mesa y se prepara la reserva normal."""
+    assert "CONFIRMO" in tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", 8, runtime())
+
+
 def test_disponibilidad_de_un_turno_futuro_sigue_funcionando(entorno):
     """Una fecha y un turno validos siguen devolviendo las mesas libres."""
     assert "Disponible" in tools.consultar_disponibilidad.func("2026-10-10", "20:00", 2, runtime())
