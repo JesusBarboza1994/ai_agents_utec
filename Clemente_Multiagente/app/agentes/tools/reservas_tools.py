@@ -16,11 +16,26 @@ from . import con_traza, limpiar_texto
 
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
+from ...reservas.validaciones import TELEFONO_RE
 from .. import autorizacion
 from .. import fecha as reloj
+from ..contexto import ContextoConversacion, telefono_de
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
+
+
+def _telefono_conocido(contexto: ContextoConversacion) -> str:
+    """Telefono que el sistema ya tiene del cliente, para no pedirselo de nuevo; "" si no hay ninguno.
+
+    Orden: el de contacto que el cliente dio en el chat, el que autentico el canal
+    (columna `phone`) y el que trae la sesion de WhatsApp. Solo cuenta lo que tiene
+    forma de telefono: un id oculto de WhatsApp (`PE.2227...`) no lo es."""
+    cliente = contexto.cliente or {}
+    for candidato in (cliente.get("telefono_contacto"), cliente.get("phone"), telefono_de(contexto.sesion_id)):
+        if candidato and TELEFONO_RE.match(str(candidato)):
+            return str(candidato)
+    return ""
 
 
 def _rechazo_de_fecha(runtime: ToolRuntime, fecha: str | None, dia_semana: str) -> str | None:
@@ -93,7 +108,9 @@ def crear_reserva(
 
     Args:
         nombre: nombre del cliente.
-        telefono: telefono de contacto.
+        telefono: telefono de contacto. Si la ficha del cliente ya trae uno, usalo tal cual;
+            si no tiene ninguno, deja vacio y la herramienta te dira que se lo pidas. Nunca
+            inventes un numero ni pases un marcador como [REDACTED_TELEFONO].
         fecha: YYYY-MM-DD.
         hora: HH:MM.
         personas: numero de comensales.
@@ -105,8 +122,15 @@ def crear_reserva(
     rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
     if rechazo:
         return rechazo
+    telefono = limpiar_texto(telefono, 20)
+    if not any(c.isdigit() for c in telefono):
+        # El modelo no trajo un numero (lo pierde entre turnos: el historial lo guarda tapado).
+        telefono = _telefono_conocido(runtime.context)
+        if not telefono:
+            return ("Falta el telefono de contacto. Pidele al cliente un numero para la reserva y "
+                    "prepara la reserva cuando lo tengas; no la prepares con un dato inventado.")
     return autorizacion.proponer(runtime.context, "crear", {
-        "nombre": limpiar_texto(nombre, 80), "telefono": limpiar_texto(telefono, 20),
+        "nombre": limpiar_texto(nombre, 80), "telefono": telefono,
         "fecha": fecha, "hora": hora, "personas": personas,
         "zona": limpiar_texto(zona, 20), "notas": limpiar_texto(notas, 300),
     }, servicio_reservas())
