@@ -1,4 +1,5 @@
 """Regresiones de autorizacion con datos ficticios; no invocan ningun LLM."""
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,16 @@ from app.agentes.contexto import ContextoConversacion
 from app.agentes.tools import reservas_tools as tools
 from app.orquestador import grafo
 from app.contratos import MensajeEntrante
-from app.agentes import autorizacion
+from app.agentes import autorizacion, fecha
+
+# 2026-10-05 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que se corra la suite.
+INSTANTE = datetime(2026, 10, 6, 2, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def reloj_fijo(monkeypatch):
+    """Fija el reloj de Lima: sin esto las reservas del 2026-10-10 dejan de ser validas a partir del 11 de octubre."""
+    monkeypatch.setattr(fecha, "_reloj", lambda: INSTANTE)
 
 
 @pytest.fixture
@@ -38,6 +48,15 @@ def test_crear_no_escribe_sin_confirmacion_del_servidor(entorno):
     servicio, _ = entorno
     tools.crear_reserva.func("Cliente ficticio", "900000001", "2026-10-10", "20:00", 2, runtime())
     assert servicio.buscar_reservas_de("900000001") == []
+
+
+def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypatch):
+    """Un codigo sorteado solo con digitos parecia un DNI y redactar_pii lo tapaba: el cliente no podia confirmar."""
+    from app.seguridad.pii import redactar_pii
+    sorteos = iter(["12345678", "00000000", "1234567a"])
+    monkeypatch.setattr(autorizacion.secrets, "token_hex", lambda nbytes: next(sorteos))
+    texto = tools.crear_reserva.func("Cliente ficticio", "900000001", "2026-10-10", "20:00", 2, runtime())
+    assert "CONFIRMO 1234567A" in redactar_pii(texto)
 
 
 def test_conocer_codigo_no_permite_leer_reserva_ajena(entorno):
