@@ -82,6 +82,8 @@ _CLAVES_DE_TOOL = {"name", "parameters", "arguments", "tool", "function", "tool_
 # lista tal cual llega, porque esas claves las define la tool a discrecion.
 _CAMPOS_CLIENTE_CON_ETIQUETA = {"first_name": "nombre", "last_name": "apellido", "phone": "telefono"}
 _CAMPOS_CLIENTE_INTERNOS = {"id", "chat_key"}
+# Claves de `data` con nombre propio en la ficha; las demas se muestran con el guion bajo como espacio.
+_ETIQUETAS_DE_DATA = {"telefono_contacto": "telefono de contacto"}
 
 
 def _texto_ficha_cliente(cliente: dict) -> str:
@@ -98,7 +100,7 @@ def _texto_ficha_cliente(cliente: dict) -> str:
         if cliente.get(campo)
     ]
     partes += [
-        f"{clave} {valor}" for clave, valor in cliente.items()
+        f"{_ETIQUETAS_DE_DATA.get(clave, clave.replace('_', ' '))} {valor}" for clave, valor in cliente.items()
         if clave not in _CAMPOS_CLIENTE_CON_ETIQUETA and clave not in _CAMPOS_CLIENTE_INTERNOS and valor
     ]
     return f"Cliente conocido: {', '.join(partes)}." if partes else ""

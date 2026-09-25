@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.agentes.base import _texto_ficha_cliente
 from app.agentes.contexto import ContextoConversacion
 from app.agentes.tools import cliente_tools
 
@@ -116,3 +117,21 @@ def test_lo_valido_se_guarda_aunque_otro_dato_falle(repo):
     texto = guardar(nombre="Ana", telefono_contacto="abc")
     assert repo.updates[0]["first_name"] == "Ana"
     assert texto.startswith("Datos del cliente actualizados.") and "no parece valido" in texto
+
+
+def test_la_ficha_lista_lo_que_se_sabe_sin_id_ni_chat_key():
+    """El modelo ve nombre, telefonos y datos sueltos; id y chat_key son de la fila y no se envian."""
+    ficha = _texto_ficha_cliente({
+        "id": "8a9ad652", "chat_key": "web-abc", "first_name": "Ana", "last_name": "Ruiz",
+        "phone": "51999111222", "telefono_contacto": "987654321", "dni": "45678912",
+        "mascota": "perro", "cumpleanos": "12 de marzo", "preferencia_zona": "terraza",
+    })
+    for esperado in ("nombre Ana", "apellido Ruiz", "telefono 51999111222", "telefono de contacto 987654321",
+                     "dni 45678912", "mascota perro", "cumpleanos 12 de marzo", "preferencia zona terraza"):
+        assert esperado in ficha
+    assert "web-abc" not in ficha and "8a9ad652" not in ficha
+
+
+def test_la_ficha_esta_vacia_si_no_hay_nada_que_mostrar():
+    """Un cliente nuevo, con solo los datos internos de la fila, no genera ficha."""
+    assert _texto_ficha_cliente({"id": "8a9ad652", "chat_key": "web-abc", "phone": None}) == ""
