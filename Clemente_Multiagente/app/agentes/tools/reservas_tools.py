@@ -114,18 +114,23 @@ def crear_reserva(
 
 @tool
 @con_traza
-def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
-    """Lista reservas propias de la sesion cuyo telefono coincide con el recibido.
+def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
+    """Lista las reservas de esta conversacion; no hace falta pedirle el telefono al cliente.
 
-    Usar antes de modificar o cancelar. Conocer el telefono no concede acceso;
-    sin registros autorizados devuelve rechazo y marca guardrail_autorizacion.
+    Usar cuando el cliente pregunta que reservas tiene y antes de modificar o cancelar.
+    La sesion es lo que autoriza: el telefono no concede acceso, solo acota si coincide con
+    alguna. Sin reservas propias devuelve rechazo y marca guardrail_autorizacion.
+
+    Args:
+        telefono: opcional; si el cliente lo dio, se listan primero las hechas con ese numero.
     """
     telefono = limpiar_texto(telefono, 20)
-    reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
-                if r.telefono == telefono]
-    if not reservas:
+    propias = autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
+    if not propias:
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
+    coinciden = [r for r in propias if telefono and r.telefono == telefono]
+    reservas = coinciden or propias
     return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
 
 

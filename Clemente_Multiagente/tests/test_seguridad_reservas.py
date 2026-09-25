@@ -71,8 +71,33 @@ def test_conocer_telefono_no_permite_leer_reservas_ajenas(entorno):
     """Verifica que conocer telefono no permite leer reservas ajenas."""
     servicio, _ = entorno
     r = reserva(servicio)
-    texto = tools.buscar_mis_reservas.func(r.telefono, runtime("intruso"))
+    texto = tools.buscar_mis_reservas.func(runtime("intruso"), r.telefono)
     assert r.id not in texto
+
+
+def test_un_intruso_sin_telefono_tampoco_ve_reservas_ajenas(entorno):
+    """Sin telefono el filtro no se abre: quien no es dueno no ve nada, dijo o no dijo un numero."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    texto = tools.buscar_mis_reservas.func(runtime("intruso"))
+    assert r.id not in texto and autorizacion.DENEGADO in texto
+
+
+def test_la_duena_ve_sus_reservas_sin_dar_el_telefono(entorno):
+    """La sesion autoriza: quien reservo desde esta conversacion no necesita repetir el telefono."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    assert r.id in tools.buscar_mis_reservas.func(runtime("propietario"))
+
+
+def test_un_telefono_distinto_no_bloquea_a_la_duena(entorno):
+    """El telefono solo acota: uno que no coincide con ninguna reserva no la deja sin las suyas."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    assert r.id in tools.buscar_mis_reservas.func(runtime("propietario"), "987654321")
 
 
 def test_cancelar_reserva_ajena_no_escribe(entorno):
