@@ -18,8 +18,8 @@ def _plano(texto):
 def test_los_tres_agentes_declinan_lo_que_no_es_del_restaurante(prompt):
     """Los tres agentes comparten la regla de alcance (viene en VOZ_CLEMENTE): examenes, codigo, poemas, noticias..."""
     plano = _plano(prompt)
-    assert "Tu alcance es solo el restaurante" in plano
-    assert "no lo haces ni en parte" in plano
+    assert "Solo atiendes cosas del restaurante" in plano
+    assert "sin resolver ni una parte" in plano
     assert "atiendes el tuyo" in plano
 
 
