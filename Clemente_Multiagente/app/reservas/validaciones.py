@@ -56,7 +56,9 @@ def _sanear_texto(valor: str, *, maximo: int, campo: str) -> str:
 
 
 def _validar_turno(fecha: str, hora: str, personas: int) -> None:
-    """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO."""
+    """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO.
+
+    Si la fecha es hoy, el turno tampoco puede haber empezado ya en Lima."""
     if hora not in TURNOS_VALIDOS:
         raise ReservaInvalida(
             f"'{hora}' no es un turno valido. Turnos disponibles: {', '.join(TURNOS_VALIDOS)}."
@@ -82,6 +84,11 @@ def _validar_turno(fecha: str, hora: str, personas: int) -> None:
         raise ReservaInvalida("La fecha no puede estar en el pasado.")
     if fecha_obj > hoy + timedelta(days=DIAS_MAX_A_FUTURO):
         raise ReservaInvalida(f"Solo se aceptan reservas hasta {DIAS_MAX_A_FUTURO} dias a futuro.")
+    if fecha_obj == hoy:
+        ahora = reloj.ahora()
+        horas, minutos = (int(parte) for parte in hora.split(":"))
+        if (horas, minutos) <= (ahora.hour, ahora.minute):
+            raise ReservaInvalida("Ese horario de hoy ya paso. Elige un turno mas tarde u otro dia.")
 
 
 def validar_cambio_turno(*, fecha: str, hora: str, personas: int) -> None:

@@ -59,6 +59,22 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
     assert "CONFIRMO 1234567A" in redactar_pii(texto)
 
 
+@pytest.mark.parametrize("fecha_pedida, hora, esperado", [
+    ("2026-10-05", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del 5 de octubre en Lima
+    ("2027-06-01", "20:00", "90"),           # mas de 90 dias a futuro
+    ("2026-10-10", "03:00", "turno"),        # el restaurante no tiene turno de madrugada
+])
+def test_disponibilidad_no_afirma_lugar_para_lo_que_no_se_puede_reservar(entorno, fecha_pedida, hora, esperado):
+    """consultar_disponibilidad aplica las reglas de crear_reserva: no dice "hay lugar" para una hora pasada, una fecha lejana ni un turno inexistente."""
+    texto = tools.consultar_disponibilidad.func(fecha_pedida, hora, 2, runtime())
+    assert esperado in texto and "Disponible" not in texto
+
+
+def test_disponibilidad_de_un_turno_futuro_sigue_funcionando(entorno):
+    """Una fecha y un turno validos siguen devolviendo las mesas libres."""
+    assert "Disponible" in tools.consultar_disponibilidad.func("2026-10-10", "20:00", 2, runtime())
+
+
 def _preparar(rt, telefono):
     """Prepara una reserva de 2 personas con el telefono dado y devuelve el texto de la tool."""
     return tools.crear_reserva.func("Ana Ruiz", telefono, "2026-10-10", "20:00", 2, rt)

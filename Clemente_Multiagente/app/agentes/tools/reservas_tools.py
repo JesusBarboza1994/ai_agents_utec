@@ -18,7 +18,7 @@ from . import con_traza, limpiar_texto
 
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
-from ...reservas.validaciones import TELEFONO_RE
+from ...reservas.validaciones import TELEFONO_RE, ReservaInvalida, validar_cambio_turno
 from .. import autorizacion
 from .. import fecha as reloj
 from ..contexto import ContextoConversacion, telefono_de
@@ -94,6 +94,13 @@ def consultar_disponibilidad(
             f"Grupo de {personas} personas: excede lo que se confirma por chat. "
             "Reúne nombre, teléfono, fecha y hora, y usa solicitar_excepcion_grupo."
         )
+
+    # Las mismas reglas que crear_reserva: sin esto se afirmaba "hay lugar" para una hora que ya
+    # paso hoy, para una fecha a mas de 90 dias o para un turno que el restaurante no tiene.
+    try:
+        validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
+    except ReservaInvalida as error:
+        return str(error)
 
     opciones = servicio_reservas().consultar_disponibilidad(fecha, hora, personas, zona or None)
     if not opciones:
