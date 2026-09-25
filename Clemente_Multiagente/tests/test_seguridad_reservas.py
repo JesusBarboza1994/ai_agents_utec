@@ -1,4 +1,5 @@
 """Regresiones de autorizacion con datos ficticios; no invocan ningun LLM."""
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,16 @@ from app.agentes.contexto import ContextoConversacion
 from app.agentes.tools import reservas_tools as tools
 from app.orquestador import grafo
 from app.contratos import MensajeEntrante
-from app.agentes import autorizacion
+from app.agentes import autorizacion, fecha
+
+# 2026-10-05 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que se corra la suite.
+INSTANTE = datetime(2026, 10, 6, 2, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def reloj_fijo(monkeypatch):
+    """Fija el reloj de Lima: sin esto las reservas del 2026-10-10 dejan de ser validas a partir del 11 de octubre."""
+    monkeypatch.setattr(fecha, "_reloj", lambda: INSTANTE)
 
 
 @pytest.fixture
