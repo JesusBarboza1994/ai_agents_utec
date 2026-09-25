@@ -10,17 +10,39 @@ El `sesion_id` no es un argumento del modelo: llega por `runtime: ToolRuntime`,
 el contexto que `create_agent` inyecta y que el modelo no ve.
 """
 
+import re
+
 from langchain.tools import ToolRuntime, tool
 
 from . import con_traza, limpiar_texto
 
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
+from ...reservas.validaciones import TELEFONO_RE
 from .. import autorizacion
 from .. import fecha as reloj
+from ..contexto import ContextoConversacion, telefono_de
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
+
+
+def _normalizar_telefono(texto: str) -> str:
+    """Quita espacios, guiones, puntos y parentesis: "999 111-222" queda "999111222", como lo valida el servicio."""
+    return re.sub(r"[\s().-]", "", limpiar_texto(texto, 30))
+
+
+def _telefono_conocido(contexto: ContextoConversacion) -> str:
+    """Telefono que el sistema ya tiene del cliente, para no pedirselo de nuevo; "" si no hay ninguno.
+
+    Orden: el de contacto que el cliente dio en el chat, el que autentico el canal
+    (columna `phone`) y el que trae la sesion de WhatsApp. Solo cuenta lo que tiene
+    forma de telefono: un id oculto de WhatsApp (`PE.2227...`) no lo es."""
+    cliente = contexto.cliente or {}
+    for candidato in (cliente.get("telefono_contacto"), cliente.get("phone"), telefono_de(contexto.sesion_id)):
+        if candidato and TELEFONO_RE.match(str(candidato)):
+            return str(candidato)
+    return ""
 
 
 def _rechazo_de_fecha(runtime: ToolRuntime, fecha: str | None, dia_semana: str) -> str | None:
@@ -93,7 +115,9 @@ def crear_reserva(
 
     Args:
         nombre: nombre del cliente.
-        telefono: telefono de contacto.
+        telefono: telefono de contacto. Si la ficha del cliente ya trae uno, usalo tal cual;
+            si no tiene ninguno, deja vacio y la herramienta te dira que se lo pidas. Nunca
+            inventes un numero ni pases un marcador como [REDACTED_TELEFONO].
         fecha: YYYY-MM-DD.
         hora: HH:MM.
         personas: numero de comensales.
@@ -105,8 +129,15 @@ def crear_reserva(
     rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
     if rechazo:
         return rechazo
+    telefono = _normalizar_telefono(telefono)
+    if not any(c.isdigit() for c in telefono):
+        # El modelo no trajo un numero (lo pierde entre turnos: el historial lo guarda tapado).
+        telefono = _telefono_conocido(runtime.context)
+        if not telefono:
+            return ("Falta el telefono de contacto. Pidele al cliente un numero para la reserva y "
+                    "prepara la reserva cuando lo tengas; no la prepares con un dato inventado.")
     return autorizacion.proponer(runtime.context, "crear", {
-        "nombre": limpiar_texto(nombre, 80), "telefono": limpiar_texto(telefono, 20),
+        "nombre": limpiar_texto(nombre, 80), "telefono": telefono,
         "fecha": fecha, "hora": hora, "personas": personas,
         "zona": limpiar_texto(zona, 20), "notas": limpiar_texto(notas, 300),
     }, servicio_reservas())
@@ -114,18 +145,23 @@ def crear_reserva(
 
 @tool
 @con_traza
-def buscar_mis_reservas(telefono: str, runtime: ToolRuntime) -> str:
-    """Lista reservas propias de la sesion cuyo telefono coincide con el recibido.
+def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
+    """Lista las reservas de esta conversacion; no hace falta pedirle el telefono al cliente.
 
-    Usar antes de modificar o cancelar. Conocer el telefono no concede acceso;
-    sin registros autorizados devuelve rechazo y marca guardrail_autorizacion.
+    Usar cuando el cliente pregunta que reservas tiene y antes de modificar o cancelar.
+    La sesion es lo que autoriza: el telefono no concede acceso, solo acota si coincide con
+    alguna. Sin reservas propias devuelve rechazo y marca guardrail_autorizacion.
+
+    Args:
+        telefono: opcional; si el cliente lo dio, se listan primero las hechas con ese numero.
     """
     telefono = limpiar_texto(telefono, 20)
-    reservas = [r for r in autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
-                if r.telefono == telefono]
-    if not reservas:
+    propias = autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
+    if not propias:
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
+    coinciden = [r for r in propias if telefono and r.telefono == telefono]
+    reservas = coinciden or propias
     return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
 
 

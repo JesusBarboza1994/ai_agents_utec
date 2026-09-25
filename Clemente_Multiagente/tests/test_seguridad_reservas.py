@@ -33,9 +33,9 @@ def entorno(tmp_path, monkeypatch, servicio_reservas, servicio_incidencias):
     return servicio_reservas, servicio_incidencias
 
 
-def runtime(sesion="propietario"):
-    """Crea un runtime simulado con sesion identificada y contexto de negocio vacio."""
-    return SimpleNamespace(context=ContextoConversacion(sesion_id=sesion))
+def runtime(sesion="propietario", cliente=None):
+    """Crea un runtime simulado con sesion identificada y, si se da, la ficha que manda el canal."""
+    return SimpleNamespace(context=ContextoConversacion(sesion_id=sesion, cliente=cliente or {}))
 
 
 def reserva(servicio):
@@ -59,6 +59,55 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
     assert "CONFIRMO 1234567A" in redactar_pii(texto)
 
 
+def _preparar(rt, telefono):
+    """Prepara una reserva de 2 personas con el telefono dado y devuelve el texto de la tool."""
+    return tools.crear_reserva.func("Ana Ruiz", telefono, "2026-10-10", "20:00", 2, rt)
+
+
+def test_reserva_usa_el_telefono_del_canal_si_el_modelo_trae_un_marcador(entorno):
+    """Con WhatsApp el telefono ya esta en la ficha: el marcador tapado del historial no lo pierde."""
+    texto = _preparar(runtime("whatsapp-51999111222", {"phone": "51999111222"}), "[REDACTED_TELEFONO]")
+    assert "contacto 51999111222" in texto and "CONFIRMO" in texto
+
+
+def test_reserva_prefiere_el_telefono_de_contacto_al_del_canal(entorno):
+    """Si el cliente dio otro numero de contacto, ese gana sobre el que autentico el canal."""
+    ficha = {"phone": "51999111222", "telefono_contacto": "987654321"}
+    assert "contacto 987654321" in _preparar(runtime("whatsapp-51999111222", ficha), "")
+
+
+def test_reserva_respeta_el_telefono_que_da_el_cliente_en_este_turno(entorno):
+    """Un numero dicho ahora no se pisa con el de la ficha."""
+    texto = _preparar(runtime("whatsapp-51999111222", {"phone": "51999111222"}), "987654321")
+    assert "contacto 987654321" in texto
+
+
+@pytest.mark.parametrize("escrito", ["999 111 222", "999-111-222", "(999) 111.222"])
+def test_reserva_acepta_el_telefono_con_espacios_o_guiones(entorno, escrito):
+    """Asi escribe un telefono la mayoria de la gente: la tool lo deja en digitos antes de validar."""
+    texto = _preparar(runtime("web-abc"), escrito)
+    assert "contacto 999111222" in texto and "CONFIRMO" in texto
+
+
+def test_reserva_toma_el_telefono_de_la_sesion_de_whatsapp_sin_ficha(entorno):
+    """Sin base de datos no hay ficha, pero la sesion whatsapp-<numero> ya trae el telefono."""
+    assert "contacto 51999111222" in _preparar(runtime("whatsapp-51999111222"), "")
+
+
+def test_reserva_sin_telefono_pide_el_dato_y_no_prepara_nada(entorno):
+    """Webchat sin telefono: la tool le dice al modelo que lo pida, en vez de rechazar y hacerlo reintentar."""
+    servicio, _ = entorno
+    texto = _preparar(runtime("web-abc"), "")
+    assert "Falta el telefono" in texto and "CONFIRMO" not in texto
+    assert servicio.buscar_reservas_de("900000001") == []
+
+
+def test_el_id_oculto_de_whatsapp_no_se_toma_por_telefono(entorno):
+    """Con el numero oculto la sesion es whatsapp-PE.<id>: eso no es un telefono y hay que pedirlo."""
+    texto = _preparar(runtime("whatsapp-PE.2227643368025850"), "[REDACTED_TELEFONO]")
+    assert "Falta el telefono" in texto and "CONFIRMO" not in texto
+
+
 def test_conocer_codigo_no_permite_leer_reserva_ajena(entorno):
     """Verifica que conocer codigo no permite leer reserva ajena."""
     servicio, _ = entorno
@@ -71,8 +120,33 @@ def test_conocer_telefono_no_permite_leer_reservas_ajenas(entorno):
     """Verifica que conocer telefono no permite leer reservas ajenas."""
     servicio, _ = entorno
     r = reserva(servicio)
-    texto = tools.buscar_mis_reservas.func(r.telefono, runtime("intruso"))
+    texto = tools.buscar_mis_reservas.func(runtime("intruso"), r.telefono)
     assert r.id not in texto
+
+
+def test_un_intruso_sin_telefono_tampoco_ve_reservas_ajenas(entorno):
+    """Sin telefono el filtro no se abre: quien no es dueno no ve nada, dijo o no dijo un numero."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    texto = tools.buscar_mis_reservas.func(runtime("intruso"))
+    assert r.id not in texto and autorizacion.DENEGADO in texto
+
+
+def test_la_duena_ve_sus_reservas_sin_dar_el_telefono(entorno):
+    """La sesion autoriza: quien reservo desde esta conversacion no necesita repetir el telefono."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    assert r.id in tools.buscar_mis_reservas.func(runtime("propietario"))
+
+
+def test_un_telefono_distinto_no_bloquea_a_la_duena(entorno):
+    """El telefono solo acota: uno que no coincide con ninguna reserva no la deja sin las suyas."""
+    servicio, _ = entorno
+    r = reserva(servicio)
+    autorizacion.vincular("propietario", r.id)
+    assert r.id in tools.buscar_mis_reservas.func(runtime("propietario"), "987654321")
 
 
 def test_cancelar_reserva_ajena_no_escribe(entorno):
