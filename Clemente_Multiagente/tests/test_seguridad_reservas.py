@@ -82,6 +82,13 @@ def test_reserva_respeta_el_telefono_que_da_el_cliente_en_este_turno(entorno):
     assert "contacto 987654321" in texto
 
 
+@pytest.mark.parametrize("escrito", ["999 111 222", "999-111-222", "(999) 111.222"])
+def test_reserva_acepta_el_telefono_con_espacios_o_guiones(entorno, escrito):
+    """Asi escribe un telefono la mayoria de la gente: la tool lo deja en digitos antes de validar."""
+    texto = _preparar(runtime("web-abc"), escrito)
+    assert "contacto 999111222" in texto and "CONFIRMO" in texto
+
+
 def test_reserva_toma_el_telefono_de_la_sesion_de_whatsapp_sin_ficha(entorno):
     """Sin base de datos no hay ficha, pero la sesion whatsapp-<numero> ya trae el telefono."""
     assert "contacto 51999111222" in _preparar(runtime("whatsapp-51999111222"), "")

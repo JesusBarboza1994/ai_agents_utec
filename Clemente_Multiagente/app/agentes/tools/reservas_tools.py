@@ -10,6 +10,8 @@ El `sesion_id` no es un argumento del modelo: llega por `runtime: ToolRuntime`,
 el contexto que `create_agent` inyecta y que el modelo no ve.
 """
 
+import re
+
 from langchain.tools import ToolRuntime, tool
 
 from . import con_traza, limpiar_texto
@@ -23,6 +25,11 @@ from ..contexto import ContextoConversacion, telefono_de
 
 # Grupos por encima de este tamano no los cierra el agente: van al staff.
 LIMITE_GRUPO_AUTONOMO = 10
+
+
+def _normalizar_telefono(texto: str) -> str:
+    """Quita espacios, guiones, puntos y parentesis: "999 111-222" queda "999111222", como lo valida el servicio."""
+    return re.sub(r"[\s().-]", "", limpiar_texto(texto, 30))
 
 
 def _telefono_conocido(contexto: ContextoConversacion) -> str:
@@ -122,7 +129,7 @@ def crear_reserva(
     rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
     if rechazo:
         return rechazo
-    telefono = limpiar_texto(telefono, 20)
+    telefono = _normalizar_telefono(telefono)
     if not any(c.isdigit() for c in telefono):
         # El modelo no trajo un numero (lo pierde entre turnos: el historial lo guarda tapado).
         telefono = _telefono_conocido(runtime.context)
