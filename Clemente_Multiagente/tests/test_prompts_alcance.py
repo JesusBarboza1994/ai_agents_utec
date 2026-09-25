@@ -35,3 +35,9 @@ def test_el_planificador_manda_los_pedidos_de_mesa_y_los_datos_del_cliente_a_res
     assert "SIEMPRE lleva el paso 'reservas'" in plano
     assert "es un dato para su ficha: va a 'reservas'" in plano
     assert "incluso si venia hablando con 'informacion'" in plano
+
+
+def test_el_planificador_no_convierte_lo_ajeno_al_restaurante_en_un_paso():
+    """Un examen o una ecuacion junto a una reserva no se manda a informacion: quien reserva lo declina."""
+    plano = _plano(PROMPT_PLANIFICADOR)
+    assert "NO es un paso" in plano and "lo declina en una frase" in plano
