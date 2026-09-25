@@ -86,6 +86,18 @@ def test_reserva_usa_el_telefono_del_canal_si_el_modelo_trae_un_marcador(entorno
     assert "contacto 51999111222" in texto and "CONFIRMO" in texto
 
 
+def test_el_resumen_aclara_que_la_hora_es_la_de_lima(entorno):
+    """Un cliente en otro huso horario (Tokio) lee "20:00 (hora de Lima)" y no la confunde con la suya."""
+    texto = _preparar(runtime("web-abc"), "999111222")
+    assert "20:00 (hora de Lima)" in texto
+
+
+def test_el_nombre_con_codigo_html_no_llega_a_preparar_la_reserva(entorno):
+    """<script> como nombre se rechaza en la validacion: no vuelve crudo en el resumen ni se guarda."""
+    texto = tools.crear_reserva.func("<script>alert(1)</script>", "999111222", "2026-10-10", "20:00", 2, runtime("web-abc"))
+    assert "<script" not in texto and "CONFIRMO" not in texto
+
+
 def test_reserva_prefiere_el_telefono_de_contacto_al_del_canal(entorno):
     """Si el cliente dio otro numero de contacto, ese gana sobre el que autentico el canal."""
     ficha = {"phone": "51999111222", "telefono_contacto": "987654321"}
