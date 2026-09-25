@@ -43,7 +43,7 @@ def entrante(texto="hola", sesion=SESION):
     return MensajeEntrante(sesion_id=sesion, texto=texto, canal="whatsapp")
 
 
-def respuesta_falsa(e, historial=None):
+def respuesta_falsa(e, historial=None, cliente=None, chat_key=None):
     """Respuesta ficticia de un turno ya admitido."""
     return RespuestaClemente(texto="ok", agente="informacion", sesion_id=e.sesion_id)
 
@@ -79,7 +79,7 @@ def test_los_turnos_de_una_conversacion_se_serializan(monkeypatch):
     """Verifica que dos mensajes simultaneos de la misma conversacion no se ejecutan a la vez."""
     dentro, solapados = [], []
 
-    def turno(e, historial=None):
+    def turno(e, historial=None, cliente=None, chat_key=None):
         """Turno lento que detecta si otro turno de la misma conversacion corre a la vez."""
         dentro.append(1)
         if len(dentro) > 1:
@@ -99,7 +99,7 @@ def test_otras_conversaciones_no_esperan(monkeypatch):
     """Verifica que el candado es por conversacion: dos clientes distintos corren en paralelo."""
     activos, maximo = [], []
 
-    def turno(e, historial=None):
+    def turno(e, historial=None, cliente=None, chat_key=None):
         """Turno lento que registra cuantos turnos corren a la vez."""
         activos.append(1)
         maximo.append(len(activos))
@@ -119,7 +119,7 @@ def test_si_el_turno_anterior_no_termina_se_responde_ocupado(monkeypatch):
     monkeypatch.setattr(limites, "ESPERA_TURNO_SEGUNDOS", 0.2)
     soltar = threading.Event()
 
-    def turno(e, historial=None):
+    def turno(e, historial=None, cliente=None, chat_key=None):
         """Turno que no termina hasta que la prueba lo suelta."""
         soltar.wait(2)
         return respuesta_falsa(e)

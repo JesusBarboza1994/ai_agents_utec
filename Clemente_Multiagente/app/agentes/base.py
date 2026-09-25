@@ -77,6 +77,32 @@ def construir_agente(
 # Claves tipicas de una llamada a herramienta escrita como texto.
 _CLAVES_DE_TOOL = {"name", "parameters", "arguments", "tool", "function", "tool_call"}
 
+# Columnas tipadas de `cliente` que ya se nombran aparte en el texto de la
+# ficha; el resto (el jsonb `data` desestructurado -- dni, alergias, etc.) se
+# lista tal cual llega, porque esas claves las define la tool a discrecion.
+_CAMPOS_CLIENTE_CON_ETIQUETA = {"first_name": "nombre", "last_name": "apellido", "phone": "telefono"}
+_CAMPOS_CLIENTE_INTERNOS = {"id", "chat_key"}
+
+
+def _texto_ficha_cliente(cliente: dict) -> str:
+    """Ficha de identidad para el prompt, armada con el `cliente` que manda comunicacion.
+
+    `cliente` es el dict de `customers_repository.get_customer`: columnas
+    tipadas y el jsonb `data` desestructurado al mismo nivel. `id`/`chat_key`
+    no se envian al modelo -- son datos internos de la fila, no algo que el
+    cliente dijo. Cadena vacia si no hay nada que mostrar.
+    """
+    partes = [
+        f"{etiqueta} {cliente[campo]}"
+        for campo, etiqueta in _CAMPOS_CLIENTE_CON_ETIQUETA.items()
+        if cliente.get(campo)
+    ]
+    partes += [
+        f"{clave} {valor}" for clave, valor in cliente.items()
+        if clave not in _CAMPOS_CLIENTE_CON_ETIQUETA and clave not in _CAMPOS_CLIENTE_INTERNOS and valor
+    ]
+    return f"Cliente conocido: {', '.join(partes)}." if partes else ""
+
 
 def _parece_llamada_de_tool(texto: str) -> bool:
     """
@@ -142,7 +168,7 @@ def ejecutar(
     conversacion nueva.
 
     Recorta el historial, agrega la ficha de reservas propias y el mensaje
-    actual, e invoca con recursion_limit=12 y thread_id de flujo y sesion.
+    actual, e invoca con recursion_limit=30 y thread_id de flujo y sesion.
     Si hay interrupcion HITL, guarda la solicitud en contexto y devuelve
     un aviso de revision. Si el texto parece una llamada de tool, registra
     el guardrail y devuelve fallback. Los errores de invocacion se propagan:
@@ -151,7 +177,13 @@ def ejecutar(
     contexto = contexto or ContextoConversacion(sesion_id=sesion_id)
 
     mensajes = list(historial or [])[-LIMITE_TURNOS_HISTORIAL:]
-    ficha = ficha_del_cliente(sesion_id)
+    # Dos fuentes de ficha: la identidad que ya resolvio comunicacion contra
+    # Postgres (`contexto.cliente` -- nombre, telefono, lo que traiga `data`) y
+    # las reservas propias vigentes, que se siguen consultando aparte porque
+    # `ficha_del_cliente` no vive en la fila de `customers`.
+    ficha_cliente = _texto_ficha_cliente(contexto.cliente) if contexto.cliente else ""
+    ficha_reservas = ficha_del_cliente(sesion_id)
+    ficha = " ".join(parte for parte in (ficha_cliente, ficha_reservas) if parte)
     # La instruccion de como tratar la ficha viaja PEGADA a la ficha, no en el
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
@@ -167,7 +199,7 @@ def ejecutar(
     mensajes.append({"role": "user", "content": entrada})
 
     config = {
-        "recursion_limit": 12,
+        "recursion_limit": 30,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
@@ -212,7 +244,7 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
     from langgraph.types import Command
 
     config = {
-        "recursion_limit": 12,
+        "recursion_limit": 30,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke(

@@ -9,12 +9,15 @@ class _Cursor:
     """Cursor de mentira: recuerda el SQL ejecutado y devuelve la fila preparada."""
 
     def __init__(self, fila=None, rowcount=1):
+        """Prepara la fila que devolvera `fetchone` y las filas que dira haber tocado."""
         self.fila, self.rowcount, self.ejecutados = fila, rowcount, []
 
     def __enter__(self):
+        """Permite usarlo con `with`, igual que un cursor real."""
         return self
 
     def __exit__(self, *_excepcion):
+        """No suprime excepciones al salir del `with`."""
         return False
 
     def execute(self, sql, parametros=None):
@@ -30,6 +33,8 @@ class _Cursor:
 def _conexion_falsa(cursor):
     """Sustituye `connection()` por un doble que siempre presta el mismo cursor."""
     class _Conn:
+        """Conexion de mentira: solo sabe prestar el cursor."""
+
         def cursor(self):
             """Presta el cursor de la prueba."""
             return cursor

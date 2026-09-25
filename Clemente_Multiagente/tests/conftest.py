@@ -3,6 +3,7 @@
 import sys
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -13,6 +14,28 @@ os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
 os.environ["DEEPTEAM_TELEMETRY_OPT_OUT"] = "YES"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+def _proteger_base_compartida():
+    """Deja en CLEMENTE_DATABASE_URL solo una base local o la declarada para pruebas.
+
+    El `.env` de cada desarrollador apunta a la base compartida del equipo y se
+    carga antes de este archivo (app/config.py lo lee al importarse), asi que
+    PYTHON_DOTENV_DISABLED llega tarde. Las pruebas `[postgres]` hacen
+    `DELETE FROM reservas` y aplican migraciones: contra esa base la vaciaban.
+    Se respeta una URL de host local (el Postgres de servicio del CI, un Docker
+    propio) o la de CLEMENTE_TEST_DATABASE_URL; cualquier otra se vacia y esas
+    pruebas se saltan.
+    """
+    explicita = os.environ.get("CLEMENTE_TEST_DATABASE_URL", "")
+    actual = os.environ.get("CLEMENTE_DATABASE_URL", "")
+    if explicita:
+        os.environ["CLEMENTE_DATABASE_URL"] = explicita
+    elif (urlparse(actual).hostname or "") not in {"localhost", "127.0.0.1", "::1"}:
+        os.environ["CLEMENTE_DATABASE_URL"] = ""
+
+
+_proteger_base_compartida()
 
 
 @pytest.fixture(autouse=True)

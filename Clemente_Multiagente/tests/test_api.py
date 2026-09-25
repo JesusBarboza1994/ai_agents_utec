@@ -16,7 +16,7 @@ from app.contratos import RespuestaClemente
 @pytest.fixture
 def cliente(monkeypatch):
     """Crea un cliente Flask con orquestador simulado para probar contratos HTTP sin API LLM."""
-    def orquestador_falso(entrante, historial=None):
+    def orquestador_falso(entrante, historial=None, cliente=None, chat_key=None):
         """Devuelve una respuesta simulada para comprobar rutas, sesion e historial del chat."""
         return RespuestaClemente(
             texto=f"eco: {entrante.texto}",
