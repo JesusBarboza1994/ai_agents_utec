@@ -43,6 +43,17 @@ def _db():
         db.close()
 
 
+def _codigo_de_confirmacion():
+    """Sortea el codigo de 8 hex de CONFIRMO, siempre con al menos una letra A-F.
+
+    Un codigo de solo digitos (2,3 % de los sorteos) lo toma por DNI el filtro de
+    app/seguridad/pii.py y lo tapa en la respuesta: el cliente no podria confirmar."""
+    while True:
+        codigo = secrets.token_hex(4).upper()
+        if not codigo.isdigit():
+            return codigo
+
+
 def vincular(sesion, reserva_id):
     """Persiste la propiedad de reserva_id para sesion.
 
@@ -149,7 +160,7 @@ def proponer(contexto, accion, datos, servicio):
         resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']}, {r['personas']} personas"
 
     _intentos_fallidos.pop(sesion, None)
-    codigo = secrets.token_hex(4).upper()
+    codigo = _codigo_de_confirmacion()
     with _db() as db:
         db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
                    (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))

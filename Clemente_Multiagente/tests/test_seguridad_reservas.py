@@ -50,6 +50,15 @@ def test_crear_no_escribe_sin_confirmacion_del_servidor(entorno):
     assert servicio.buscar_reservas_de("900000001") == []
 
 
+def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypatch):
+    """Un codigo sorteado solo con digitos parecia un DNI y redactar_pii lo tapaba: el cliente no podia confirmar."""
+    from app.seguridad.pii import redactar_pii
+    sorteos = iter(["12345678", "00000000", "1234567a"])
+    monkeypatch.setattr(autorizacion.secrets, "token_hex", lambda nbytes: next(sorteos))
+    texto = tools.crear_reserva.func("Cliente ficticio", "900000001", "2026-10-10", "20:00", 2, runtime())
+    assert "CONFIRMO 1234567A" in redactar_pii(texto)
+
+
 def test_conocer_codigo_no_permite_leer_reserva_ajena(entorno):
     """Verifica que conocer codigo no permite leer reserva ajena."""
     servicio, _ = entorno
