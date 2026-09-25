@@ -32,6 +32,10 @@ DIAS_MAX_A_FUTURO = 90
 NOMBRE_MAX = 100
 NOTAS_MAX = 300
 TELEFONO_RE = re.compile(r"^\+?[0-9]{7,15}$")
+# Un nombre son letras (con tildes y enie), espacios, apostrofos, puntos y guiones: "Maria Jose", "O'Brien",
+# "Jean-Luc", "Ana Ruiz Jr.". Sin esto un nombre como <script>...</script> o una frase con instrucciones se
+# guardaba y volvia crudo en resumenes, tickets y en la ficha que lee el modelo.
+NOMBRE_RE = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ '.\-])*$")
 
 
 class ReservaInvalida(ValueError):
@@ -118,6 +122,8 @@ def validar_datos_reserva(
     nombre = _sanear_texto(nombre or "", maximo=NOMBRE_MAX, campo="El nombre")
     if not nombre:
         raise ReservaInvalida("El nombre no puede estar vacio.")
+    if not NOMBRE_RE.match(nombre):
+        raise ReservaInvalida("El nombre solo puede llevar letras, espacios, apostrofos, puntos y guiones.")
 
     notas = _sanear_texto(notas or "", maximo=NOTAS_MAX, campo="Las notas")
 
