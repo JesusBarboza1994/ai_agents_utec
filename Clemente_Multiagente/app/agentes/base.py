@@ -138,6 +138,29 @@ def _armar_entrada(texto: str, ficha: str) -> str:
     return "\n".join(bloques)
 
 
+# Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
+AVISO_REVISION_PENDIENTE = (
+    "Tu solicitud sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
+    "Todavía no hay una mesa confirmada."
+)
+
+
+def _hilo_en_pausa(agente, config: dict) -> bool:
+    """True si el hilo esta detenido esperando la decision del staff (revision humana pendiente).
+
+    Un mensaje nuevo NO puede entrar en esa pausa: el hilo quedo con una llamada a herramienta sin
+    respuesta y OpenAI rechaza la conversacion con un 400, lo que dejaba al cliente con un "no
+    puedo procesar tu mensaje" hasta que el staff decidiera. Sin checkpoint o ante cualquier fallo
+    al consultarlo devuelve False y el turno sigue su camino normal."""
+    if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
+        return False
+    try:
+        return bool(agente.get_state(config).next)
+    except Exception as error:
+        log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
+        return False
+
+
 def _olvidar_hilo(agente, config: dict) -> None:
     """Borra el checkpoint del hilo cuando el turno termino sin pausa para revision humana.
 
@@ -204,6 +227,10 @@ def ejecutar(
         "recursion_limit": 30,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
+    if _hilo_en_pausa(agente, config):
+        registrar("hitl_en_espera", sesion_id, agente=flujo,
+                  detalle={"motivo": "mensaje nuevo mientras la revision humana esta pendiente"})
+        return AVISO_REVISION_PENDIENTE
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
     interrupciones = resultado.get("__interrupt__") or []
