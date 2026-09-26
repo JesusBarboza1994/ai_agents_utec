@@ -110,7 +110,7 @@ def consultar_disponibilidad(
         return MENSAJE_GRUPO_GRANDE.format(personas=personas)
 
     # Las mismas reglas que crear_reserva: sin esto se afirmaba "hay lugar" para una hora que ya
-    # paso hoy, para una fecha a mas de 90 dias o para un turno que el restaurante no tiene.
+    # paso hoy, para una fecha a mas de 30 dias o para un turno que el restaurante no tiene.
     try:
         validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
     except ReservaInvalida as error:

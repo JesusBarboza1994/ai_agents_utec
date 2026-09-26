@@ -61,7 +61,7 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
 
 @pytest.mark.parametrize("fecha_pedida, hora, esperado", [
     ("2026-10-05", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del 5 de octubre en Lima
-    ("2027-06-01", "20:00", "90"),           # mas de 90 dias a futuro
+    ("2027-06-01", "20:00", "30"),           # mas de 30 dias a futuro
     ("2026-10-10", "03:00", "turno"),        # el restaurante no tiene turno de madrugada
 ])
 def test_disponibilidad_no_afirma_lugar_para_lo_que_no_se_puede_reservar(entorno, fecha_pedida, hora, esperado):

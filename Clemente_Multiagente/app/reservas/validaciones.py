@@ -28,7 +28,10 @@ ZONAS_VALIDAS = {"", "salon", "terraza", "barra"}
 
 PERSONAS_MIN = 1
 PERSONAS_MAX = 10
-DIAS_MAX_A_FUTURO = 90
+# Lo que dice la politica del restaurante (app/agentes/rag/documentos/03_politicas.md): hasta 30 dias de
+# anticipacion y minimo 2 horas antes del turno. El agente se lo dice al cliente, asi que el codigo lo cumple.
+DIAS_MAX_A_FUTURO = 30
+HORAS_MIN_DE_ANTICIPACION = 2
 NOMBRE_MAX = 100
 NOTAS_MAX = 300
 TELEFONO_RE = re.compile(r"^\+?[0-9]{7,15}$")
@@ -62,7 +65,8 @@ def _sanear_texto(valor: str, *, maximo: int, campo: str) -> str:
 def _validar_turno(fecha: str, hora: str, personas: int) -> None:
     """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO.
 
-    Si la fecha es hoy, el turno tampoco puede haber empezado ya en Lima."""
+    Si la fecha es hoy, el turno tampoco puede haber empezado ya en Lima ni empezar en menos de
+    HORAS_MIN_DE_ANTICIPACION horas."""
     if hora not in TURNOS_VALIDOS:
         raise ReservaInvalida(
             f"'{hora}' no es un turno valido. Turnos disponibles: {', '.join(TURNOS_VALIDOS)}."
@@ -91,8 +95,13 @@ def _validar_turno(fecha: str, hora: str, personas: int) -> None:
     if fecha_obj == hoy:
         ahora = reloj.ahora()
         horas, minutos = (int(parte) for parte in hora.split(":"))
-        if (horas, minutos) <= (ahora.hour, ahora.minute):
+        minutos_para_el_turno = (horas * 60 + minutos) - (ahora.hour * 60 + ahora.minute)
+        if minutos_para_el_turno <= 0:
             raise ReservaInvalida("Ese horario de hoy ya paso. Elige un turno mas tarde u otro dia.")
+        if minutos_para_el_turno < HORAS_MIN_DE_ANTICIPACION * 60:
+            raise ReservaInvalida(
+                f"Las reservas se hacen con al menos {HORAS_MIN_DE_ANTICIPACION} horas de anticipacion: "
+                "ese turno empieza demasiado pronto. Elige un turno mas tarde u otro dia.")
 
 
 def validar_cambio_turno(*, fecha: str, hora: str, personas: int) -> None:

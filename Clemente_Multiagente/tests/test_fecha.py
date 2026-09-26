@@ -106,14 +106,14 @@ def test_modificar_reserva_con_contradiccion_no_prepara_cambio(servicio):
 
 
 def test_hoy_de_lima_no_se_rechaza_como_fecha_pasada(servicio, monkeypatch):
-    """Verifica que reservar para hoy a las 21:00 de Lima funciona aunque UTC ya sea manana.
+    """Verifica que reservar para hoy a las 22:00 de Lima funciona aunque UTC ya sea manana.
 
-    El reloj se adelanta a las 20:30 de Lima (01:30 UTC del dia siguiente): sigue siendo "manana"
-    en UTC, y el turno de las 21:00 todavia no empezo."""
-    monkeypatch.setattr(fecha, "_reloj", lambda: INSTANTE.replace(hour=1, minute=30))
+    El reloj se adelanta a las 19:30 de Lima (00:30 UTC del dia siguiente): sigue siendo "manana"
+    en UTC, y el turno de las 22:00 empieza dentro de 2 horas y media, mas que el minimo de 2 horas."""
+    monkeypatch.setattr(fecha, "_reloj", lambda: INSTANTE.replace(hour=0, minute=30))
     rt = runtime()
     texto = tools.crear_reserva.func(
-        "Cliente ficticio", "900000001", "2026-10-05", "21:00", 2, rt, dia_semana="lunes",
+        "Cliente ficticio", "900000001", "2026-10-05", "22:00", 2, rt, dia_semana="lunes",
     )
     assert "CONFIRMO" in texto
 
