@@ -37,6 +37,9 @@ def create_app(config: Config | None = None) -> Flask:
     from .observabilidad.trazas import configurar_observabilidad
     configurar_observabilidad(app, config)
 
+    from .arranque import verificar_arranque
+    verificar_arranque(config)
+
     # Un blueprint por responsable. Cada quien agrega rutas SOLO en el suyo.
     from .communication.routes import bp as bp_comunicacion
     from .observabilidad.rutas import bp as bp_observabilidad
