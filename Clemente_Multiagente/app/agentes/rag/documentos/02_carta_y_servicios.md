@@ -22,4 +22,4 @@
 - Celebraciones: se permite ingresar torta propia sin costo de descorche de repostería.
 - Descorche de vino: S/ 40 por botella.
 - Wi-Fi para clientes. No hay servicio de delivery propio a la fecha.
-- Grupos de más de 10 personas: se coordinan con el equipo, no se confirman automáticamente por chat.
+- Grupos de más de 8 personas: se coordinan con el equipo, no se confirman automáticamente por chat.
