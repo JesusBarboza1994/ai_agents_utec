@@ -9,7 +9,7 @@ exercise -- removing it would also remove that coverage.
 
 import uuid
 
-from flask import jsonify, render_template, request, session
+from flask import current_app, jsonify, render_template, request, session
 
 from ...arranque import en_produccion
 from ...contratos import MensajeEntrante, RespuestaClemente
@@ -46,7 +46,10 @@ def chat_demo():
     Las pruebas en vivo son para quien desarrolla: con CLEMENTE_ENTORNO=produccion la pagina no las
     ofrece (el panel del personal si, porque es como se resuelven los grupos grandes)."""
     browser_session_id()
-    return render_template("chat.html", mostrar_pruebas=not en_produccion())
+    return render_template(
+        "chat.html", mostrar_pruebas=not en_produccion(),
+        hitl_configurado=bool(current_app.config["CLEMENTE"].hitl_token),
+    )
 
 
 def chat():
