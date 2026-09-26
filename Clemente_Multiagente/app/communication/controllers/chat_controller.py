@@ -11,6 +11,7 @@ import uuid
 
 from flask import jsonify, render_template, request, session
 
+from ...arranque import en_produccion
 from ...contratos import MensajeEntrante, RespuestaClemente
 from ..services import chat_service
 
@@ -40,9 +41,12 @@ def browser_session_id() -> str:
 
 
 def chat_demo():
-    """Inicializa la identidad firmada del navegador y renderiza el chat con panel HITL."""
+    """Inicializa la identidad firmada del navegador y renderiza el chat con panel HITL.
+
+    Las pruebas en vivo son para quien desarrolla: con CLEMENTE_ENTORNO=produccion la pagina no las
+    ofrece (el panel del personal si, porque es como se resuelven los grupos grandes)."""
     browser_session_id()
-    return render_template("chat.html")
+    return render_template("chat.html", mostrar_pruebas=not en_produccion())
 
 
 def chat():
