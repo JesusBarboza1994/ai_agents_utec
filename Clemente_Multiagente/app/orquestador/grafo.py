@@ -64,6 +64,7 @@ from ..incidencias import abiertas_de, obtener_servicio as servicio_incidencias
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import cronometro, registrar, registrar_conversacion
 from ..seguridad.errores import registrar_error
+from ..datos import carpeta_de_datos
 from ..seguridad.pii import redactar_pii
 from ..seguridad.trazado import contexto_de_trazado
 from . import informacion, limites
@@ -97,7 +98,7 @@ _escalado_de: dict[str, str] = {}
 _revisiones: dict[str, dict] = {}
 # Una revision se resuelve una sola vez: quien la reclama la saca de la cola bajo este candado.
 _lock_revisiones = threading.Lock()
-ARCHIVO_REVISIONES = Path(__file__).resolve().parent.parent / "agentes" / "datos" / "revisiones_hitl.json"
+ARCHIVO_REVISIONES = carpeta_de_datos(Path(__file__).resolve().parent.parent / "agentes" / "datos") / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
 

@@ -15,6 +15,7 @@ from app.agentes import fecha as reloj
 from app.agentes.fecha import ZONA
 
 from app.reservas.validaciones import (
+    DIAS_MAX_A_FUTURO,
     NOMBRE_MAX,
     NOTAS_MAX,
     TURNOS_VALIDOS,
@@ -127,9 +128,28 @@ def test_una_fecha_futura_no_mira_la_hora_de_hoy(monkeypatch):
 
 def test_fecha_muy_lejana_se_rechaza():
     """Verifica que una fecha mas alla de los dias maximos a futuro se rechaza."""
-    lejos = str(hoy_lima() + timedelta(days=91))
-    with pytest.raises(ReservaInvalida, match="90"):
+    lejos = str(hoy_lima() + timedelta(days=DIAS_MAX_A_FUTURO + 1))
+    with pytest.raises(ReservaInvalida, match="30"):
         validar_datos_reserva(**_datos(fecha=lejos))
+
+
+def test_el_limite_de_dias_es_el_de_la_politica_del_restaurante():
+    """La politica escrita dice 30 dias de anticipacion: el ultimo dia permitido se acepta y el siguiente no."""
+    assert DIAS_MAX_A_FUTURO == 30
+    validar_datos_reserva(**_datos(fecha=str(hoy_lima() + timedelta(days=30))))
+
+
+def test_hoy_con_menos_de_dos_horas_de_anticipacion_se_rechaza(monkeypatch):
+    """Con 18:30 en Lima faltan 90 minutos para el turno de las 20:00: la politica exige 2 horas."""
+    _reloj_de_hoy(monkeypatch, 18, 30)
+    with pytest.raises(ReservaInvalida, match="2 horas"):
+        validar_datos_reserva(**_datos(fecha=str(hoy_lima()), hora="20:00"))
+
+
+def test_hoy_con_justo_dos_horas_de_anticipacion_se_acepta(monkeypatch):
+    """Con 18:00 en Lima faltan exactamente 2 horas para las 20:00: se acepta, es el minimo."""
+    _reloj_de_hoy(monkeypatch, 18, 0)
+    validar_datos_reserva(**_datos(fecha=str(hoy_lima()), hora="20:00"))
 
 
 def test_fecha_con_formato_invalido_se_rechaza():

@@ -40,6 +40,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from ..contratos import Incidencia
+from .alertas import avisar_sin_tarjeta, describir_error
 from .servicio_json import PLAZOS_HORAS, ServicioIncidenciasJSON
 
 log = logging.getLogger("clemente.trello")
@@ -216,7 +217,7 @@ class ServicioIncidenciasTrello:
         except Exception as error:
             # No se relanza: el reclamo del cliente ya quedo registrado y eso es
             # lo que no se puede perder. Queda el aviso para que alguien lo vea.
-            log.warning("incidencia %s NO llego a Trello (%s)", incidencia.id, error)
+            avisar_sin_tarjeta(incidencia.id, sesion_id, error)
 
         return incidencia
 
@@ -245,7 +246,7 @@ class ServicioIncidenciasTrello:
                 if incidencia.id in estado_por_codigo:
                     incidencia.estado = estado_por_codigo[incidencia.id]
         except Exception as error:
-            log.warning("no se pudo leer el estado desde Trello (%s)", error)
+            log.warning("no se pudo leer el estado desde Trello (%s)", describir_error(error))
 
         return [i for i in locales if estado is None or i.estado == estado]
 
@@ -270,7 +271,7 @@ class ServicioIncidenciasTrello:
             self._pedir("POST", f"/cards/{tarjeta['id']}/actions/comments", text=texto)
             return True
         except Exception as error:
-            log.warning("no se pudo anotar en %s (%s)", incidencia_id, error)
+            log.warning("no se pudo anotar en %s (%s)", incidencia_id, describir_error(error))
             return False
 
     def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None:
@@ -293,7 +294,7 @@ class ServicioIncidenciasTrello:
                                     text=f"Cierre: {nota_cierre}")
                     break
         except Exception as error:
-            log.warning("no se pudo cerrar %s en Trello (%s)", incidencia_id, error)
+            log.warning("no se pudo cerrar %s en Trello (%s)", incidencia_id, describir_error(error))
         return incidencia
 
 

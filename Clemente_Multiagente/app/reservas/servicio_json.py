@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from ..contratos import OpcionDisponibilidad, Reserva
+from ..datos import carpeta_de_datos
 from .validaciones import (
     TURNOS_VALIDOS,
     clave_idempotencia,
@@ -25,7 +26,7 @@ from .validaciones import (
 
 CARPETA_DATOS = Path(__file__).parent / "datos"
 ARCHIVO_MESAS = CARPETA_DATOS / "mesas.json"
-ARCHIVO_RESERVAS = CARPETA_DATOS / "reservas.json"
+ARCHIVO_RESERVAS = carpeta_de_datos(CARPETA_DATOS) / "reservas.json"
 
 # Una mesa reservada bloquea su turno completo (no hay solapamiento parcial).
 DURACION_TURNO_HORAS = 2

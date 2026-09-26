@@ -46,10 +46,10 @@ from datetime import date, timedelta
 
 import requests
 
-# Fecha al azar por corrida (dentro del limite de 90 dias de validaciones.py):
+# Fecha al azar por corrida (dentro del limite de 30 dias de validaciones.py):
 # las reservas de corridas anteriores quedan en la tabla, y repetir siempre la
 # misma fecha/turno agotaria las mesas y falsearia los resultados.
-FECHA = str(date.today() + timedelta(days=random.randint(5, 85)))
+FECHA = str(date.today() + timedelta(days=random.randint(5, 25)))
 
 
 def _post(url: str, payload: dict) -> tuple[int, dict, float]:
