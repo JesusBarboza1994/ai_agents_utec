@@ -24,6 +24,11 @@ MAX_INTENTOS_CONFIRMO = 5
 _intentos_fallidos: dict[str, int] = {}
 _lock = RLock()
 DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al restaurante que verifique tu identidad para recuperarla."
+# No confirma que exista otra reserva ni da su codigo: quien escribe podria no ser su dueno.
+RESERVA_REPETIDA_DE_OTRA_CONVERSACION = (
+    "No pude registrar esa reserva con esos datos. Si ya habías reservado ese turno desde otra conversación, "
+    "solicita al restaurante que verifique tu identidad para recuperarla; si no, prueba con otro horario."
+)
 
 
 @contextmanager
@@ -178,8 +183,10 @@ def confirmar(sesion, texto, servicio):
     Para un comando exacto retorna (texto, datos): rechazos tienen datos={},
     exito incluye reserva y operacion. Comprueba sesion, token y vencimiento,
     consume la propuesta antes de escribir y vuelve a comprobar propiedad y
-    version para modificar/cancelar. Crear vincula la reserva nueva a la sesion.
-    Convierte ValueError del servicio en rechazo; otros errores se propagan.
+    version para modificar/cancelar. Crear vincula la reserva nueva a la sesion; si esa
+    reserva ya existia (mismo telefono, dia, hora y personas), avisa a su dueno cual es y a
+    cualquier otra sesion no le da el codigo. Convierte ValueError del servicio en rechazo;
+    otros errores se propagan.
     """
     match = re.fullmatch(r"\s*CONFIRMO\s+([0-9A-F]{8})\s*[.!]?\s*", texto, re.I)
     if not match:
@@ -210,7 +217,16 @@ def confirmar(sesion, texto, servicio):
         try:
             if accion == "crear":
                 r = servicio.crear_reserva(**datos)
-                vincular(sesion, r.id)
+                try:
+                    vincular(sesion, r.id)
+                except sqlite3.IntegrityError:
+                    # El servicio no creo otra: devolvio una reserva que ya existia (mismo telefono, dia, hora y
+                    # personas) y esa ya tiene dueno. A quien la hizo se le dice cual es; a otra conversacion no.
+                    if es_propietario(sesion, r.id):
+                        return (f"Ya tenías esta reserva y no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
+                                f"(hora de Lima), {r.personas} personas, zona {r.zona}.",
+                                {"reserva": r.__dict__, "operacion": "ya_existia"})
+                    return RESERVA_REPETIDA_DE_OTRA_CONVERSACION, {}
             elif accion == "modificar":
                 r = servicio.modificar_reserva(**datos)
             else:
