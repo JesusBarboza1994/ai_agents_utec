@@ -43,6 +43,15 @@ def obtener_guards():
     return _guards
 
 
+def precargar() -> None:
+    """Carga los modelos ahora, antes del primer mensaje.
+
+    Sin esto la primera peticion carga los modelos (varios segundos) y, con el timeout del cliente y la
+    politica de fallar cerrado, ese primer mensaje del dia podia bloquearse. Se apaga con
+    CLEMENTE_GUARDRAILS_PRECARGAR=0."""
+    obtener_guards()
+
+
 def autorizado() -> bool:
     """Valida el Bearer token de CLEMENTE_GUARDRAILS_TOKEN con comparacion constante.
 
@@ -55,8 +64,10 @@ def autorizado() -> bool:
 
 @app.get("/health")
 def health():
-    """Devuelve el estado del proceso HTTP sin inicializar ni ejecutar los validadores."""
-    return jsonify(status="ok", validator="DetectJailbreak")
+    """Devuelve el estado del proceso HTTP sin inicializar ni ejecutar los validadores.
+
+    modelos_cargados dice si ya estan en memoria: sirve de sonda de "listo" en Azure."""
+    return jsonify(status="ok", validator="DetectJailbreak", modelos_cargados=_guards is not None)
 
 
 @app.post("/validate/input")
@@ -110,6 +121,11 @@ def validate_output():
     return jsonify(valid=valid, validated_output=text if valid else None,
                    reason="" if valid else "ToxicLanguage rechazó la salida",
                    validator="ToxicLanguage")
+
+
+# Se carga al importar (python app.py y gunicorn app:app): el servicio no recibe mensajes hasta estar listo.
+if os.getenv("CLEMENTE_GUARDRAILS_PRECARGAR", "1") != "0":
+    precargar()
 
 
 if __name__ == "__main__":

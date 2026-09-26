@@ -27,5 +27,9 @@ CLEMENTE_GUARDRAILS_URL=http://127.0.0.1:8200
 CLEMENTE_GUARDRAILS_TOKEN=un-token-largo
 ```
 
+Al arrancar, el servicio carga los modelos antes de recibir mensajes (unos 15 segundos); así el primer mensaje
+no paga esa carga. `GET /health` responde `modelos_cargados: true` cuando ya está listo, y sirve de sonda de
+"listo" en Azure. Se apaga con `CLEMENTE_GUARDRAILS_PRECARGAR=0`.
+
 El detector funciona como defensa adicional. Las autorizaciones, límites de
 tools, confirmación explícita e HITL siguen siendo obligatorios.
