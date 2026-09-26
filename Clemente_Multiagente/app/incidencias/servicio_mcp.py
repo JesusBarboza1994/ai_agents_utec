@@ -39,7 +39,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 from ..contratos import Incidencia
-from .alertas import describir_error
+from .alertas import avisar_sin_tarjeta, describir_error
 from .servicio_json import ServicioIncidenciasJSON
 
 log = logging.getLogger("clemente.mcp")
@@ -144,7 +144,9 @@ class ServicioIncidenciasMCP:
             return Incidencia(**datos)
         except Exception as error:
             log.warning("el servidor MCP no respondio (%s): se registra en local", describir_error(error))
-            return self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
+            incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
+            avisar_sin_tarjeta(incidencia.id, sesion_id, error)
+            return incidencia
 
     def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]:
         """Consulta listar_tickets por MCP; ante error devuelve los casos del respaldo JSON."""

@@ -40,7 +40,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from ..contratos import Incidencia
-from .alertas import describir_error
+from .alertas import avisar_sin_tarjeta, describir_error
 from .servicio_json import PLAZOS_HORAS, ServicioIncidenciasJSON
 
 log = logging.getLogger("clemente.trello")
@@ -217,7 +217,7 @@ class ServicioIncidenciasTrello:
         except Exception as error:
             # No se relanza: el reclamo del cliente ya quedo registrado y eso es
             # lo que no se puede perder. Queda el aviso para que alguien lo vea.
-            log.warning("incidencia %s NO llego a Trello (%s)", incidencia.id, describir_error(error))
+            avisar_sin_tarjeta(incidencia.id, sesion_id, error)
 
         return incidencia
 
