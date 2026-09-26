@@ -111,6 +111,9 @@ def test_guardrails_caido_no_llega_al_agente(cliente, monkeypatch):
     import requests
     from dataclasses import replace
 
+    # La politica por defecto es fallar cerrado; el .env de cada uno puede traer FALLA_CERRADA=0 y no debe afectar la prueba.
+    monkeypatch.setenv("CLEMENTE_GUARDRAILS_FALLA_CERRADA", "1")
+
     cliente.application.config["CLEMENTE"] = replace(
         cliente.application.config["CLEMENTE"], guardrails_url="http://guardrails.local",
     )
