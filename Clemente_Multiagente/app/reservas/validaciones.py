@@ -32,6 +32,10 @@ DIAS_MAX_A_FUTURO = 90
 NOMBRE_MAX = 100
 NOTAS_MAX = 300
 TELEFONO_RE = re.compile(r"^\+?[0-9]{7,15}$")
+# Un nombre son letras (con tildes y enie), espacios, apostrofos, puntos y guiones: "Maria Jose", "O'Brien",
+# "Jean-Luc", "Ana Ruiz Jr.". Sin esto un nombre como <script>...</script> o una frase con instrucciones se
+# guardaba y volvia crudo en resumenes, tickets y en la ficha que lee el modelo.
+NOMBRE_RE = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ '.\-])*$")
 
 
 class ReservaInvalida(ValueError):
@@ -56,7 +60,9 @@ def _sanear_texto(valor: str, *, maximo: int, campo: str) -> str:
 
 
 def _validar_turno(fecha: str, hora: str, personas: int) -> None:
-    """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO."""
+    """Comprueba turno, cantidad de personas y que la fecha tenga formato valido, no sea pasada (hora de Lima) ni exceda DIAS_MAX_A_FUTURO.
+
+    Si la fecha es hoy, el turno tampoco puede haber empezado ya en Lima."""
     if hora not in TURNOS_VALIDOS:
         raise ReservaInvalida(
             f"'{hora}' no es un turno valido. Turnos disponibles: {', '.join(TURNOS_VALIDOS)}."
@@ -82,6 +88,11 @@ def _validar_turno(fecha: str, hora: str, personas: int) -> None:
         raise ReservaInvalida("La fecha no puede estar en el pasado.")
     if fecha_obj > hoy + timedelta(days=DIAS_MAX_A_FUTURO):
         raise ReservaInvalida(f"Solo se aceptan reservas hasta {DIAS_MAX_A_FUTURO} dias a futuro.")
+    if fecha_obj == hoy:
+        ahora = reloj.ahora()
+        horas, minutos = (int(parte) for parte in hora.split(":"))
+        if (horas, minutos) <= (ahora.hour, ahora.minute):
+            raise ReservaInvalida("Ese horario de hoy ya paso. Elige un turno mas tarde u otro dia.")
 
 
 def validar_cambio_turno(*, fecha: str, hora: str, personas: int) -> None:
@@ -111,6 +122,8 @@ def validar_datos_reserva(
     nombre = _sanear_texto(nombre or "", maximo=NOMBRE_MAX, campo="El nombre")
     if not nombre:
         raise ReservaInvalida("El nombre no puede estar vacio.")
+    if not NOMBRE_RE.match(nombre):
+        raise ReservaInvalida("El nombre solo puede llevar letras, espacios, apostrofos, puntos y guiones.")
 
     notas = _sanear_texto(notas or "", maximo=NOTAS_MAX, campo="Las notas")
 

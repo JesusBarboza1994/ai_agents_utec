@@ -1,7 +1,6 @@
 """Servicio aislado de seguridad con Guardrails AI, basado en la sesión 24."""
 
 import os
-import re
 import secrets
 from pathlib import Path
 
@@ -22,14 +21,10 @@ from flask import Flask, jsonify, request
 from guardrails import Guard
 from guardrails_ai.detect_jailbreak import DetectJailbreak
 from guardrails_ai.toxic_language import ToxicLanguage
+from patrones import motivo_de_bloqueo, motivo_de_bloqueo_en_salida
 
 app = Flask(__name__)
 _guards = None
-
-AMENAZA_GRAVE = re.compile(
-    r"\b(?:te|los|las|voy a|vamos a)?\s*(?:matar|asesinar|golpear|violar|quemar)\w*\b|"
-    r"\b(?:negro|indio|maric[oó]n|serrano)\s+de\s+mierda\b", re.I,
-)
 
 
 def obtener_guards():
@@ -68,18 +63,18 @@ def health():
 def validate_input():
     """Valida POST /validate/input y devuelve valid, validated_output, reason y validator.
 
-    Exige token (401) y texto no vacio (400). Primero bloquea el patron local
-    de amenazas en espanol; luego ejecuta jailbreak y toxicidad. Un rechazo
-    no devuelve texto validado; errores de los validadores se propagan."""
+    Exige token (401) y texto no vacio (400). Primero aplica las reglas locales
+    (amenazas, discriminacion e inyecciones de instrucciones, en patrones.py);
+    luego ejecuta jailbreak y toxicidad. Un rechazo no devuelve texto validado;
+    errores de los validadores se propagan."""
     if not autorizado():
         return jsonify(error="No autorizado"), 401
     text = str((request.get_json(silent=True) or {}).get("text") or "").strip()
     if not text:
         return jsonify(error="text es obligatorio"), 400
-    if AMENAZA_GRAVE.search(text):
-        return jsonify(valid=False, validated_output=None,
-                       reason="Amenaza, acoso grave o discriminación detectada",
-                       validator="ToxicidadES")
+    bloqueo = motivo_de_bloqueo(text)
+    if bloqueo:
+        return jsonify(valid=False, validated_output=None, reason=bloqueo[1], validator=bloqueo[0])
     jailbreak, toxicidad = obtener_guards()
     resultados = (("DetectJailbreak", jailbreak.validate(text)),
                   ("ToxicLanguage", toxicidad.validate(text)))
@@ -107,10 +102,9 @@ def validate_output():
     text = str((request.get_json(silent=True) or {}).get("text") or "").strip()
     if not text:
         return jsonify(error="text es obligatorio"), 400
-    if AMENAZA_GRAVE.search(text):
-        return jsonify(valid=False, validated_output=None,
-                       reason="Salida con amenaza, acoso grave o discriminación",
-                       validator="ToxicidadES")
+    bloqueo = motivo_de_bloqueo_en_salida(text)
+    if bloqueo:
+        return jsonify(valid=False, validated_output=None, reason=bloqueo[1], validator=bloqueo[0])
     toxicidad = obtener_guards()[1].validate(text)
     valid = bool(toxicidad.validation_passed)
     return jsonify(valid=valid, validated_output=text if valid else None,

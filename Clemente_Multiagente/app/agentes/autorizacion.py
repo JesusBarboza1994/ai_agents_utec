@@ -150,14 +150,14 @@ def proponer(contexto, accion, datos, servicio):
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Crear reserva' if accion == 'crear' else 'Modificar reserva ' + datos['reserva_id']}: "
-                   f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora}, {personas} personas")
+                   f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora} (hora de Lima), {personas} personas")
         if accion == "crear":
             resumen += f", contacto {datos['telefono']}, zona {datos.get('zona') or 'según disponibilidad'}"
             if datos.get("notas"):
                 resumen += f", observaciones: {datos['notas']}"
     else:
         r = datos["anterior"]
-        resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']}, {r['personas']} personas"
+        resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']} (hora de Lima), {r['personas']} personas"
 
     _intentos_fallidos.pop(sesion, None)
     codigo = _codigo_de_confirmacion()
@@ -222,5 +222,5 @@ def confirmar(sesion, texto, servicio):
         except ValueError:
             return "No se pudo completar la operación: la disponibilidad o los datos cambiaron. Solicita un nuevo resumen.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
-        return (f"Reserva {r.id} {estado}: {r.nombre}, {r.fecha} a las {r.hora}, {r.personas} personas, zona {r.zona}.",
+        return (f"Reserva {r.id} {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), {r.personas} personas, zona {r.zona}.",
                 {"reserva": r.__dict__, "operacion": accion})

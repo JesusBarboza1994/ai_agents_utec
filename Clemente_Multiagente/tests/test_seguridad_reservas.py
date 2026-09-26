@@ -59,6 +59,41 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
     assert "CONFIRMO 1234567A" in redactar_pii(texto)
 
 
+@pytest.mark.parametrize("fecha_pedida, hora, esperado", [
+    ("2026-10-05", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del 5 de octubre en Lima
+    ("2027-06-01", "20:00", "90"),           # mas de 90 dias a futuro
+    ("2026-10-10", "03:00", "turno"),        # el restaurante no tiene turno de madrugada
+])
+def test_disponibilidad_no_afirma_lugar_para_lo_que_no_se_puede_reservar(entorno, fecha_pedida, hora, esperado):
+    """consultar_disponibilidad aplica las reglas de crear_reserva: no dice "hay lugar" para una hora pasada, una fecha lejana ni un turno inexistente."""
+    texto = tools.consultar_disponibilidad.func(fecha_pedida, hora, 2, runtime())
+    assert esperado in texto and "Disponible" not in texto
+
+
+def test_el_limite_autonomo_es_lo_que_cabe_en_la_mesa_mas_grande():
+    """Con la mesa mas grande en 8 personas, el limite autonomo es 8: no se promete lo que ninguna mesa recibe."""
+    assert tools.LIMITE_GRUPO_AUTONOMO == 8
+
+
+@pytest.mark.parametrize("personas", [9, 10, 14])
+def test_los_grupos_que_no_caben_en_una_mesa_pasan_al_equipo(entorno, personas):
+    """Para 9 o 10 se decia "sin disponibilidad"; ahora consultar y crear mandan al staff, como con los grupos de mas de 10."""
+    consulta = tools.consultar_disponibilidad.func("2026-10-10", "20:00", personas, runtime())
+    crear = tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", personas, runtime())
+    for texto in (consulta, crear):
+        assert "solicitar_excepcion_grupo" in texto and "Sin disponibilidad" not in texto and "CONFIRMO" not in texto
+
+
+def test_un_grupo_de_8_sigue_reservandose_por_chat(entorno):
+    """El limite es inclusivo: para 8 personas hay mesa y se prepara la reserva normal."""
+    assert "CONFIRMO" in tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", 8, runtime())
+
+
+def test_disponibilidad_de_un_turno_futuro_sigue_funcionando(entorno):
+    """Una fecha y un turno validos siguen devolviendo las mesas libres."""
+    assert "Disponible" in tools.consultar_disponibilidad.func("2026-10-10", "20:00", 2, runtime())
+
+
 def _preparar(rt, telefono):
     """Prepara una reserva de 2 personas con el telefono dado y devuelve el texto de la tool."""
     return tools.crear_reserva.func("Ana Ruiz", telefono, "2026-10-10", "20:00", 2, rt)
@@ -68,6 +103,18 @@ def test_reserva_usa_el_telefono_del_canal_si_el_modelo_trae_un_marcador(entorno
     """Con WhatsApp el telefono ya esta en la ficha: el marcador tapado del historial no lo pierde."""
     texto = _preparar(runtime("whatsapp-51999111222", {"phone": "51999111222"}), "[REDACTED_TELEFONO]")
     assert "contacto 51999111222" in texto and "CONFIRMO" in texto
+
+
+def test_el_resumen_aclara_que_la_hora_es_la_de_lima(entorno):
+    """Un cliente en otro huso horario (Tokio) lee "20:00 (hora de Lima)" y no la confunde con la suya."""
+    texto = _preparar(runtime("web-abc"), "999111222")
+    assert "20:00 (hora de Lima)" in texto
+
+
+def test_el_nombre_con_codigo_html_no_llega_a_preparar_la_reserva(entorno):
+    """<script> como nombre se rechaza en la validacion: no vuelve crudo en el resumen ni se guarda."""
+    texto = tools.crear_reserva.func("<script>alert(1)</script>", "999111222", "2026-10-10", "20:00", 2, runtime("web-abc"))
+    assert "<script" not in texto and "CONFIRMO" not in texto
 
 
 def test_reserva_prefiere_el_telefono_de_contacto_al_del_canal(entorno):

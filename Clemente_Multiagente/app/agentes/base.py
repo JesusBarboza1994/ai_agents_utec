@@ -138,6 +138,36 @@ def _armar_entrada(texto: str, ficha: str) -> str:
     return "\n".join(bloques)
 
 
+# Pasos que LangGraph deja dar a un agente en un turno antes de cortarlo. Con el middleware actual
+# (PII y revision humana) cada vuelta modelo -> herramientas cuesta 7 pasos, mas 2 de arranque y cierre:
+# n vueltas piden 7n + 2. Con 30 solo cabian 4 vueltas, y un camino normal de reserva (hora, disponibilidad,
+# guardar datos, crear) llamado de a una herramienta por vez ya llegaba a 5 y el turno fallaba con
+# GraphRecursionError. 45 deja 6 vueltas: sobra para un turno sano y un ciclo de reintentos igual se corta.
+LIMITE_DE_PASOS = 45
+
+# Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
+AVISO_REVISION_PENDIENTE = (
+    "Tu solicitud sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
+    "Todavía no hay una mesa confirmada."
+)
+
+
+def _hilo_en_pausa(agente, config: dict) -> bool:
+    """True si el hilo esta detenido esperando la decision del staff (revision humana pendiente).
+
+    Un mensaje nuevo NO puede entrar en esa pausa: el hilo quedo con una llamada a herramienta sin
+    respuesta y OpenAI rechaza la conversacion con un 400, lo que dejaba al cliente con un "no
+    puedo procesar tu mensaje" hasta que el staff decidiera. Sin checkpoint o ante cualquier fallo
+    al consultarlo devuelve False y el turno sigue su camino normal."""
+    if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
+        return False
+    try:
+        return bool(agente.get_state(config).next)
+    except Exception as error:
+        log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
+        return False
+
+
 def _olvidar_hilo(agente, config: dict) -> None:
     """Borra el checkpoint del hilo cuando el turno termino sin pausa para revision humana.
 
@@ -170,7 +200,7 @@ def ejecutar(
     conversacion nueva.
 
     Recorta el historial, agrega la ficha de reservas propias y el mensaje
-    actual, e invoca con recursion_limit=30 y thread_id de flujo y sesion.
+    actual, e invoca con recursion_limit=LIMITE_DE_PASOS y thread_id de flujo y sesion.
     Si hay interrupcion HITL, guarda la solicitud en contexto y devuelve
     un aviso de revision. Si el texto parece una llamada de tool, registra
     el guardrail y devuelve fallback. Los errores de invocacion se propagan:
@@ -201,9 +231,13 @@ def ejecutar(
     mensajes.append({"role": "user", "content": entrada})
 
     config = {
-        "recursion_limit": 30,
+        "recursion_limit": LIMITE_DE_PASOS,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
+    if _hilo_en_pausa(agente, config):
+        registrar("hitl_en_espera", sesion_id, agente=flujo,
+                  detalle={"motivo": "mensaje nuevo mientras la revision humana esta pendiente"})
+        return AVISO_REVISION_PENDIENTE
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
     interrupciones = resultado.get("__interrupt__") or []
@@ -246,7 +280,7 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
     from langgraph.types import Command
 
     config = {
-        "recursion_limit": 30,
+        "recursion_limit": LIMITE_DE_PASOS,
         "configurable": {"thread_id": id_de_hilo(flujo, sesion_id)},
     }
     resultado = agente.invoke(

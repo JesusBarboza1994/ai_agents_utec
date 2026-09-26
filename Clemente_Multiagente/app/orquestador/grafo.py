@@ -204,6 +204,17 @@ numero de personas, un codigo de reserva, un si o un no) o insiste en lo mismo -
 plan es UN solo paso: el MISMO agente que venia atendiendo. Un dato suelto no cambia de
 tema, lo completa. Solo cambias de agente si aparece una senal clara de otro alcance.
 
+Un pedido de mesa (reservar, cambiar o cancelar una reserva, ver las reservas propias) SIEMPRE
+lleva el paso 'reservas', aunque el mismo mensaje traiga ademas algo que no es del restaurante:
+'informacion' no puede reservar ni confirmar nada y dejaria al cliente sin su mesa. Lo que no es
+del restaurante (un examen, una ecuacion, un poema) NO es un paso: no lo mandes a 'informacion'
+ni a ningun agente; el agente que atiende el pedido de mesa lo declina en una frase.
+
+Cuando el cliente cuenta algo suyo sin preguntar nada -- su nombre, un telefono de contacto,
+una mascota, su cumpleanos -- es un dato para su ficha: va a 'reservas', que es quien lo guarda,
+incluso si venia hablando con 'informacion'. Si ademas pregunta por una politica (por ejemplo
+si puede ir con su mascota), primero 'informacion' y despues 'reservas'.
+
 Ante la duda entre informacion y reserva, y sin hilo previo, elige 'informacion':
 responder de mas sobre horarios cuesta una aclaracion; comprometer una mesa que no
 existe cuesta un cliente parado en la puerta."""
