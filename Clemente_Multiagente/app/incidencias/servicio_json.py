@@ -13,8 +13,9 @@ from datetime import datetime
 from pathlib import Path
 
 from ..contratos import Incidencia
+from ..datos import carpeta_de_datos
 
-ARCHIVO = Path(__file__).parent / "datos" / "incidencias.json"
+ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "incidencias.json"
 
 # Plazo de atencion por tipo, en horas (regla operativa, no del modelo).
 PLAZOS_HORAS = {"espera": 4, "servicio": 8, "producto": 8, "reserva": 4, "otro": 24}

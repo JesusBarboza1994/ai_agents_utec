@@ -57,8 +57,9 @@ def obtener_agente():
         from pathlib import Path
         from langchain.agents.middleware import HumanInTheLoopMiddleware
         from langgraph.checkpoint.sqlite import SqliteSaver
+        from ..datos import carpeta_de_datos
 
-        archivo = Path(__file__).resolve().parent / "datos" / "hitl_checkpoints.sqlite3"
+        archivo = carpeta_de_datos(Path(__file__).resolve().parent / "datos") / "hitl_checkpoints.sqlite3"
         archivo.parent.mkdir(parents=True, exist_ok=True)
         conexion = sqlite3.connect(archivo, check_same_thread=False)
         _checkpointer = SqliteSaver(conexion)

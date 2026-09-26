@@ -20,9 +20,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..datos import carpeta_de_datos
 from .contexto import telefono_de
 
-ARCHIVO = Path(__file__).parent / "datos" / "clientes.json"
+ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "clientes.json"
 
 
 def _leer() -> dict[str, dict]:

@@ -33,7 +33,11 @@ RUN mkdir -p /mnt/datos && chown clemente:clemente /mnt/datos
 
 USER clemente
 
-ENV CLEMENTE_PORT=8000 \
+# Los archivos que Clemente escribe (quien es duena de cada reserva, revisiones pendientes del staff, reclamos
+# de respaldo) van a /mnt/datos. Para que sobrevivan a un reinicio o a un despliegue, la Container App tiene
+# que montar ahi un volumen persistente (Azure Files); sin volumen se guardan igual, pero se pierden.
+ENV CLEMENTE_DATOS_DIR=/mnt/datos \
+    CLEMENTE_PORT=8000 \
     FLASK_DEBUG=0 \
     PYTHONUNBUFFERED=1 \
     ANONYMIZED_TELEMETRY=False

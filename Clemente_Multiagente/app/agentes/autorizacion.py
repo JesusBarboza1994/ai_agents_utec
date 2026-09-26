@@ -15,9 +15,10 @@ from pathlib import Path
 from threading import RLock
 
 from . import fecha as reloj
+from ..datos import carpeta_de_datos
 from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
-ARCHIVO = Path(__file__).parent / "datos" / "autorizaciones.sqlite3"
+ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
 # Codigos equivocados que se toleran contra una misma propuesta; al llegar al tope se descarta.
 MAX_INTENTOS_CONFIRMO = 5
