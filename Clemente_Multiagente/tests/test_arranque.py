@@ -31,7 +31,7 @@ CONFIGURACION_COMPLETA = {
     "CLEMENTE_ENTORNO": "produccion", "CLEMENTE_SECRET_KEY": "x" * 64, "CLEMENTE_BACKEND_RESERVAS": "postgres",
     "CLEMENTE_DATABASE_URL": "postgresql://usuario:clave@servidor:5432/clemente", "CLEMENTE_GUARDRAILS_URL": "http://guardrails",
     "CLEMENTE_GUARDRAILS_TOKEN": "t" * 40, "TRELLO_API_KEY": "k" * 32, "TRELLO_TOKEN": "t" * 64, "AGENT_MODEL": "openai",
-    "OPENAI_API_KEY": "sk-prueba", "TWILIO_AUTH_TOKEN": "twilio",
+    "OPENAI_API_KEY": "sk-prueba", "TWILIO_AUTH_TOKEN": "twilio", "CLEMENTE_HITL_TOKEN": "h" * 40,
 }
 VARIABLES_DE_PRODUCCION = [*CONFIGURACION_COMPLETA, "CLEMENTE_DATOS_DIR", "CLEMENTE_DEBUG_ROUTES",
                            "CLEMENTE_BACKEND_INCIDENCIAS", "CLEMENTE_GUARDRAILS_FALLA_CERRADA"]
@@ -69,7 +69,7 @@ def test_produccion_sin_configuracion_no_arranca_y_dice_todo_lo_que_falta(monkey
         create_app()
     texto = str(error.value)
     for esperado in ("CLEMENTE_SECRET_KEY", "'postgres'", "CLEMENTE_DATABASE_URL", "CLEMENTE_DATOS_DIR",
-                     "CLEMENTE_GUARDRAILS_URL", "TRELLO_API_KEY"):
+                     "CLEMENTE_GUARDRAILS_URL", "CLEMENTE_HITL_TOKEN", "TRELLO_API_KEY"):
         assert esperado in texto, esperado
 
 
