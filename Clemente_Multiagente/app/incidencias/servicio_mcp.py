@@ -39,6 +39,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 from ..contratos import Incidencia
+from .alertas import describir_error
 from .servicio_json import ServicioIncidenciasJSON
 
 log = logging.getLogger("clemente.mcp")
@@ -142,7 +143,7 @@ class ServicioIncidenciasMCP:
             )
             return Incidencia(**datos)
         except Exception as error:
-            log.warning("el servidor MCP no respondio (%s): se registra en local", error)
+            log.warning("el servidor MCP no respondio (%s): se registra en local", describir_error(error))
             return self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
 
     def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]:
@@ -150,7 +151,7 @@ class ServicioIncidenciasMCP:
         try:
             return [Incidencia(**d) for d in self.llamar("listar_tickets", estado=estado or "")]
         except Exception as error:
-            log.warning("el servidor MCP no respondio (%s): se lee del registro local", error)
+            log.warning("el servidor MCP no respondio (%s): se lee del registro local", describir_error(error))
             return self.espejo.listar_incidencias(estado)
 
     def anotar(self, incidencia_id: str, texto: str) -> bool:
@@ -159,7 +160,7 @@ class ServicioIncidenciasMCP:
             resultado = self.llamar("comentar_ticket", ticket_id=incidencia_id, texto=texto)
             return resultado == f"Nota agregada al ticket {incidencia_id.strip().upper()}."
         except Exception as error:
-            log.warning("no se pudo anotar en %s por MCP (%s)", incidencia_id, error)
+            log.warning("no se pudo anotar en %s por MCP (%s)", incidencia_id, describir_error(error))
             return self.espejo.anotar(incidencia_id, texto)
 
     def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None:
