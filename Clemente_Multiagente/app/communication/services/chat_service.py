@@ -199,15 +199,18 @@ def handle_incoming_message(
         respuesta.agente = "seguridad"
         respuesta.motivo_ruta = "salida bloqueada por toxicidad"
     else:
-        respuesta.texto = redactar_pii(salida.texto)
+        # El cliente ve su propio telefono: el resumen de la reserva tiene que dejarle comprobar que quedo bien
+        # anotado. El resto de los datos personales (correo, DNI, IP) siguen tapados.
+        respuesta.texto = redactar_pii(salida.texto, incluir_telefono=False)
 
     if chat_id:
-        _guardar(chat_id, entrante.sesion_id, "assistant", respuesta.texto)
+        # Lo que se guarda sigue redactado, telefono incluido: solo entra a Postgres texto redactado.
+        _guardar(chat_id, entrante.sesion_id, "assistant", redactar_pii(respuesta.texto))
     else:
         # El agente recibe el dato operativo en este turno, pero la memoria de
         # chat no conserva PII cruda para reinyectarla en turnos posteriores.
         sesion.agregar("user", redactar_pii(entrante.texto))
-        sesion.agregar("assistant", respuesta.texto)
+        sesion.agregar("assistant", redactar_pii(respuesta.texto))
         sesion.ultimo_agente = respuesta.agente
     return respuesta
 
