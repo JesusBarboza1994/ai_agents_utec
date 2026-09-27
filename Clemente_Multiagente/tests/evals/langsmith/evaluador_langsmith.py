@@ -108,14 +108,20 @@ def ejecutar_agente(inputs: dict) -> dict:
     inicio = time.perf_counter()
     respuesta = responder(MensajeEntrante(sesion_id=sesion, texto=mensaje, canal="eval"))
     duracion_s = time.perf_counter() - inicio
-    herramientas_usadas = [
-        t.detalle.get("tool", "desconocida")
-        for t in ultimas_trazas(limite=200, sesion_id=sesion)[antes:]
-        if t.evento == "tool"
+    trazas_tool = [t for t in ultimas_trazas(limite=200, sesion_id=sesion)[antes:] if t.evento == "tool"]
+    herramientas_usadas = [t.detalle.get("tool", "desconocida") for t in trazas_tool]
+    # Agregado 2026-09-27: el juez solo recibia el NOMBRE de la tool, nunca su resultado --
+    # no podia verificar si "hay disponibilidad" realmente vino de consultar_disponibilidad
+    # o si el agente lo afirmo sin base. Sin esto, fidelidad_disponibilidad penalizaba casos
+    # donde la tool SI se llamo y SI dijo que habia cupo, solo por falta de evidencia visible.
+    salidas_tool = [
+        f"{t.detalle.get('tool', 'desconocida')} -> {t.detalle.get('salida', '')}"
+        for t in trazas_tool
     ]
     return {
         "respuesta": respuesta.texto,
         "herramientas_usadas": herramientas_usadas,
+        "resultados_tools": salidas_tool,
         "duracion_s": round(duracion_s, 2),
     }
 
@@ -215,6 +221,11 @@ Respuesta del agente Clemente:
 {outputs.get("respuesta")}
 
 Herramientas que usó el agente: {outputs.get("herramientas_usadas")}
+
+Resultado real que devolvió cada herramienta (esta es la evidencia real disponible en ese
+momento; una afirmación del agente que coincide con esto SÍ está verificada, no la
+penalices por "falta de evidencia" si aparece aquí):
+{outputs.get("resultados_tools") or "(el agente no llamó ninguna herramienta)"}
 
 Comportamiento esperado (referencia del caso):
 {reference_outputs.get("referencia")}
