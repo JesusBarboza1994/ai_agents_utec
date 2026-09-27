@@ -31,6 +31,7 @@ Uso (desde la raíz del proyecto):
 
 import json
 import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -75,7 +76,16 @@ def crear_o_recuperar_dataset() -> str:
         dataset_id=dataset.id,
         inputs=[{"mensaje": c["input"]} for c in CASOS],
         outputs=[
-            {"categoria": c["categoria"], "riesgo": c["riesgo"], "referencia": c["referencia"]}
+            {
+                "categoria": c["categoria"],
+                "riesgo": c["riesgo"],
+                "referencia": c["referencia"],
+                # Agregado 2026-09-27: antes no se subia, asi que enrutamiento_correcto
+                # no podia comparar contra la tool esperada de CADA caso, solo contra un
+                # set generico por categoria (ver HERRAMIENTA_ESPERADA_POR_CATEGORIA mas
+                # abajo, que ahora es solo el fallback si un caso no trae esto).
+                "tools_esperadas": c["tools_esperadas"],
+            }
             for c in CASOS
         ],
     )
@@ -95,13 +105,19 @@ def ejecutar_agente(inputs: dict) -> dict:
     mensaje = inputs["mensaje"]
     sesion = f"langsmith-utec-{uuid.uuid4().hex[:8]}"
     antes = len(ultimas_trazas(limite=200, sesion_id=sesion))
+    inicio = time.perf_counter()
     respuesta = responder(MensajeEntrante(sesion_id=sesion, texto=mensaje, canal="eval"))
+    duracion_s = time.perf_counter() - inicio
     herramientas_usadas = [
         t.detalle.get("tool", "desconocida")
         for t in ultimas_trazas(limite=200, sesion_id=sesion)[antes:]
         if t.evento == "tool"
     ]
-    return {"respuesta": respuesta.texto, "herramientas_usadas": herramientas_usadas}
+    return {
+        "respuesta": respuesta.texto,
+        "herramientas_usadas": herramientas_usadas,
+        "duracion_s": round(duracion_s, 2),
+    }
 
 
 # ============================================================================
@@ -213,16 +229,54 @@ HERRAMIENTA_ESPERADA_POR_CATEGORIA = {
 
 
 def enrutamiento_correcto(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-    """Puntua si las herramientas registradas coinciden con alguna esperada para la categoria."""
+    """Puntua si las herramientas usadas coinciden con las esperadas para ESTE caso.
+
+    Usa `tools_esperadas` del propio caso (subido como parte del dataset desde 2026-09-27)
+    en vez de solo el set generico por categoria -- ese set generico se queda como
+    fallback para datasets viejos que no lo suban. Caso especial que antes estaba mal:
+    si lo esperado es "ninguna tool" (`tools_esperadas: []`, los casos de rechazo -- PII de
+    terceros, reserva ajena, discriminacion), el acierto es que NO se haya usado ninguna,
+    no la interseccion de dos sets vacios (que siempre da False y marcaba 0.0 aunque el
+    agente hiciera exactamente lo correcto)."""
     categoria = reference_outputs.get("categoria")
     usadas = set(outputs.get("herramientas_usadas", []))
-    esperadas = HERRAMIENTA_ESPERADA_POR_CATEGORIA.get(categoria, set())
-    acierto = bool(usadas & esperadas)
+    esperadas_caso = reference_outputs.get("tools_esperadas")
+
+    if esperadas_caso is not None:
+        esperadas = set(esperadas_caso)
+        acierto = (not usadas) if not esperadas else bool(usadas & esperadas)
+        origen = "caso"
+    else:
+        esperadas = HERRAMIENTA_ESPERADA_POR_CATEGORIA.get(categoria, set())
+        acierto = bool(usadas & esperadas)
+        origen = "categoría (sin tools_esperadas en el caso)"
+
     return {
         "key": "enrutamiento_correcto",
         "score": 1.0 if acierto else 0.0,
-        "comment": f"Categoría={categoria}. Herramientas usadas={sorted(usadas) or 'ninguna'}. "
-                   f"Esperadas={sorted(esperadas)}.",
+        "comment": f"Categoría={categoria} (esperado por {origen}). "
+                   f"Herramientas usadas={sorted(usadas) or 'ninguna'}. "
+                   f"Esperadas={sorted(esperadas) or 'ninguna'}.",
+    }
+
+
+UMBRAL_LATENCIA_S = 15.0  # Propuesto, no confirmado con el equipo -- ver Mejoras en el
+# vault de Obsidian del proyecto. Basado en tiempos reales observados contra caclmt01 el
+# 2026-09-27 (4-8s por turno simple, hasta ~7s en el paso de confirmar una reserva), con
+# margen para el turno mas caro del dataset (planificador + agente + 1-2 tools).
+
+
+def latencia_aceptable(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+    """Puntua 1.0/0.0 determinístico contra UMBRAL_LATENCIA_S -- metrica de negocio, no de
+    calidad de contenido: a un cliente de chat no le importa un score de 0.95 en tono si
+    la respuesta tarda 20 segundos en llegar."""
+    duracion = outputs.get("duracion_s")
+    if duracion is None:
+        return {"key": "latencia_aceptable", "score": None, "comment": "Sin duración registrada"}
+    return {
+        "key": "latencia_aceptable",
+        "score": 1.0 if duracion <= UMBRAL_LATENCIA_S else 0.0,
+        "comment": f"{duracion}s (umbral propuesto: {UMBRAL_LATENCIA_S}s)",
     }
 
 
@@ -233,6 +287,7 @@ def construir_evaluadores():
         for nombre, (categorias, criterio) in CRITERIOS.items()
     ]
     evaluadores.append(enrutamiento_correcto)
+    evaluadores.append(latencia_aceptable)
     return evaluadores
 
 
@@ -279,7 +334,10 @@ def main():
     urls_compartidas = []
     for fila in filas:
         run = fila["run"]
-        feedback = {fb.key: fb.score for fb in (fila.get("evaluation_results", {}).get("results", []) or [])}
+        feedback = {
+            fb.key: {"score": fb.score, "comment": fb.comment}
+            for fb in (fila.get("evaluation_results", {}).get("results", []) or [])
+        }
         resumen.append({
             "run_id": str(run.id),
             "inputs": run.inputs,
