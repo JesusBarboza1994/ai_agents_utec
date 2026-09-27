@@ -147,6 +147,7 @@ def generar_reporte(resultados_por_caso: list, ruta_salida: Path) -> Path:
 
     todos_scores = [
         r["score"] for caso in resultados_por_caso for r in caso["metricas"].values()
+        if r["score"] is not None
     ]
     promedio_general = sum(todos_scores) / len(todos_scores) if todos_scores else 0
 
@@ -178,10 +179,16 @@ Explícita, Manejo de Incidencias, etc.) se evalúan en `evaluador_langsmith.py`
                 nombres_metricas.append(nombre)
 
     for nombre in nombres_metricas:
-        scores = [c["metricas"][nombre]["score"] for c in resultados_por_caso if nombre in c["metricas"]]
+        todos = [c["metricas"][nombre] for c in resultados_por_caso if nombre in c["metricas"]]
+        scores = [m["score"] for m in todos if m["score"] is not None]
+        no_medidos = len(todos) - len(scores)
+        if not scores:
+            contenido += f"| {nombre} (n=0, {no_medidos} no medidos) | — | ⚠️ |\n"
+            continue
         prom = sum(scores) / len(scores)
         emoji = "🟢" if prom >= 0.7 else "🟡" if prom >= 0.5 else "🔴"
-        contenido += f"| {nombre} (n={len(scores)}) | {prom:.2f} | {emoji} |\n"
+        sufijo = f", {no_medidos} no medidos" if no_medidos else ""
+        contenido += f"| {nombre} (n={len(scores)}{sufijo}) | {prom:.2f} | {emoji} |\n"
 
     contenido += "\n---\n\n## Resultados detallados por caso\n"
 
@@ -191,7 +198,8 @@ Explícita, Manejo de Incidencias, etc.) se evalúan en `evaluador_langsmith.py`
         contenido += f"**Respuesta de Clemente:** {caso['actual_output']}\n\n"
         contenido += "| Métrica | Score | Justificación |\n|---|---|---|\n"
         for nombre, r in caso["metricas"].items():
-            contenido += f"| {nombre} | {r['score']:.2f} | {r['reason']} |\n"
+            score_texto = f"{r['score']:.2f}" if r["score"] is not None else "—"
+            contenido += f"| {nombre} | {score_texto} | {r['reason']} |\n"
 
     contenido += f"""
 
@@ -242,7 +250,21 @@ def main():
         for nombre, metrica, categorias_aplicables in metricas:
             if caso["categoria"] not in categorias_aplicables:
                 continue
-            metrica.measure(test_case)
+            try:
+                metrica.measure(test_case)
+            except Exception as error:
+                # Un caso adversarial (amenazas, discriminacion) puede disparar el
+                # filtro de contenido de Azure OpenAI en la llamada del JUEZ, no solo
+                # en la del agente -- eso no es un fallo del agente que se este
+                # evaluando, es el juez rechazando su propio prompt. Sin este bloque,
+                # una excepcion aca tumbaba el script entero y ni corria LangSmith
+                # despues (verificado 2026-09-27, caso "no_validar_discriminacion").
+                resultados_metricas[nombre] = {
+                    "score": None,
+                    "reason": f"No medido: {type(error).__name__}",
+                }
+                print(f"    ⚠️  {nombre}: no medido ({type(error).__name__})")
+                continue
             score = metrica.score if metrica.score <= 1 else metrica.score / 10.0
             resultados_metricas[nombre] = {
                 "score": score,
