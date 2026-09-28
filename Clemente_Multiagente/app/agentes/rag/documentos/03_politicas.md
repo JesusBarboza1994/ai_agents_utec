@@ -10,7 +10,7 @@ Este documento es la **fuente única de verdad** de las políticas. El Agente de
 - Turnos disponibles: 12:00, 13:00, 14:00 (almuerzo) y 19:00, 20:00, 21:00, 22:00 (cena).
 - La mesa se mantiene **20 minutos** desde la hora reservada. Pasado ese tiempo, se libera.
 - Una reserva se registra **solo con confirmación explícita del cliente**: fecha, hora, número de personas y nombre.
-- Grupos de **más de 10 personas** no se confirman por chat: pasan al equipo del restaurante.
+- Grupos de **más de 8 personas** no se confirman por chat: pasan al equipo del restaurante.
 - No se cobra garantía ni adelanto para reservas regulares.
 
 ## Cancelaciones y cambios

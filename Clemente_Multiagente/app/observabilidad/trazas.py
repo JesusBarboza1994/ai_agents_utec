@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ..contratos import Traza
+from ..datos import carpeta_de_datos
 
 MAXIMO_TRAZAS = 500
 _trazas: deque[Traza] = deque(maxlen=MAXIMO_TRAZAS)
@@ -32,7 +33,7 @@ _trazas: deque[Traza] = deque(maxlen=MAXIMO_TRAZAS)
 # Las trazas viven en memoria y se pierden al reiniciar; LangSmith depende de
 # tener clave y conexion. Este archivo es el registro que queda pase lo que
 # pase: una linea JSON por turno, con el texto real de la conversacion.
-ARCHIVO_CONVERSACIONES = Path(__file__).parent / "datos" / "conversaciones.jsonl"
+ARCHIVO_CONVERSACIONES = carpeta_de_datos(Path(__file__).parent / "datos") / "conversaciones.jsonl"
 
 log = logging.getLogger("clemente")
 

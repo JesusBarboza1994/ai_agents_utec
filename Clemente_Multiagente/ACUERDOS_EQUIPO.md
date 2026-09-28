@@ -190,7 +190,7 @@ inyección de prompt persistente, no solo "datos sucios".
 
 - **`app/reservas/validaciones.py`** (nuevo): `validar_datos_reserva`/`validar_cambio_turno`
   compartidas por `ServicioReservasJSON` y `ServicioReservasPostgres` — turno, personas 1-10,
-  fecha no pasada y máx. 90 días a futuro, teléfono por regex, nombre/notas saneados y acotados
+  fecha no pasada, máx. 30 días a futuro y mín. 2 horas de anticipación (como dice la política), teléfono por regex, nombre/notas saneados y acotados
   (100/300 caracteres). `TURNOS_VALIDOS` unificado ahí; antes estaba duplicado en 3 archivos.
 - **Idempotencia**: `crear_reserva` calcula una clave natural (hash de
   teléfono+fecha+hora+personas) sin que el caller mande nada. En Postgres, columna

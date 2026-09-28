@@ -110,7 +110,7 @@ def consultar_disponibilidad(
         return MENSAJE_GRUPO_GRANDE.format(personas=personas)
 
     # Las mismas reglas que crear_reserva: sin esto se afirmaba "hay lugar" para una hora que ya
-    # paso hoy, para una fecha a mas de 90 dias o para un turno que el restaurante no tiene.
+    # paso hoy, para una fecha a mas de 30 dias o para un turno que el restaurante no tiene.
     try:
         validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
     except ReservaInvalida as error:
@@ -284,7 +284,7 @@ def solicitar_excepcion_grupo(
     nombre: str, telefono: str, fecha: str, hora: str, personas: int,
     runtime: ToolRuntime, zona: str = "", notas: str = "", dia_semana: str = "",
 ) -> str:
-    """Solicita al staff revisar un grupo de más de 10 personas.
+    """Solicita al staff revisar un grupo que no cabe en una sola mesa (más personas que la mesa más grande).
 
     Esta herramienta se pausa antes de ejecutarse. Solo una aprobación humana
     permite que el orquestador abra el caso; una denegación no crea ticket.

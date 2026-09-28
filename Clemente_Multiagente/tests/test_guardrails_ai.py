@@ -66,6 +66,9 @@ def test_caida_del_servicio_bloquea_la_entrada_por_defecto(monkeypatch):
     """Con el servicio configurado, una caida, un timeout o un HTTP 500 bloquean el mensaje."""
     import requests
 
+    # Politica por defecto: fallar cerrado. Un .env con FALLA_CERRADA=0 (habitual en local) no debe cambiar la prueba.
+    monkeypatch.setenv("CLEMENTE_GUARDRAILS_FALLA_CERRADA", "1")
+
     for error in (requests.ConnectionError("caido"), requests.Timeout("lento"),
                   requests.HTTPError("500"), ValueError("respuesta ilegible")):
         _cae(monkeypatch, error)

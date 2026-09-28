@@ -1,7 +1,7 @@
 """
 Endpoints de observabilidad. Los consume el panel interno y la demo final.
 
-    GET /api/salud                -- el sistema esta arriba y con que modelo
+    GET /api/salud                -- el sistema esta arriba, con que modelo y si hay reclamos sin tarjeta
     GET /api/trazas?sesion_id=..  -- ultimas trazas (que agente respondio y por que)
     GET /api/metricas             -- metricas agregadas para el informe
     GET /api/conversaciones       -- texto de los turnos registrados en disco
@@ -11,6 +11,7 @@ from dataclasses import asdict
 
 from flask import Blueprint, current_app, jsonify, request, session
 
+from ..incidencias.alertas import cantidad_sin_tarjeta
 from .trazas import leer_conversaciones, metricas, ultimas_trazas
 
 bp = Blueprint("observabilidad", __name__, url_prefix="/api")
@@ -22,8 +23,11 @@ def salud():
 
     El estado ok indica esta comprobacion local, no una prueba integral de salud."""
     config = current_app.config["CLEMENTE"]
+    sin_tarjeta = cantidad_sin_tarjeta()
     return jsonify(
         estado="ok" if not config.falta_credencial else "sin_credencial",
+        incidencias_sin_tarjeta=sin_tarjeta,
+        alertas=([f"{sin_tarjeta} reclamo(s) recibieron codigo pero no llegaron a Trello"] if sin_tarjeta else []),
         proveedor=config.agent_model,
         modelo=config.modelo,
         embeddings=config.embeddings_backend,
