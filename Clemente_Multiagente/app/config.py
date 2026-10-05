@@ -10,6 +10,7 @@ import os
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from dotenv import load_dotenv
 
@@ -17,6 +18,17 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 load_dotenv(RAIZ / ".env")
 _CLAVE_SESION_PROCESO = secrets.token_hex(32)
+
+
+def _cloudinary_desde_entorno() -> tuple[str, str, str]:
+    """(cloud_name, api_key, api_secret) leidos de CLOUDINARY_URL; vacios si no esta.
+
+    CLOUDINARY_URL es el formato que entrega el panel de Cloudinary:
+    `cloudinary://<api_key>:<api_secret>@<cloud_name>`."""
+    url = urlparse(os.getenv("CLOUDINARY_URL", ""))
+    if url.scheme != "cloudinary":
+        return "", "", ""
+    return url.hostname or "", unquote(url.username or ""), unquote(url.password or "")
 
 
 @dataclass(frozen=True)
@@ -30,6 +42,11 @@ class Config:
     twilio_account_sid: str = ""
     twilio_whatsapp_from: str = ""
     twilio_webhook_url: str = ""
+    # Imagenes de WhatsApp: se re-suben a Cloudinary (ver media_service).
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+    cloudinary_folder: str = "clemente/whatsapp"
     database_url: str = ""
     chat_session_days: int = 7
     hitl_token: str = ""
@@ -80,6 +97,7 @@ class Config:
         Selecciona el modelo segun AGENT_MODEL y convierte timeout y banderas;
         un timeout no numerico produce ValueError. No comprueba credenciales remotas."""
         agent_model = os.getenv("AGENT_MODEL", "openai")
+        cloud_name, cloud_key, cloud_secret = _cloudinary_desde_entorno()
         modelos = {
             "claude": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
             "openai": os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
@@ -91,6 +109,9 @@ class Config:
             twilio_account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             twilio_whatsapp_from=os.getenv("TWILIO_WHATSAPP_FROM", ""),
             twilio_webhook_url=os.getenv("TWILIO_WEBHOOK_URL", ""),
+            cloudinary_cloud_name=cloud_name,
+            cloudinary_api_key=cloud_key,
+            cloudinary_api_secret=cloud_secret,
             database_url=os.getenv("CLEMENTE_DATABASE_URL", ""),
             chat_session_days=int(os.getenv("CLEMENTE_CHAT_SESSION_DAYS", "7")),
             hitl_token=os.getenv("CLEMENTE_HITL_TOKEN", ""),

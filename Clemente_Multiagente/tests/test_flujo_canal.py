@@ -70,8 +70,8 @@ def test_whatsapp_persiste_cliente_chat_y_mensajes(monkeypatch):
     assert calls["chat"] == ("51999111222", "customer-1",
                              {"channel": "whatsapp", "channel_number": "14155238886"})
     assert calls["append"] == [
-        ("chat-1", "user", "hola", {"provider_message_id": "SM123"}),
-        ("chat-1", "assistant", "eco: hola", {"provider_message_id": None}),
+        ("chat-1", "user", "hola", {"provider_message_id": "SM123", "message_type": "text"}),
+        ("chat-1", "assistant", "eco: hola", {"provider_message_id": None, "message_type": "text"}),
     ]
     assert calls["touch"] == "chat-1"
 

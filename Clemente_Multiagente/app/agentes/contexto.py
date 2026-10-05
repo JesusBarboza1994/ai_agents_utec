@@ -34,6 +34,7 @@ class ContextoConversacion(BaseModel):
     # mismo nivel. Vacio cuando el cliente es nuevo o el canal no lo mando.
     chat_key: str = ""
     cliente: dict[str, Any] = Field(default_factory=dict)
+    imagenes: list[str] = Field(default_factory=list)
 
     # --- canal de vuelta: lo escriben las tools, lo lee el orquestador ---
     escalado: bool = False              # `escalar_a_staff` lo pone en True

@@ -215,6 +215,13 @@ una mascota, su cumpleanos -- es un dato para su ficha: va a 'reservas', que es 
 incluso si venia hablando con 'informacion'. Si ademas pregunta por una politica (por ejemplo
 si puede ir con su mascota), primero 'informacion' y despues 'reservas'.
 
+IMAGENES: si el mensaje trae una imagen (lo indica la linea "[El cliente adjunto ...]") o
+pregunta por una imagen reciente del hilo ("[imagen del cliente] ..."), decides por lo que el
+cliente quiere hacer con ella, no por el agente que venia atendiendo; esta regla le gana a la
+de continuidad. Si muestra algo que salio mal (un plato, la cuenta, el local) es 'incidencias';
+si pregunta que es, como es el local o la compara con el restaurante, es 'informacion'; solo
+es 'reservas' si la usa para su reserva. Una imagen ajena al restaurante va a 'informacion'.
+
 Ante la duda entre informacion y reserva, y sin hilo previo, elige 'informacion':
 responder de mas sobre horarios cuesta una aclaracion; comprometer una mesa que no
 existe cuesta un cliente parado en la puerta."""
@@ -333,9 +340,11 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     mensaje = _mensaje_de(estado)
-    if not mensaje:
-        # Sin texto no hay nada que planificar, y llamar al modelo seria gastar
-        # por nada. El plan vacio cae directo al cierre.
+    contexto = estado.get("contexto")
+    imagenes = contexto.imagenes if contexto else []
+    if not mensaje and not imagenes:
+        # Sin texto ni imagen no hay nada que planificar, y llamar al modelo seria
+        # gastar por nada. El plan vacio cae directo al cierre.
         registrar("plan", _sesion_de(estado),
                   detalle={"plan": [], "motivo": "turno sin texto"})
         return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto", "pendientes": [], "respuestas": []}
@@ -344,8 +353,12 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
     entrada = (
         f"Conversacion previa:\n{_resumen_del_hilo(estado.get('historial') or [])}\n\n"
         f"Agente que venia atendiendo: {venia_de}\n\n"
-        f"ULTIMO MENSAJE DEL CLIENTE (el que hay que planificar):\n{mensaje}"
+        f"ULTIMO MENSAJE DEL CLIENTE (el que hay que planificar):\n{mensaje or '(sin texto)'}"
     )
+    if imagenes:
+        # El planificador no mira la imagen (es texto y barato); solo sabe que
+        # existe. El agente elegido es el que la recibe y la ve.
+        entrada += f"\n[El cliente adjunto {len(imagenes)} imagen(es) en este mensaje.]"
 
     modelo = resolver_modelo(temperature=0.0, rol="enrutador").with_structured_output(
         PlanDeResolucion
@@ -700,6 +713,7 @@ def _responder_turno(
     contexto = ContextoConversacion(
         sesion_id=entrante.sesion_id, canal=entrante.canal,
         chat_key=chat_key or "", cliente=cliente or {},
+        imagenes=list(entrante.imagenes),
     )
     estado_inicial: EstadoConversacion = {
         "sesion_id": entrante.sesion_id,
