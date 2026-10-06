@@ -13,6 +13,7 @@ from .tools.catalogo_tools import consultar_politica
 from .tools.cliente_tools import actualizar_datos_cliente
 from .tools.fecha_tools import get_current_datetime
 from .tools.incidencias_tools import (
+    buscar_casos_similares,
     consultar_incidencia,
     registrar_incidencia,
     verificar_reserva_del_reclamo,
@@ -22,6 +23,7 @@ TOOLS = [
     registrar_incidencia,
     consultar_incidencia,
     verificar_reserva_del_reclamo,
+    buscar_casos_similares,   # casos resueltos parecidos: orienta una respuesta rapida
     actualizar_datos_cliente,   # guarda nombre/apellido/DNI que el cliente da al identificarse
     consultar_politica,   # marco de lo que se puede y no se puede proponer
     get_current_datetime,   # "ayer" y "el sabado pasado" se fechan con el reloj de Lima
