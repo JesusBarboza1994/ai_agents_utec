@@ -23,18 +23,38 @@ def handle_webhook():
     """
     config = current_app.config["CLEMENTE"]
     if not config.database_url:
+        registrar("webhook_rechazado", "whatsapp", detalle={"motivo": "sin CLEMENTE_DATABASE_URL"})
         return jsonify(error="Webhook not configured."), 503
     if not whatsapp_service.is_valid_account(request.form.get("AccountSid") or "", config.twilio_account_sid):
+        registrar("webhook_rechazado", "whatsapp", detalle={"motivo": "AccountSid distinto de TWILIO_ACCOUNT_SID"})
         return jsonify(error="Unexpected Twilio account"), 401
 
+    # La URL con la que se recalcula la firma: si no es identica a la que Twilio
+    # llamo (https, sin '/' final), el log lo muestra y se ve a simple vista.
+    signed_url = config.twilio_webhook_url or request.url
     if not whatsapp_service.is_valid_request(
-        config.twilio_webhook_url or request.url,
-        request.form, request.headers.get("X-Twilio-Signature", ""),
+        signed_url, request.form, request.headers.get("X-Twilio-Signature", ""),
         config.twilio_auth_token,
     ):
+        registrar("webhook_rechazado", "whatsapp", detalle={
+            "motivo": "firma invalida",
+            "url_usada": signed_url,
+            "origen_url": "TWILIO_WEBHOOK_URL" if config.twilio_webhook_url else "request.url",
+            "con_firma": bool(request.headers.get("X-Twilio-Signature")),
+            "con_auth_token": bool(config.twilio_auth_token),
+        })
         return jsonify(error="Invalid Twilio signature"), 401
 
     message = whatsapp_service.parse_inbound(request.form)
+    registrar("webhook_recibido", message.chat_key or "whatsapp", detalle={
+        "message_sid": message.provider_message_id,
+        "de": message.chat_key,
+        "para": message.channel_number,
+        "nombre": message.sender_name,
+        "texto": message.text,
+        "sin_soporte": message.unsupported_reason,
+        "adjuntos": [adjunto.content_type for adjunto in message.media],
+    })
     if message.chat_key:
         _process_in_background(message)
 
@@ -63,10 +83,15 @@ def _process_in_background(message) -> None:
                 reply = whatsapp_service.process_inbound(message)
                 if reply is None:
                     return
-                outbound_whatsapp_service.send_whatsapp_message(
+                sid = outbound_whatsapp_service.send_whatsapp_message(
                     config.twilio_account_sid, config.twilio_auth_token,
                     config.twilio_whatsapp_from, message.chat_key, reply,
                 )
+                registrar("respuesta_enviada", message.chat_key, detalle={"message_sid": sid, "texto": reply})
+            except outbound_whatsapp_service.WhatsAppSendError as error:
+                # El texto es el codigo y mensaje de error de Twilio, sin credenciales:
+                # es lo que dice por que no salio la respuesta.
+                registrar("error", message.chat_key, detalle={"error": "WhatsAppSendError", "motivo": str(error)})
             except Exception as error:
                 registrar("error", message.chat_key, detalle={"error": type(error).__name__})
 

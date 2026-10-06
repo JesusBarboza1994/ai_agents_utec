@@ -12,16 +12,18 @@ Un canal nuevo se agrega igual: un controller y un adaptador que traduzcan su
 payload a `MensajeEntrante` + `IdentidadCanal`. No se duplica nada del flujo.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import base64
 import hashlib
 import hmac
 import re
 
+from flask import current_app
+
 from ...contratos import MensajeEntrante
 from ...observabilidad.trazas import registrar
-from . import chat_service
+from . import chat_service, media_service
 
 WHATSAPP_PREFIX = "whatsapp:"
 
@@ -118,13 +120,19 @@ class IncomingMessage:
     sender_phone: str | None = None
     channel_number: str | None = None       # la direccion propia del negocio en el canal
     provider_message_id: str | None = None  # el id de Twilio para este mensaje (dedup futuro)
-    unsupported_reason: str | None = None   # cuando no hay texto utilizable
+    unsupported_reason: str | None = None   # cuando no hay texto ni imagen utilizable
+    media: list[media_service.MediaAdjunto] = field(default_factory=list)  # adjuntos tal como los anuncia Twilio
 
 
 def parse_inbound(form) -> IncomingMessage:
     """Translates Twilio's raw form payload into Clemente's channel-agnostic contract."""
     text = (form.get("Body") or "").strip()
-    media_type = media_content_type(form)
+    media = media_service.extract_media(form)
+    # Una imagen es contenido utilizable aunque no traiga texto; audio, video o
+    # documentos solos siguen sin manejarse.
+    sin_soporte = None
+    if not text and media and not any(adjunto.es_imagen for adjunto in media):
+        sin_soporte = f"media sin manejar ({media[0].content_type})"
 
     return IncomingMessage(
         channel="whatsapp",
@@ -134,7 +142,8 @@ def parse_inbound(form) -> IncomingMessage:
         sender_phone=resolve_phone(form),
         channel_number=parse_whatsapp_address(form.get("To") or "") or None,
         provider_message_id=form.get("MessageSid") or None,
-        unsupported_reason=f"media sin manejar ({media_type})" if not text and media_type else None,
+        unsupported_reason=sin_soporte,
+        media=media,
     )
 
 
@@ -142,7 +151,13 @@ def process_inbound(message: IncomingMessage) -> str | None:
     """Atiende un turno de WhatsApp y devuelve el texto que hay que responder.
 
     Devuelve None cuando no hay nada que contestar: sin `chat_key`, o un
-    mensaje sin texto -- media que Clemente todavia no lee, que solo se traza.
+    mensaje sin texto ni imagen -- media que Clemente todavia no lee, que
+    solo se traza.
+
+    Las imagenes se re-suben a Cloudinary ANTES de entrar al flujo comun
+    (`media_service.subir_imagenes`): al agente le llegan las URLs de
+    Cloudinary en `MensajeEntrante.imagenes`, nunca las de Twilio. Si ninguna
+    imagen se pudo subir y no habia texto, no hay turno que atender.
 
     El `sesion_id` del hilo es estable entre mensajes (`whatsapp-<chat_key>`),
     porque de el cuelgan la propiedad de las reservas y las revisiones
@@ -150,7 +165,9 @@ def process_inbound(message: IncomingMessage) -> str | None:
     """
     if not message.chat_key:
         return None
-    if not message.text:
+    sesion_id = f"{message.channel}-{message.chat_key}"
+    imagenes = [adjunto for adjunto in message.media if adjunto.es_imagen]
+    if not message.text and not imagenes:
         if message.unsupported_reason:
             registrar(
                 "mensaje_no_soportado", message.chat_key,
@@ -158,13 +175,20 @@ def process_inbound(message: IncomingMessage) -> str | None:
             )
         return None
 
+    urls: list[str] = []
+    if imagenes:
+        urls = media_service.subir_imagenes(imagenes, current_app.config["CLEMENTE"], sesion_id)
+        if not message.text and not urls:
+            return None
+
     respuesta = chat_service.handle_incoming_message(
         MensajeEntrante(
-            sesion_id=f"{message.channel}-{message.chat_key}",
+            sesion_id=sesion_id,
             texto=message.text,
             canal=message.channel,
             nombre_cliente=message.sender_name,
             telefono=message.sender_phone,
+            imagenes=urls,
         ),
         chat_service.IdentidadCanal(
             chat_key=message.chat_key,

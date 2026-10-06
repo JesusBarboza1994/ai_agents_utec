@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from flask import current_app
 
-from ...contratos import MensajeEntrante, RespuestaClemente
+from ...contratos import PREFIJO_IMAGEN, MensajeEntrante, RespuestaClemente
 from ...db.repositories import chats_repository, customers_repository, messages_repository
 from ...observabilidad.trazas import registrar
 from ...orquestador import responder as responder_orquestador
@@ -72,6 +72,16 @@ def _abrir_chat(entrante: MensajeEntrante, identidad: IdentidadCanal, chat_key: 
         return None
 
 
+def _para_el_agente(rol: str, tipo: str, contenido: str) -> dict:
+    """Una fila de `messages` como la recibe el agente.
+
+    El texto se redacta; la URL de una imagen no: la genero Cloudinary, no la
+    escribio el cliente, y redactarla la dejaria inservible."""
+    if tipo == messages_repository.TYPE_IMAGE_URL:
+        return {"role": rol, "content": f"{PREFIJO_IMAGEN} {contenido}"}
+    return {"role": rol, "content": redactar_pii(contenido)}
+
+
 def _historial(chat_id: str, sesion_id: str) -> list[dict]:
     """Ventana de contexto del hilo, leida de `messages` y ya redactada.
 
@@ -88,7 +98,7 @@ def _historial(chat_id: str, sesion_id: str) -> list[dict]:
                   detalle={"paso": "leer_historial", "error": type(error).__name__})
         return []
     return [
-        {"role": fila["role"], "content": redactar_pii(fila["content"])}
+        _para_el_agente(fila["role"], fila.get("type") or messages_repository.TYPE_TEXT, fila["content"])
         for fila in recientes
     ][-MAXIMO_TURNOS:]
 
@@ -110,11 +120,12 @@ def _ficha_del_cliente(chat_key: str, sesion_id: str) -> dict:
 
 
 def _guardar(chat_id: str, sesion_id: str, rol: str, texto: str,
-             *, provider_message_id: str | None = None) -> None:
+             *, provider_message_id: str | None = None,
+             tipo: str = messages_repository.TYPE_TEXT) -> None:
     """Persiste un turno ya redactado; un fallo se traza y no interrumpe la conversacion."""
     try:
         messages_repository.append_message(
-            chat_id, rol, texto, provider_message_id=provider_message_id,
+            chat_id, rol, texto, provider_message_id=provider_message_id, message_type=tipo,
         )
         chats_repository.touch(chat_id)
     except Exception as error:
@@ -141,10 +152,18 @@ def handle_incoming_message(
 
     Solo entra a Postgres texto redactado: el dato operativo crudo llega al
     agente en este turno y no vuelve a inyectarse en los siguientes.
+
+    Cada imagen del turno (`entrante.imagenes`, URLs de Cloudinary) se guarda
+    como su propia fila `image_url`. Las de ESTE turno viajan en
+    `entrante.imagenes` y el agente las recibe como imagen; las de turnos
+    pasados vuelven desde la base como texto con su URL (`_para_el_agente`).
     """
     identidad = identidad or IdentidadCanal()
     chat_key = identidad.chat_key or entrante.sesion_id
     chat_id = _abrir_chat(entrante, identidad, chat_key)
+    imagenes_del_turno = [
+        _para_el_agente("user", messages_repository.TYPE_IMAGE_URL, url) for url in entrante.imagenes
+    ]
 
     sesion = None
     if chat_id:
@@ -152,8 +171,14 @@ def handle_incoming_message(
         # antes de configurar Postgres, se descarta en vez de mezclarse.
         limpiar_sesion(entrante.sesion_id)
         historial = _historial(chat_id, entrante.sesion_id)
-        _guardar(chat_id, entrante.sesion_id, "user", redactar_pii(entrante.texto),
-                 provider_message_id=identidad.provider_message_id)
+        for url in entrante.imagenes:
+            _guardar(chat_id, entrante.sesion_id, "user", url,
+                     provider_message_id=identidad.provider_message_id,
+                     tipo=messages_repository.TYPE_IMAGE_URL)
+        # Una imagen sin texto no deja ademas una fila de texto vacia.
+        if entrante.texto or not entrante.imagenes:
+            _guardar(chat_id, entrante.sesion_id, "user", redactar_pii(entrante.texto),
+                     provider_message_id=identidad.provider_message_id)
     else:
         sesion = obtener_sesion(entrante.sesion_id, entrante.canal)
         if entrante.nombre_cliente:
@@ -162,7 +187,7 @@ def handle_incoming_message(
             sesion.telefono = entrante.telefono
         historial = sesion.historial
 
-    from ...seguridad.guardrails_ai import validar_entrada, validar_salida
+    from ...seguridad.guardrails_ai import ResultadoEntrada, validar_entrada, validar_salida
 
     tipo_pii = pii_prohibida(entrante.texto)
     if tipo_pii:
@@ -172,6 +197,10 @@ def handle_incoming_message(
             agente="seguridad", sesion_id=entrante.sesion_id,
             motivo_ruta="PII o secreto bloqueado", datos={"guardrail": "PII"},
         )
+    elif not entrante.texto and entrante.imagenes:
+        # Solo imagen: no hay texto que validar, y el servicio de Guardrails
+        # rechaza un texto vacio (400), que con falla cerrada bloquearia el turno.
+        validacion = ResultadoEntrada(True, "", "sin texto: solo imagen", False)
     else:
         validacion = validar_entrada(
             entrante.texto, entrante.sesion_id, _configuracion(),
@@ -209,6 +238,8 @@ def handle_incoming_message(
     else:
         # El agente recibe el dato operativo en este turno, pero la memoria de
         # chat no conserva PII cruda para reinyectarla en turnos posteriores.
+        for imagen in imagenes_del_turno:
+            sesion.agregar(imagen["role"], imagen["content"])
         sesion.agregar("user", redactar_pii(entrante.texto))
         sesion.agregar("assistant", redactar_pii(respuesta.texto))
         sesion.ultimo_agente = respuesta.agente
