@@ -18,6 +18,7 @@ import json
 import logging
 import warnings
 
+from ..contratos import PREFIJO_IMAGEN
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import registrar
 from . import fecha
@@ -31,6 +32,12 @@ log = logging.getLogger("clemente")
 # Los mensajes de tool no viajan entre agentes porque cada uno tiene tools
 # distintas y un mensaje de tool huerfano rompe la conversacion.
 LIMITE_TURNOS_HISTORIAL = 12
+
+# Cuantos mensajes del final del historial vuelven a mostrarle al modelo sus
+# imagenes como imagen (no solo como URL). 4 son los dos ultimos turnos: alcanza
+# para "y que diferencias ves?" despues de una foto, sin reenviar al modelo cada
+# foto vieja de la semana en todos los turnos (cada imagen se paga de nuevo).
+MENSAJES_CON_IMAGEN_VISIBLE = 4
 
 # LangChain serializa el estado del grafo con Pydantic y avisa de que el campo
 # `context` no es None. Es cosmetico -- el contexto SI llega a las tools, lo
@@ -125,6 +132,49 @@ def _parece_llamada_de_tool(texto: str) -> bool:
     return isinstance(datos, dict) and bool(_CLAVES_DE_TOOL & set(datos))
 
 
+# Lo que lee el agente cuando el cliente manda solo una imagen.
+TEXTO_SOLO_IMAGEN = "(El cliente envio una imagen sin texto.)"
+
+
+def _contenido_del_turno(entrada: str, imagenes: list[str]) -> str | list[dict]:
+    """El mensaje del cliente para el modelo: texto solo, o texto + imagenes.
+
+    Con imagenes es una lista de bloques: el texto (con la URL de cada imagen,
+    para que el agente pueda citarla o adjuntarla a una tool) y un bloque
+    estandar de LangChain `{"type": "image", "url": ...}` por imagen, que el
+    proveedor (OpenAI, Azure) convierte a su formato de vision. El modelo ve
+    la imagen, no solo su direccion."""
+    if not imagenes:
+        return entrada
+    referencias = "\n".join(f"[Imagen adjunta del cliente: {url}]" for url in imagenes)
+    return [
+        {"type": "text", "text": f"{entrada}\n{referencias}"},
+        *({"type": "image", "url": url} for url in imagenes),
+    ]
+
+
+def _con_imagenes_recientes(mensajes: list[dict]) -> list[dict]:
+    """Vuelve a convertir en imagen las fotos de los ultimos MENSAJES_CON_IMAGEN_VISIBLE.
+
+    En el historial una foto anterior es texto (`PREFIJO_IMAGEN <url>`): el
+    modelo veria la direccion, no la foto, y no podria contestar una pregunta
+    de seguimiento sobre ella. Las recientes pasan a texto + bloque de imagen;
+    las mas viejas quedan como texto. No modifica la lista recibida."""
+    desde = max(len(mensajes) - MENSAJES_CON_IMAGEN_VISIBLE, 0)
+    resultado = list(mensajes)
+    for indice in range(desde, len(mensajes)):
+        mensaje = mensajes[indice]
+        contenido = mensaje.get("content")
+        if mensaje.get("role") == "user" and isinstance(contenido, str) \
+                and contenido.startswith(PREFIJO_IMAGEN):
+            url = contenido.removeprefix(PREFIJO_IMAGEN).strip()
+            resultado[indice] = {**mensaje, "content": [
+                {"type": "text", "text": contenido},
+                {"type": "image", "url": url},
+            ]}
+    return resultado
+
+
 def _armar_entrada(texto: str, ficha: str) -> str:
     """Antepone al mensaje los datos del sistema que el modelo no debe adivinar.
 
@@ -208,7 +258,7 @@ def ejecutar(
     """
     contexto = contexto or ContextoConversacion(sesion_id=sesion_id)
 
-    mensajes = list(historial or [])[-LIMITE_TURNOS_HISTORIAL:]
+    mensajes = _con_imagenes_recientes(list(historial or [])[-LIMITE_TURNOS_HISTORIAL:])
     # Dos fuentes de ficha: la identidad que ya resolvio comunicacion contra
     # Postgres (`contexto.cliente` -- nombre, telefono, lo que traiga `data`) y
     # las reservas propias vigentes, que se siguen consultando aparte porque
@@ -220,7 +270,7 @@ def ejecutar(
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
     # contexto que pidio Boris en la asesoria del 2026-09-07 [08:22].
-    entrada = _armar_entrada(texto, ficha)
+    entrada = _armar_entrada(texto or (TEXTO_SOLO_IMAGEN if contexto.imagenes else ""), ficha)
     if ficha:
         # La ficha entra por el prompt, no por una tool, asi que sin esta traza
         # el agente puede citar la reserva de un cliente y en el registro no
@@ -228,7 +278,7 @@ def ejecutar(
         # 2026-09-07: "no hay evidencia de que estos datos provengan de una
         # consulta real al sistema". La habia, pero no era auditable.
         registrar("ficha", sesion_id, detalle={"ficha": ficha})
-    mensajes.append({"role": "user", "content": entrada})
+    mensajes.append({"role": "user", "content": _contenido_del_turno(entrada, contexto.imagenes)})
 
     config = {
         "recursion_limit": LIMITE_DE_PASOS,

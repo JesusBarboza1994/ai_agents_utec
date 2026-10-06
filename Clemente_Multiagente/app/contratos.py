@@ -34,6 +34,12 @@ Ruta = Literal["reservas", "incidencias", "informacion"]
 # 1. Comunicacion  <->  Orquestador
 # --------------------------------------------------------------------------
 
+# Como viaja en el historial ({role, content}) una imagen de un turno anterior:
+# este prefijo + su URL de Cloudinary. Lo escribe comunicacion al leer una fila
+# `image_url` de `messages`; lo lee el agente para volver a mostrarla.
+PREFIJO_IMAGEN = "[imagen del cliente]"
+
+
 @dataclass
 class MensajeEntrante:
     """Lo que llega de cualquier canal, ya normalizado por Comunicacion."""
@@ -43,6 +49,7 @@ class MensajeEntrante:
     canal: str = "webchat"          # webchat (desarrollo) | whatsapp (Twilio)
     nombre_cliente: str | None = None
     telefono: str | None = None
+    imagenes: list[str] = field(default_factory=list)
 
 
 @dataclass
