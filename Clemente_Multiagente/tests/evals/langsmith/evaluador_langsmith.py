@@ -45,6 +45,7 @@ for ruta in (RAIZ, COMPARTIDOS):
 from pydantic import BaseModel, Field
 from langsmith import Client
 
+import gate
 from dataset_casos import CASOS
 from modelo_juez import chat_gpt_luna
 
@@ -391,6 +392,15 @@ def main():
             print(f"  - {url}")
     print(f"\nAbre el proyecto en LangSmith para ver el dashboard completo del experimento "
           f"'{experiment_name}'.")
+
+    # Gate de calidad: un score None es "no aplica a este caso" o "no medido", no un fallo.
+    filas_gate = [
+        (clave, str(r["run_id"])[:8], fb["score"],
+         None if fb["score"] is None else fb["score"] >= gate.UMBRAL_CASO_LANGSMITH)
+        for r in resumen for clave, fb in r["feedback"].items()
+    ]
+    aprobado = gate.evaluar("langsmith", filas_gate, gate.CRITICAS_LANGSMITH, ruta_reportes)
+    sys.exit(0 if aprobado else 1)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,8 @@ from deepeval.metrics import (
 )
 from deepeval.test_case import LLMTestCase, ToolCall
 
+import gate
+
 from dataset_casos import CASOS
 from modelo_juez import JuezGptLuna
 
@@ -230,6 +232,7 @@ def main():
 
     metricas = construir_metricas()
     resultados_por_caso = []
+    filas_gate = []   # (metrica, caso, score, cumple) -> gate de calidad
 
     for idx, caso in enumerate(CASOS, 1):
         print(f"\n[{idx}/{len(CASOS)}] Ejecutando agente para: {caso['input'][:60]}...")
@@ -264,6 +267,7 @@ def main():
                     "reason": f"No medido: {type(error).__name__}",
                 }
                 print(f"    ⚠️  {nombre}: no medido ({type(error).__name__})")
+                filas_gate.append((nombre, caso["input"][:60], None, None))
                 continue
             score = metrica.score if metrica.score <= 1 else metrica.score / 10.0
             resultados_metricas[nombre] = {
@@ -272,6 +276,9 @@ def main():
             }
             emoji = "🟢" if score >= 0.7 else "🟡" if score >= 0.5 else "🔴"
             print(f"    {emoji} {nombre}: {score:.2f}")
+            # is_successful() respeta el sentido de cada metrica (en Toxicidad y Sesgo
+            # un score ALTO es malo), cosa que el promedio de arriba no distingue.
+            filas_gate.append((nombre, caso["input"][:60], score, metrica.is_successful()))
 
         resultados_por_caso.append({
             "input": caso["input"],
@@ -288,6 +295,9 @@ def main():
     print("\n" + "=" * 80)
     print(f"Reporte guardado en: {reporte}")
     print("=" * 80)
+
+    aprobado = gate.evaluar("deepeval", filas_gate, gate.CRITICAS_DEEPEVAL, ruta_reportes)
+    sys.exit(0 if aprobado else 1)
 
 
 if __name__ == "__main__":

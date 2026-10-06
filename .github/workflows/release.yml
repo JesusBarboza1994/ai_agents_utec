@@ -1,0 +1,113 @@
+name: Release
+
+# Merge a main -> release candidato -> evals con gate -> despliegue.
+#
+#   tag      crea vX.Y.Z y un GitHub Release marcado como pre-release
+#   evals    DeepEval + LangSmith sobre el codigo del tag (evals.yml); si no
+#            cumplen el gate (tests/evals/gate.py), el job falla
+#   desplegar solo corre si evals paso (deploy-azure.yml)
+#   cerrar   deja el Release como definitivo, o anota por que no se desplego
+#
+# Todo vive en un solo workflow porque un tag creado con GITHUB_TOKEN no dispara
+# otros workflows. El despliegue manual por tag (rollback) sigue existiendo en
+# deploy-azure.yml y NO pasa por los evals, a proposito: un rollback tiene que ser rapido.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Clemente_Multiagente/**"
+  workflow_dispatch:
+
+concurrency:
+  group: release-clemente
+  cancel-in-progress: false   # un release a la vez; el siguiente espera
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Crear release candidato
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # crear el tag y el release
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout (historial completo, para ver todos los tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calcular el tag y crear el release como pre-release
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --tags --force
+          ULTIMO=$(git tag --list 'v*.*.*' | sort -V | tail -n1)
+          if [ -z "$ULTIMO" ]; then
+            NUEVO="v0.1.0"
+          else
+            IFS='.' read -r MAYOR MENOR PARCHE <<< "${ULTIMO#v}"
+            NUEVO="v${MAYOR}.${MENOR}.$((PARCHE + 1))"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NUEVO" -m "Release $NUEVO (commit ${{ github.sha }})"
+          git push origin "$NUEVO"
+
+          gh release create "$NUEVO" --verify-tag --prerelease --generate-notes \
+            --title "$NUEVO · candidato (evaluando)"
+
+          echo "tag=$NUEVO" >> "$GITHUB_OUTPUT"
+          echo "### Release candidato: \`$NUEVO\`" >> "$GITHUB_STEP_SUMMARY"
+
+  evals:
+    name: Evaluar el candidato (gate)
+    needs: tag
+    permissions:
+      contents: read
+    uses: ./.github/workflows/evals.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+
+  desplegar:
+    name: Desplegar a Azure
+    needs: [tag, evals]
+    permissions:
+      id-token: write   # login OIDC en Azure
+      contents: read
+    uses: ./.github/workflows/deploy-azure.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+
+  cerrar:
+    name: Cerrar el release
+    needs: [tag, evals, desplegar]
+    if: ${{ always() && needs.tag.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Marcar el release segun el resultado
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          EVALS: ${{ needs.evals.result }}
+          DEPLOY: ${{ needs.desplegar.result }}
+        run: |
+          if [ "$DEPLOY" = "success" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest --title "$TAG"
+            echo "### $TAG desplegado" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$EVALS" != "success" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG · NO desplegado: evals bajo el umbral"
+            echo "### $TAG no se desplegó: los evals no cumplieron el gate" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG · fallo el despliegue"
+            echo "### $TAG pasó los evals pero falló el despliegue" >> "$GITHUB_STEP_SUMMARY"
+          fi
