@@ -16,6 +16,7 @@ bp = Blueprint("communication", __name__)
 
 bp.add_url_rule("/", view_func=chat_controller.chat_demo, methods=["GET"])
 bp.add_url_rule("/api/chat", view_func=chat_controller.chat, methods=["POST"])
+bp.add_url_rule("/api/chat/imagen", view_func=chat_controller.chat_imagen, methods=["POST"])
 bp.add_url_rule("/api/webhook/whatsapp", view_func=whatsapp_controller.handle_webhook, methods=["POST"])
 bp.add_url_rule("/api/sesiones/<sesion_id>/reset", view_func=chat_controller.reset, methods=["POST"])
 

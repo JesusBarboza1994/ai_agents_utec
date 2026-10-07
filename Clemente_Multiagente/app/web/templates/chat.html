@@ -163,6 +163,10 @@
 
     <form id="formulario">
       <input id="entrada" placeholder="Escribe como lo haría un cliente…" autocomplete="off" autofocus>
+      {% if mostrar_pruebas %}
+      <input id="imagen" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <button type="button" id="adjuntar" title="Adjuntar foto (solo pruebas locales)">Foto</button>
+      {% endif %}
       <button type="submit" id="enviar">Enviar</button>
     </form>
   </div>
@@ -266,11 +270,17 @@ async function enviar(texto, opciones = {}) {
   boton.disabled = true;
   let datos = null;
   try {
-    const r = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({mensaje: texto, sesion_id: sesionId, canal: 'webchat'})
-    });
+    // Con `opciones.imagen` se manda la foto a la ruta de pruebas; sin ella, el chat de texto de siempre.
+    const r = opciones.imagen
+      ? await fetch('/api/chat/imagen', {
+          method: 'POST',
+          body: (() => { const f = new FormData(); f.append('imagen', opciones.imagen); f.append('mensaje', texto); f.append('sesion_id', sesionId); return f; })()
+        })
+      : await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({mensaje: texto, sesion_id: sesionId, canal: 'webchat'})
+        });
     const d = await r.json();
     if (d.sesion_id) sesionId = d.sesion_id;
     pensando.remove();
@@ -309,6 +319,21 @@ formulario.addEventListener('submit', e => {
   entrada.value = '';
   enviar(texto);
 });
+
+// Pruebas locales: el boton "Foto" abre el selector y envia la imagen con el texto que haya escrito.
+const adjuntar = document.getElementById('adjuntar');
+const imagen = document.getElementById('imagen');
+if (adjuntar && imagen) {
+  adjuntar.addEventListener('click', () => imagen.click());
+  imagen.addEventListener('change', () => {
+    const archivo = imagen.files[0];
+    if (!archivo) return;
+    const texto = entrada.value.trim();
+    entrada.value = '';
+    enviar(texto, {mostrar: (texto ? texto + ' ' : '') + '[foto: ' + archivo.name + ']', imagen: archivo});
+    imagen.value = '';
+  });
+}
 
 document.querySelectorAll('.ejemplo').forEach(b =>
   b.addEventListener('click', () => enviar(b.textContent)));
