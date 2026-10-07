@@ -20,7 +20,7 @@ from . import con_traza, limpiar_texto
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
 from ...reservas.servicio_json import ARCHIVO_MESAS
-from ...reservas.validaciones import TELEFONO_RE, ReservaInvalida, validar_cambio_turno
+from ...reservas.validaciones import TELEFONO_RE, ReservaInvalida, validar_cambio_turno, validar_nombre
 from .. import autorizacion
 from .. import fecha as reloj
 from ..contexto import ContextoConversacion, telefono_de
@@ -124,6 +124,22 @@ def consultar_disponibilidad(
     return f"Disponible el {fecha} a las {hora} para {personas} personas en: {detalle}."
 
 
+def _reserva_repetida(sesion_id: str, telefono: str, fecha: str, hora: str, personas: int) -> str | None:
+    """Si esta misma conversacion ya tiene una reserva activa con ese telefono, dia, hora y personas,
+    devuelve el aviso para anteponerlo al resumen.
+
+    Solo avisa a su dueno: de otra conversacion no muestra nada aqui, y al confirmar le sigue diciendo que
+    no se puede (autorizacion.confirmar). El resumen y el CONFIRMO se generan igual; no se crea otra reserva."""
+    for reserva in servicio_reservas().buscar_reservas_de(telefono):
+        if reserva.estado == "cancelada" or (reserva.fecha, reserva.hora, reserva.personas) != (fecha, hora, personas):
+            continue
+        if autorizacion.es_propietario(sesion_id, reserva.id):
+            return (f"Ya tienes una reserva con estos datos: {reserva.id}, {reserva.nombre}, {reserva.fecha} a las "
+                    f"{reserva.hora} (hora de Lima), {reserva.personas} personas, zona {reserva.zona}. "
+                    "Si confirmas el resumen de abajo, no se creará otra.")
+    return None
+
+
 @tool
 @con_traza
 def crear_reserva(
@@ -152,6 +168,10 @@ def crear_reserva(
         return rechazo
     if personas > LIMITE_GRUPO_AUTONOMO:
         return MENSAJE_GRUPO_GRANDE.format(personas=personas)
+    try:
+        validar_nombre(nombre)
+    except ReservaInvalida as error:
+        return str(error)
     telefono = _normalizar_telefono(telefono)
     if not any(c.isdigit() for c in telefono):
         # El modelo no trajo un numero (lo pierde entre turnos: el historial lo guarda tapado).
@@ -159,11 +179,13 @@ def crear_reserva(
         if not telefono:
             return ("Falta el telefono de contacto. Pidele al cliente un numero para la reserva y "
                     "prepara la reserva cuando lo tengas; no la prepares con un dato inventado.")
-    return autorizacion.proponer(runtime.context, "crear", {
+    aviso = _reserva_repetida(runtime.context.sesion_id, telefono, fecha, hora, personas)
+    resumen = autorizacion.proponer(runtime.context, "crear", {
         "nombre": limpiar_texto(nombre, 80), "telefono": telefono,
         "fecha": fecha, "hora": hora, "personas": personas,
         "zona": limpiar_texto(zona, 20), "notas": limpiar_texto(notas, 300),
     }, servicio_reservas())
+    return f"{aviso} {resumen}" if aviso else resumen
 
 
 @tool
@@ -299,6 +321,10 @@ def solicitar_excepcion_grupo(
     rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
     if rechazo:
         return rechazo
+    try:
+        validar_nombre(nombre)
+    except ReservaInvalida as error:
+        return str(error)
     nombre, telefono = limpiar_texto(nombre, 80), limpiar_texto(telefono, 20)
     zona, notas = limpiar_texto(zona, 20), limpiar_texto(notas, 300)
 
