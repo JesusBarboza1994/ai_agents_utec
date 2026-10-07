@@ -48,9 +48,17 @@ INYECCION = re.compile(
     # cabeceras falsas de instrucciones
     r"|###\s*system|\bnuevas?\s+instrucci(?:[oó]n|ones)\s*:|\bsystem\s*:\s*\w"
     # pedir credenciales
-    r"|\bapi[\s_-]?key\b|\bclave\s+(?:de\s+la\s+)?api\b|\btoken\s+de\s+(?:trello|openai|twilio)\b",
+    r"|\bapi[\s_-]?key\b|\bclave\s+(?:de\s+la\s+)?api\b|\btoken\s+de\s+(?:trello|openai|twilio)\b"
+    # parafrasis cortas de "olvida lo que te dijeron" y "actua sin limites" (el detector de jailbreak no las marca)
+    # Solo cuando lo que sigue es una orden ("...y actua sin limites"): "olvida lo que te dije, mejor a las 9" es legitimo.
+    r"|\bolvid\w*\s+(?:de\s+)?(?:lo\s+que|todo\s+lo\s+que|lo\s+anterior)\s+(?:te|les)\s+(?:dijeron|dije|dijiste|indicaron|pidieron)\b[^.?!]{0,40}\b(?:y\s+)?(?:act[uú]a|resp[oó]nde|contesta|ignora|haz)\b"
+    r"|\b(?:act[uú]a|comp[oó]rtate|habla|resp[oó]nde|funciona)\s+(?:sin|como\s+si\s+no\s+tuvieras)\s+(?:l[ií]mites|reglas|restricciones|filtros|censura)\b",
     re.I,
 )
+
+# Etiquetas HTML o de script en el texto del cliente: no son parte de un reclamo ni de una reserva,
+# y lo que se guarda en la base se muestra despues al staff. Se rechazan en la entrada.
+MARCADO_HTML = re.compile(r"<\s*/?\s*[a-zA-Z][^<>]{0,200}>")
 
 
 # SOLO para la salida: lo que Clemente responde nunca lleva un insulto. En la entrada no se bloquea:
@@ -73,4 +81,6 @@ def motivo_de_bloqueo(texto: str) -> tuple[str, str] | None:
         return "ToxicidadES", "Amenaza, acoso grave o discriminación detectada"
     if INYECCION.search(texto):
         return "InyeccionES", "Instrucción para saltarse las reglas o pedir datos internos"
+    if MARCADO_HTML.search(texto):
+        return "HTMLEnTexto", "Texto con etiquetas HTML o de código"
     return None
