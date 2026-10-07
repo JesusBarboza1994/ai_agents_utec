@@ -287,6 +287,9 @@ def ejecutar(
     if _hilo_en_pausa(agente, config):
         registrar("hitl_en_espera", sesion_id, agente=flujo,
                   detalle={"motivo": "mensaje nuevo mientras la revision humana esta pendiente"})
+        # Solo marca la pantalla (etiqueta "Revision humana pendiente"). No es "revision_humana":
+        # esa clave vuelve a registrar la revision en la cola del staff y con esta respuesta no hay solicitud.
+        contexto.datos["hilo_en_revision"] = True
         return AVISO_REVISION_PENDIENTE
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 

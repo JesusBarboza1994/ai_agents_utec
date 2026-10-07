@@ -24,7 +24,7 @@ def _estado_ui(respuesta: RespuestaClemente) -> dict:
     if respuesta.agente == "seguridad":
         return {"tipo": "seguridad", "etiqueta": "Protección activada"}
     revision = respuesta.datos.get("revision_humana", {})
-    if revision.get("estado") == "pendiente":
+    if revision.get("estado") == "pendiente" or respuesta.datos.get("hilo_en_revision"):
         return {"tipo": "revision_pendiente", "etiqueta": "Revisión humana pendiente"}
     if respuesta.datos.get("guardrail_autorizacion"):
         return {"tipo": "acceso_protegido", "etiqueta": "Acceso protegido"}
