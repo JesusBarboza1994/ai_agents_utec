@@ -12,7 +12,8 @@ PATRONES_REDACTAR = {
     "dni": re.compile(r"(?<!\d)\d{8}(?!\d)"),
     "ip": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
     "mac": re.compile(r"\b(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}\b", re.I),
-    "telefono": re.compile(r"(?<!\d)(?:\+?51[ -]?)?9\d{8}(?!\d)"),
+    # Acepta el numero junto o con espacios/guiones ("963 351 432", "963-351-432"), como lo escriben los clientes.
+    "telefono": re.compile(r"(?<!\d)(?:\+?51[ -]?)?9(?:[ -]?\d){8}(?!\d)"),
 }
 
 
