@@ -61,8 +61,8 @@ def test_rechaza_historial_en_vez_de_ignorar_turnos():
 def test_fallo_de_deepteam_conserva_casos_parciales(tmp_path, monkeypatch):
     """Verifica que fallo de deepteam conserva casos parciales."""
     import deepteam.red_teamer
-    import tests.eval.juez
-    monkeypatch.setattr(tests.eval.juez, "construir_juez", lambda modelo: object())
+    import tests.evals.juez
+    monkeypatch.setattr(tests.evals.juez, "construir_juez", lambda modelo: object())
     class Motor:
         """Doble DeepTeam que conserva un ataque parcial y falla como si se agotara el saldo."""
         risk_assessment = None
