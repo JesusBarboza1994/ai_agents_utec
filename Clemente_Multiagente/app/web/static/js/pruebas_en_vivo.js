@@ -285,6 +285,9 @@
     const ctx = {plan: planDeReserva()};
     const chequeos = [];
     try {
+      // Cada prueba empieza con la conversacion limpia: si no, un resumen o una confirmacion que
+      // quedo de antes en esta misma sesion se pisa con el de la prueba y el codigo ya no sirve.
+      await window.chatDemo.reiniciar();
       for (const paso of prueba.pasos) {
         const datos = await window.chatDemo.enviar(paso.texto(ctx), {mostrar: paso.mostrar && paso.mostrar(ctx)});
         if (!datos) { chequeos.push(chequeo(false, '', 'No se pudo contactar al servidor')); break; }
