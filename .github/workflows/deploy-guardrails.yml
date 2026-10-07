@@ -1,0 +1,64 @@
+name: Deploy Guardrails
+
+# Construye la imagen del servicio de Guardrails AI y la sube a ACR. Solo se lanza a mano:
+# Actions -> Deploy Guardrails -> Run workflow. No se dispara con PR ni con merges.
+#
+# La primera vez, la Container App se crea a mano en el portal (ver docs/guia_azure/GUIA_GUARDRAILS_AZURE.md).
+# Despues, si la variable de repositorio AZURE_GUARDRAILS_APP_NAME esta definida, este workflow tambien
+# actualiza la app a la imagen nueva.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Rama o tag del repo a construir"
+        required: true
+        default: "main"
+      tag:
+        description: "Etiqueta de la imagen guardrails (ej. g0.1.0)"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-guardrails
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build y despliegue de Guardrails
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Login en Azure (OIDC, sin secreto de cliente)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Construir la imagen y subirla a ACR
+        working-directory: Clemente_Multiagente/guardrails_service
+        run: |
+          az acr login --name ${{ vars.AZURE_ACR_NAME }}
+          docker build \
+            -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/guardrails:${{ github.event.inputs.tag }} \
+            -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/guardrails:latest \
+            .
+          docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/guardrails:${{ github.event.inputs.tag }}
+          docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/guardrails:latest
+
+      - name: Actualizar la Container App de Guardrails (si ya existe)
+        if: ${{ vars.AZURE_GUARDRAILS_APP_NAME != '' }}
+        run: |
+          az containerapp update \
+            --name ${{ vars.AZURE_GUARDRAILS_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/guardrails:${{ github.event.inputs.tag }}
