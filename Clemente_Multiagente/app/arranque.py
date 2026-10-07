@@ -43,6 +43,10 @@ def problemas_de_produccion(config) -> list[str]:
             "se guardarian dentro del contenedor y se perderian al reiniciar.")
     if not (config.guardrails_url and config.guardrails_token):
         problemas.append("Faltan CLEMENTE_GUARDRAILS_URL y CLEMENTE_GUARDRAILS_TOKEN: los mensajes no pasarian por Guardrails AI.")
+    if not config.hitl_token:
+        problemas.append(
+            "Falta CLEMENTE_HITL_TOKEN: sin la clave del personal nadie podria aprobar ni rechazar los grupos grandes "
+            "que quedan pendientes de revision.")
     if backend_activo() == "json":
         problemas.append(
             "Los reclamos quedarian solo en un archivo del contenedor: faltan TRELLO_API_KEY y TRELLO_TOKEN "

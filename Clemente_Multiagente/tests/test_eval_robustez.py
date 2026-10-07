@@ -8,7 +8,7 @@ import pytest
 def preparar(monkeypatch, error):
     """Sustituye el asistente y la metrica para simular un error del juez en la evaluacion."""
     import app.orquestador
-    from tests.eval import deepeval_evaluar as evaluador
+    from tests.evals import deepeval_evaluar as evaluador
     monkeypatch.setattr(app.orquestador, "responder", lambda *a, **k: SimpleNamespace(
         texto="Respuesta ficticia", agente="reservas", escalado=False))
     monkeypatch.setattr(evaluador, "_caso_de_prueba", lambda *a: object())

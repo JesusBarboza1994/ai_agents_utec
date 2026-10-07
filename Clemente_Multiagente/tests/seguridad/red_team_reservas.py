@@ -200,7 +200,7 @@ def ejecutar(callback, vulnerabilidades, ataques, destino: Path | None = None,
 
     from deepteam.red_teamer import RedTeamer
 
-    from tests.eval.juez import construir_juez
+    from tests.evals.juez import construir_juez
 
     modelo_juez = os.getenv("JUEZ_MODEL") or JUEZ_POR_DEFECTO
     juez = construir_juez(modelo_juez)
@@ -248,7 +248,7 @@ def escribir_informe(evaluacion, objetivo: str, destino: Path) -> None:
 
     from app.llm import modelo_activo
 
-    # OJO: no se usa `tests.eval.juez.nombre_del_juez()` a proposito. Esa
+    # OJO: no se usa `tests.evals.juez.nombre_del_juez()` a proposito. Esa
     # funcion, sin `JUEZ_MODEL` en el entorno, cae en el default de `juez.py`
     # (`claude-opus-5`) -- pero el juez REAL de esta corrida es el de
     # `JUEZ_POR_DEFECTO` de este mismo archivo (`claude-sonnet-5`), que gana

@@ -178,7 +178,7 @@ def test_el_juez_es_el_modelo_que_dice_ser(monkeypatch):
     estuvo pasando hasta el 2026-09-08.
     """
     pytest.importorskip("deepeval")
-    from tests.eval.juez import construir_juez, nombre_del_juez
+    from tests.evals.juez import construir_juez, nombre_del_juez
 
     monkeypatch.setenv("AGENT_MODEL", "openai")       # el evaluado corre en OpenAI
     monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-terra")

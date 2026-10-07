@@ -7,12 +7,15 @@ the integration point `tests/test_seguridad_reservas.py` and the demo UI
 exercise -- removing it would also remove that coverage.
 """
 
+import os
+import tempfile
 import uuid
 
-from flask import jsonify, render_template, request, session
+from flask import current_app, jsonify, render_template, request, session
 
+from ...arranque import en_produccion
 from ...contratos import MensajeEntrante, RespuestaClemente
-from ..services import chat_service
+from ..services import chat_service, media_service
 
 
 def _estado_ui(respuesta: RespuestaClemente) -> dict:
@@ -23,7 +26,7 @@ def _estado_ui(respuesta: RespuestaClemente) -> dict:
     if respuesta.agente == "seguridad":
         return {"tipo": "seguridad", "etiqueta": "Protección activada"}
     revision = respuesta.datos.get("revision_humana", {})
-    if revision.get("estado") == "pendiente":
+    if revision.get("estado") == "pendiente" or respuesta.datos.get("hilo_en_revision"):
         return {"tipo": "revision_pendiente", "etiqueta": "Revisión humana pendiente"}
     if respuesta.datos.get("guardrail_autorizacion"):
         return {"tipo": "acceso_protegido", "etiqueta": "Acceso protegido"}
@@ -40,9 +43,15 @@ def browser_session_id() -> str:
 
 
 def chat_demo():
-    """Inicializa la identidad firmada del navegador y renderiza el chat con panel HITL."""
+    """Inicializa la identidad firmada del navegador y renderiza el chat con panel HITL.
+
+    Las pruebas en vivo son para quien desarrolla: con CLEMENTE_ENTORNO=produccion la pagina no las
+    ofrece (el panel del personal si, porque es como se resuelven los grupos grandes)."""
     browser_session_id()
-    return render_template("chat.html")
+    return render_template(
+        "chat.html", mostrar_pruebas=not en_produccion(),
+        hitl_configurado=bool(current_app.config["CLEMENTE"].hitl_token),
+    )
 
 
 def chat():
@@ -64,7 +73,11 @@ def chat():
         telefono=data.get("telefono"),
     )
     respuesta = chat_service.handle_incoming_message(entrante)
+    return _respuesta_json(respuesta)
 
+
+def _respuesta_json(respuesta: RespuestaClemente):
+    """Forma de respuesta compartida por el chat de texto y el de imagen."""
     return jsonify(
         respuesta=respuesta.texto,
         agente=respuesta.agente,
@@ -73,6 +86,40 @@ def chat():
         escalado=respuesta.escalado,
         estado_ui=_estado_ui(respuesta),
     )
+
+
+def chat_imagen():
+    """Solo para pruebas locales: sube una foto a Cloudinary y la manda al mismo flujo del chat.
+
+    Permite probar la subida de imagenes sin WhatsApp (sin Twilio). En produccion no existe."""
+    if en_produccion():
+        return jsonify(error="No disponible"), 404
+    archivo = request.files.get("imagen")
+    if archivo is None or archivo.mimetype not in media_service.IMAGE_CONTENT_TYPES:
+        return jsonify(error="Envía una imagen JPG, PNG o WebP."), 400
+    session_id = browser_session_id()
+    if request.form.get("sesion_id") and request.form["sesion_id"] != session_id:
+        return jsonify(error="La sesión no pertenece a este navegador."), 403
+
+    config = current_app.config["CLEMENTE"]
+    with tempfile.TemporaryDirectory(prefix="clemente-webchat-") as carpeta:
+        ruta = os.path.join(carpeta, "foto")
+        archivo.save(ruta)
+        try:
+            url = media_service.upload_to_cloudinary(
+                ruta, config.cloudinary_cloud_name, config.cloudinary_api_key,
+                config.cloudinary_api_secret, config.cloudinary_folder,
+            )
+        except media_service.MediaError as error:
+            return jsonify(error=f"No se pudo subir la foto a Cloudinary: {error}"), 502
+
+    respuesta = chat_service.handle_incoming_message(MensajeEntrante(
+        sesion_id=session_id,
+        texto=(request.form.get("mensaje") or "").strip(),
+        canal="webchat",
+        imagenes=[url],
+    ))
+    return _respuesta_json(respuesta)
 
 
 def reset(sesion_id: str):

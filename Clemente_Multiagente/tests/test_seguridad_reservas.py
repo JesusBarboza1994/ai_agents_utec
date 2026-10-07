@@ -405,7 +405,7 @@ def test_fallo_al_crear_ticket_no_finge_escalamiento(entorno, monkeypatch):
 def test_el_juez_recibe_el_codigo_creado_por_el_cierre(entorno):
     """Verifica que el juez recibe el codigo creado por el cierre."""
     pytest.importorskip("deepeval")
-    from tests.eval.deepeval_evaluar import _tools_del_turno
+    from tests.evals.deepeval_evaluar import _tools_del_turno
     ctx = runtime().context
     ctx.escalado = True
     ctx.datos["escalamiento"] = {"motivo": "test"}
