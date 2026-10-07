@@ -16,6 +16,7 @@ from . import con_traza, limpiar_texto
 from ...incidencias import abiertas_de, obtener_servicio as servicio_incidencias
 from ...reservas import obtener_servicio as servicio_reservas
 from .. import autorizacion
+from ..rag.casos import buscar_casos
 
 # Tope de casos abiertos por conversacion en una hora: un reclamo real no necesita mas.
 MAX_CASOS_POR_HORA = 3
@@ -111,3 +112,26 @@ def verificar_reserva_del_reclamo(telefono_o_codigo: str, runtime: ToolRuntime) 
         return autorizacion.DENEGADO
 
     return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.estado}" for r in reservas)
+
+
+@tool
+@con_traza
+def buscar_casos_similares(descripcion: str, runtime: ToolRuntime, tipo: str = "") -> str:
+    """Busca reclamos ya resueltos parecidos al del cliente, con la solucion que se aplico.
+
+    Sirve para orientar una respuesta rapida y concreta. Los casos son referencia
+    interna: no los cites ni cuentes datos de otros clientes. La seccion de
+    compensacion es solo para el personal; no se ofrece al cliente.
+
+    Args:
+        descripcion: el reclamo, en pocas palabras (que paso y en que circunstancia).
+        tipo: opcional, "espera", "servicio", "producto", "reserva" u "otro", para acotar
+            los casos. Si dudas, dejalo vacio.
+    """
+    try:
+        casos = buscar_casos(descripcion, k=2, tipo=tipo)
+    except Exception as error:   # indice caido: el reclamo se registra igual
+        return f"No se pudo consultar el historial de casos ({type(error).__name__}). Registra el reclamo igual."
+    if not casos:
+        return "No hay casos parecidos en el historial. Registra el reclamo y deja que el personal lo resuelva."
+    return "\n\n---\n\n".join(f"[{c.fuente}]\n{c.texto}" for c in casos)
