@@ -110,6 +110,40 @@ def validar_cambio_turno(*, fecha: str, hora: str, personas: int) -> None:
     _validar_turno(fecha, hora, personas)
 
 
+def validar_nombre(nombre: str) -> str:
+    """Devuelve el nombre saneado o lanza ReservaInvalida con el mensaje que ve el cliente.
+
+    Se usa tambien antes de preparar el resumen: si el nombre trae codigo o simbolos raros,
+    el agente lo rechaza ahi y no sigue pidiendo fecha y hora."""
+    nombre = _sanear_texto(nombre or "", maximo=NOMBRE_MAX, campo="El nombre")
+    if not nombre:
+        raise ReservaInvalida("El nombre no puede estar vacio.")
+    if not NOMBRE_RE.match(nombre):
+        raise ReservaInvalida("El nombre solo puede llevar letras, espacios, apostrofos, puntos y guiones.")
+    return nombre
+
+
+# Nombre que el cliente declara en texto libre ("a nombre de X", "mi nombre es X"). Corta en coma,
+# punto y coma, salto de linea o digito, para no tragarse el telefono o la fecha que vienen detras.
+NOMBRE_EN_TEXTO_RE = re.compile(r"(?:a nombre de|mi nombre es|nombre:)\s*([^,;\n\d]+)", re.IGNORECASE)
+
+
+def mensaje_nombre_invalido(texto: str) -> str | None:
+    """Si el texto declara un nombre y ese nombre no es valido, devuelve el mensaje para el cliente.
+
+    Se revisa al llegar el mensaje, antes del agente: el agente no llama a crear_reserva hasta
+    tener fecha, hora y personas, y mientras tanto el nombre se quedaria sin revisar."""
+    for coincidencia in NOMBRE_EN_TEXTO_RE.finditer(texto or ""):
+        candidato = coincidencia.group(1).strip()
+        if not candidato:
+            continue
+        try:
+            validar_nombre(candidato)
+        except ReservaInvalida as error:
+            return str(error)
+    return None
+
+
 def validar_datos_reserva(
     *, nombre: str, telefono: str, fecha: str, hora: str, personas: int,
     zona: str = "", notas: str = "",
@@ -128,11 +162,7 @@ def validar_datos_reserva(
             "El telefono debe tener entre 7 y 15 digitos, opcionalmente con '+' inicial."
         )
 
-    nombre = _sanear_texto(nombre or "", maximo=NOMBRE_MAX, campo="El nombre")
-    if not nombre:
-        raise ReservaInvalida("El nombre no puede estar vacio.")
-    if not NOMBRE_RE.match(nombre):
-        raise ReservaInvalida("El nombre solo puede llevar letras, espacios, apostrofos, puntos y guiones.")
+    nombre = validar_nombre(nombre)
 
     notas = _sanear_texto(notas or "", maximo=NOTAS_MAX, campo="Las notas")
 

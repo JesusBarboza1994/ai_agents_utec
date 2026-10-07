@@ -26,6 +26,7 @@ from ...db.repositories import chats_repository, customers_repository, messages_
 from ...observabilidad.trazas import registrar
 from ...orquestador import responder as responder_orquestador
 from ...orquestador.grafo import olvidar_sesion
+from ...reservas.validaciones import mensaje_nombre_invalido
 from ...seguridad.pii import pii_prohibida, redactar_pii
 from .sesiones import MAXIMO_TURNOS, obtener_sesion, limpiar_sesion
 
@@ -196,6 +197,14 @@ def handle_incoming_message(
             texto="No envíes tarjetas, contraseñas, tokens ni claves por este canal.",
             agente="seguridad", sesion_id=entrante.sesion_id,
             motivo_ruta="PII o secreto bloqueado", datos={"guardrail": "PII"},
+        )
+    elif (texto_nombre := mensaje_nombre_invalido(entrante.texto)):
+        # El nombre se revisa aqui y no en la herramienta: el agente solo llama a crear_reserva
+        # cuando ya tiene fecha, hora y personas, y mientras tanto no lo validaria.
+        validacion = None
+        respuesta = RespuestaClemente(
+            texto=texto_nombre, agente="reservas", sesion_id=entrante.sesion_id,
+            motivo_ruta="nombre con caracteres no permitidos", datos={"guardrail": "nombre"},
         )
     elif not entrante.texto and entrante.imagenes:
         # Solo imagen: no hay texto que validar, y el servicio de Guardrails
