@@ -58,6 +58,17 @@ class ServicioReservasPostgres:
             fila = cur.fetchone()
         return self._construir(fila) if fila else None
 
+    def listar_reservas(self) -> list[Reserva]:
+        """Devuelve todas las reservas, incluidas las canceladas, sin filtrar por propietario."""
+        with connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
+                "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "
+                "JOIN mesas m ON m.id = r.mesa_id ORDER BY r.fecha, r.hora"
+            )
+            filas = cur.fetchall()
+        return [self._construir(f) for f in filas]
+
     def buscar_reservas_de(self, telefono: str) -> list[Reserva]:
         """Consulta reservas del telefono indicado; la capa de herramientas limita el acceso a la sesion propietaria."""
         with connection() as conn, conn.cursor() as cur:

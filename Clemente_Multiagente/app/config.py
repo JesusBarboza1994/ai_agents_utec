@@ -47,6 +47,9 @@ class Config:
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
     cloudinary_folder: str = "clemente/whatsapp"
+    # Audios de WhatsApp: se transcriben con ElevenLabs (Scribe) y el agente recibe el texto.
+    elevenlabs_api_key: str = ""
+    elevenlabs_stt_model: str = "scribe_v1"
     database_url: str = ""
     chat_session_days: int = 7
     hitl_token: str = ""
@@ -112,6 +115,8 @@ class Config:
             cloudinary_cloud_name=cloud_name,
             cloudinary_api_key=cloud_key,
             cloudinary_api_secret=cloud_secret,
+            elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", ""),
+            elevenlabs_stt_model=os.getenv("ELEVENLABS_STT_MODEL", "scribe_v1"),
             database_url=os.getenv("CLEMENTE_DATABASE_URL", ""),
             chat_session_days=int(os.getenv("CLEMENTE_CHAT_SESSION_DAYS", "7")),
             hitl_token=os.getenv("CLEMENTE_HITL_TOKEN", ""),

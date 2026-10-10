@@ -86,13 +86,23 @@ def test_parse_inbound_una_imagen_sin_texto_es_contenido_utilizable():
     assert message.unsupported_reason is None
 
 
-def test_parse_inbound_audio_solo_sigue_sin_soporte():
-    """Audio sin texto sigue sin manejarse, como antes."""
+def test_parse_inbound_video_solo_sigue_sin_soporte():
+    """Video sin texto sigue sin manejarse."""
     message = parse_inbound({
         "From": "whatsapp:+51999111222", "NumMedia": "1",
-        "MediaUrl0": URL_TWILIO, "MediaContentType0": "audio/ogg",
+        "MediaUrl0": URL_TWILIO, "MediaContentType0": "video/mp4",
     })
-    assert message.unsupported_reason == "media sin manejar (audio/ogg)"
+    assert message.unsupported_reason == "media sin manejar (video/mp4)"
+
+
+def test_parse_inbound_audio_solo_es_contenido_utilizable():
+    """Una nota de voz sin texto ya no es 'sin soporte'; el MIME con codecs tambien cuenta."""
+    message = parse_inbound({
+        "From": "whatsapp:+51999111222", "NumMedia": "1",
+        "MediaUrl0": URL_TWILIO, "MediaContentType0": "audio/ogg; codecs=opus",
+    })
+    assert message.unsupported_reason is None
+    assert message.media[0].es_audio
 
 
 # --- descarga de Twilio ----------------------------------------------------
@@ -476,3 +486,164 @@ def test_las_reglas_de_imagen_estan_en_los_prompts():
     for prompt in (PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS):
         assert "nunca digas que no puedes ver o evaluar fotos" in prompt
     assert "esta regla le gana a la\nde continuidad" in PROMPT_PLANIFICADOR
+
+
+# --- audios: Twilio -> Cloudinary + ElevenLabs -> agente como texto -------------
+
+AUDIO = MediaAdjunto(url=URL_TWILIO, content_type="audio/ogg")
+URL_AUDIO = "https://res.cloudinary.com/demo/video/upload/v1/clemente/whatsapp/nota.ogg"
+
+
+def _patch_audio(monkeypatch, transcripcion="quiero reservar para dos"):
+    """Descarga, ElevenLabs y Cloudinary falsos; devuelve las URLs de subida usadas."""
+    usadas = []
+    monkeypatch.setattr(media_service.requests, "get", lambda *a, **k: _Descarga(b"OggS"))
+
+    def falso_post(url, **_kwargs):
+        usadas.append(url)
+        return _Subida(secure_url=URL_AUDIO)
+
+    monkeypatch.setattr(media_service.requests, "post", falso_post)
+
+    def transcribir(ruta, api_key, modelo):
+        if isinstance(transcripcion, Exception):
+            raise transcripcion
+        return transcripcion
+
+    monkeypatch.setattr(media_service.transcription_service, "transcribir", transcribir)
+    return usadas
+
+
+def test_el_audio_se_sube_como_video_y_se_transcribe(monkeypatch):
+    """Cloudinary guarda el audio bajo el tipo `video`; la transcripcion sale del mismo temporal."""
+    usadas = _patch_audio(monkeypatch)
+    resultado = media_service.procesar_audios([AUDIO], _config(elevenlabs_api_key="k"), "whatsapp-a1")
+
+    assert resultado == [media_service.AudioProcesado(url=URL_AUDIO, transcripcion="quiero reservar para dos")]
+    assert usadas == ["https://api.cloudinary.com/v1_1/demo/video/upload"]
+
+
+def test_audio_sin_transcripcion_se_conserva_y_se_traza(monkeypatch):
+    """Si ElevenLabs falla, el audio se sube igual para que el personal pueda oirlo."""
+    from app.communication.services.transcription_service import TranscriptionError
+    _patch_audio(monkeypatch, transcripcion=TranscriptionError("sin voz"))
+    resultado = media_service.procesar_audios([AUDIO], _config(), "whatsapp-a2")
+
+    assert resultado == [media_service.AudioProcesado(url=URL_AUDIO, transcripcion=None)]
+    assert any(t.evento == "error" for t in ultimas_trazas(10, "whatsapp-a2"))
+
+
+def test_audio_que_no_se_pudo_descargar_se_omite(monkeypatch):
+    """Sin descarga no hay archivo que transcribir ni subir."""
+    _patch_audio(monkeypatch)
+    monkeypatch.setattr(media_service.requests, "get", lambda *a, **k: _Descarga(status_code=500))
+    assert media_service.procesar_audios([AUDIO], _config(), "whatsapp-a3") == []
+
+
+def test_el_agente_recibe_la_transcripcion_como_texto(monkeypatch):
+    """Texto escrito + audio llegan al orquestador como un solo texto, sin marca de audio."""
+    recibidos = []
+    _patch_flujo(monkeypatch, recibidos)
+    monkeypatch.setattr(
+        media_service, "procesar_audios",
+        lambda *a: [media_service.AudioProcesado(URL_AUDIO, "para dos personas")],
+    )
+
+    with create_app(_config()).app_context():
+        reply = whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="51999111222", text="hola", media=[AUDIO]))
+
+    assert reply == "ok"
+    assert recibidos[0].texto == "hola\npara dos personas"
+    assert recibidos[0].imagenes == []
+
+
+def test_el_audio_se_guarda_como_audio_url_con_su_transcripcion(monkeypatch):
+    """Una fila `audio_url` con la transcripcion y NO una fila de texto duplicada."""
+    guardados, recibidos = [], []
+    _patch_persistencia(monkeypatch, guardados, recibidos)
+    monkeypatch.setattr(
+        f"app.communication.services.chat_service.messages_repository.append_message",
+        lambda chat_id, rol, contenido, **k: guardados.append(
+            (rol, k["message_type"], contenido, k.get("transcription"))),
+    )
+    monkeypatch.setattr(
+        media_service, "procesar_audios",
+        lambda *a: [media_service.AudioProcesado(URL_AUDIO, "para dos personas")],
+    )
+
+    with create_app(_config()).app_context():
+        whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="51999111222", text="", media=[AUDIO]))
+
+    assert guardados[0] == ("user", "audio_url", URL_AUDIO, "para dos personas")
+    assert [g for g in guardados if g[1] == "text" and g[0] == "user"] == []
+
+
+def test_audio_ilegible_sin_texto_responde_un_aviso(monkeypatch):
+    """Sin transcripcion ni texto no se llama al agente: el cliente recibe un aviso."""
+    recibidos = []
+    _patch_flujo(monkeypatch, recibidos)
+    monkeypatch.setattr(
+        media_service, "procesar_audios",
+        lambda *a: [media_service.AudioProcesado(URL_AUDIO, None)],
+    )
+
+    with create_app(_config()).app_context():
+        reply = whatsapp_service.process_inbound(IncomingMessage(
+            channel="whatsapp", chat_key="51999111222", text="", media=[AUDIO]))
+
+    assert reply == whatsapp_service.MENSAJE_AUDIO_ILEGIBLE
+    assert recibidos == []
+
+
+def test_el_historial_devuelve_el_audio_como_texto_plano():
+    """Turnos pasados: el agente ve la transcripcion, sin URL ni marca; un audio mudo se omite."""
+    from app.communication.services import chat_service
+    audio = {"role": "user", "type": "audio_url", "content": URL_AUDIO, "transcription": "hola, soy Ana"}
+    mudo = {"role": "user", "type": "audio_url", "content": URL_AUDIO, "transcription": None}
+
+    assert chat_service._fila_para_el_agente(audio) == {"role": "user", "content": "hola, soy Ana"}
+    assert chat_service._fila_para_el_agente(mudo) is None
+
+
+def test_transcribir_llama_a_elevenlabs(tmp_path, monkeypatch):
+    """POST multipart con la clave en xi-api-key y el modelo Scribe; devuelve el texto limpio."""
+    from app.communication.services import transcription_service
+    archivo = tmp_path / "nota.ogg"
+    archivo.write_bytes(b"OggS")
+    visto = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"text": "  hola mundo \n"}
+
+    def falso_post(url, headers, data, files, timeout):
+        visto.update(url=url, headers=headers, data=data, nombre=files["file"].name)
+        return _Resp()
+
+    monkeypatch.setattr(transcription_service.requests, "post", falso_post)
+    assert transcription_service.transcribir(str(archivo), "clave") == "hola mundo"
+    assert visto["url"] == "https://api.elevenlabs.io/v1/speech-to-text"
+    assert visto["headers"] == {"xi-api-key": "clave"} and visto["data"] == {"model_id": "scribe_v1"}
+
+
+def test_transcribir_sin_clave_o_sin_voz_falla(tmp_path, monkeypatch):
+    """Nunca devuelve una cadena vacia: sin clave o sin voz levanta TranscriptionError."""
+    from app.communication.services import transcription_service
+    archivo = tmp_path / "nota.ogg"
+    archivo.write_bytes(b"OggS")
+    with pytest.raises(transcription_service.TranscriptionError):
+        transcription_service.transcribir(str(archivo), "")
+
+    class _Vacia:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"text": "   "}
+
+    monkeypatch.setattr(transcription_service.requests, "post", lambda *a, **k: _Vacia())
+    with pytest.raises(transcription_service.TranscriptionError):
+        transcription_service.transcribir(str(archivo), "clave")

@@ -17,7 +17,7 @@ Lo que NO vive aqui: el estado del orquestador -- revisiones HITL, ultimo
 agente, propuestas de reserva pendientes de confirmar -- sigue en memoria de
 `orquestador/grafo.py`.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from flask import current_app
 
@@ -44,6 +44,12 @@ class IdentidadCanal:
     chat_key: str | None = None
     channel_number: str | None = None
     provider_message_id: str | None = None
+    # Audios del turno ya subidos y transcritos. Su transcripcion YA va dentro de
+    # `MensajeEntrante.texto` (el agente no sabe que fue un audio); aqui viajan
+    # solo para guardarlos como filas `audio_url`. `texto_escrito` es lo que el
+    # cliente tecleo, sin las transcripciones: es lo que se guarda como fila de texto.
+    audios: list = field(default_factory=list)   # media_service.AudioProcesado
+    texto_escrito: str | None = None             # None = todo `texto` fue escrito
 
 
 def _configuracion():
@@ -83,6 +89,20 @@ def _para_el_agente(rol: str, tipo: str, contenido: str) -> dict:
     return {"role": rol, "content": redactar_pii(contenido)}
 
 
+def _fila_para_el_agente(fila: dict) -> dict | None:
+    """Una fila de `messages` como turno del agente; None si no tiene nada que decirle.
+
+    Un audio vuelve como su transcripcion en texto plano, sin marca de que fue
+    un audio: el agente no distingue lo hablado de lo escrito. Un audio sin
+    transcripcion no se le muestra."""
+    tipo = fila.get("type") or messages_repository.TYPE_TEXT
+    if tipo == messages_repository.TYPE_AUDIO_URL:
+        if not fila.get("transcription"):
+            return None
+        return _para_el_agente(fila["role"], messages_repository.TYPE_TEXT, fila["transcription"])
+    return _para_el_agente(fila["role"], tipo, fila["content"])
+
+
 def _historial(chat_id: str, sesion_id: str) -> list[dict]:
     """Ventana de contexto del hilo, leida de `messages` y ya redactada.
 
@@ -98,10 +118,8 @@ def _historial(chat_id: str, sesion_id: str) -> list[dict]:
         registrar("error", sesion_id,
                   detalle={"paso": "leer_historial", "error": type(error).__name__})
         return []
-    return [
-        _para_el_agente(fila["role"], fila.get("type") or messages_repository.TYPE_TEXT, fila["content"])
-        for fila in recientes
-    ][-MAXIMO_TURNOS:]
+    turnos = (_fila_para_el_agente(fila) for fila in recientes)
+    return [turno for turno in turnos if turno][-MAXIMO_TURNOS:]
 
 
 def _ficha_del_cliente(chat_key: str, sesion_id: str) -> dict:
@@ -122,11 +140,12 @@ def _ficha_del_cliente(chat_key: str, sesion_id: str) -> dict:
 
 def _guardar(chat_id: str, sesion_id: str, rol: str, texto: str,
              *, provider_message_id: str | None = None,
-             tipo: str = messages_repository.TYPE_TEXT) -> None:
+             tipo: str = messages_repository.TYPE_TEXT, transcripcion: str | None = None) -> None:
     """Persiste un turno ya redactado; un fallo se traza y no interrumpe la conversacion."""
     try:
         messages_repository.append_message(
             chat_id, rol, texto, provider_message_id=provider_message_id, message_type=tipo,
+            transcription=transcripcion,
         )
         chats_repository.touch(chat_id)
     except Exception as error:
@@ -176,9 +195,16 @@ def handle_incoming_message(
             _guardar(chat_id, entrante.sesion_id, "user", url,
                      provider_message_id=identidad.provider_message_id,
                      tipo=messages_repository.TYPE_IMAGE_URL)
-        # Una imagen sin texto no deja ademas una fila de texto vacia.
-        if entrante.texto or not entrante.imagenes:
-            _guardar(chat_id, entrante.sesion_id, "user", redactar_pii(entrante.texto),
+        for audio in identidad.audios:
+            # Solo entra a Postgres texto redactado: la transcripcion tambien es dicho por el cliente.
+            _guardar(chat_id, entrante.sesion_id, "user", audio.url,
+                     provider_message_id=identidad.provider_message_id,
+                     tipo=messages_repository.TYPE_AUDIO_URL,
+                     transcripcion=redactar_pii(audio.transcripcion) if audio.transcripcion else None)
+        escrito = entrante.texto if identidad.texto_escrito is None else identidad.texto_escrito
+        # Una imagen o un audio sin texto no dejan ademas una fila de texto vacia.
+        if escrito or not (entrante.imagenes or identidad.audios):
+            _guardar(chat_id, entrante.sesion_id, "user", redactar_pii(escrito),
                      provider_message_id=identidad.provider_message_id)
     else:
         sesion = obtener_sesion(entrante.sesion_id, entrante.canal)

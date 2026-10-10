@@ -109,6 +109,10 @@ class ServicioReservasJSON:
                 return Reserva(**r)
         return None
 
+    def listar_reservas(self) -> list[Reserva]:
+        """Devuelve todas las reservas, incluidas las canceladas, sin filtrar por propietario."""
+        return [Reserva(**r) for r in self._leer()]
+
     def buscar_reservas_de(self, telefono: str) -> list[Reserva]:
         """Devuelve las reservas del telefono exacto, incluidas las canceladas.
 
