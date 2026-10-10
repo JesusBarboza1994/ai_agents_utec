@@ -1,0 +1,7 @@
+# Se aplica solo a dashboard_reservas/Dockerfile (BuildKit). El contexto es la raiz
+# del repo: se deja fuera todo menos este proyecto, sobre todo el .venv y las
+# bases de Clemente_Multiagente.
+*
+!dashboard_reservas/
+dashboard_reservas/node_modules
+dashboard_reservas/dist
