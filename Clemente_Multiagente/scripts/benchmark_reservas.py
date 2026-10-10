@@ -69,12 +69,18 @@ def _reportar_latencias(nombre: str, duraciones: list[float]) -> None:
           f"max={max(duraciones)*1000:.0f}ms")
 
 
+def _letras(i: int) -> str:
+    """0 -> 'A', 12 -> 'BC': nombres de prueba solo con letras, porque validaciones.py
+    rechaza digitos y corchetes en el nombre y el servidor devolveria 400 antes del candado."""
+    return "".join(chr(ord("A") + int(d)) for d in str(i))
+
+
 def escenario_anti_doble_booking(base_url: str, n: int) -> bool:
     print(f"\n=== A. Anti-doble-booking: {n} clientes distintos, misma mesa/turno ===")
     url = f"{base_url}/api/reservas"
     hora = "13:00"  # turno separado del escenario B para no interferir
     payloads = [
-        {"nombre": f"Cliente {i}", "telefono": f"9{i:08d}", "fecha": FECHA,
+        {"nombre": f"Cliente {_letras(i)}", "telefono": f"9{i:08d}", "fecha": FECHA,
          "hora": hora, "personas": 8, "zona": "salon"}  # 8 = solo cabe en S01
         for i in range(n)
     ]
@@ -86,6 +92,9 @@ def escenario_anti_doble_booking(base_url: str, n: int) -> bool:
     otros = [r for r in resultados if r[0] not in (201, 400)]
     _reportar_latencias("creacion", [r[2] for r in resultados])
     print(f"  201 creadas: {len(exitosas)} | 400 sin mesa: {len(rechazadas)} | otros: {len(otros)}")
+    # Un 400 por validacion no es "sin mesa": mostrar los motivos distintos evita leerlo como fallo del candado.
+    for motivo in sorted({str(r[1].get("error", "")) for r in rechazadas}):
+        print(f"    motivo 400: {motivo}")
 
     ok = len(exitosas) == 1 and not otros
     print("  RESULTADO:", "OK -- exactamente 1 gano la mesa" if ok else "FALLO -- revisar el lock")
@@ -118,7 +127,7 @@ def escenario_escritura_individual(base_url: str, n: int) -> bool:
     creadas = 0
     ids = []
     for i in range(n):
-        payload = {"nombre": f"[PRUEBA] Individual {i}", "telefono": f"8{uuid.uuid4().int % 10**8:08d}",
+        payload = {"nombre": f"Prueba Individual {_letras(i)}", "telefono": f"8{uuid.uuid4().int % 10**8:08d}",
                    "fecha": FECHA, "hora": "19:00", "personas": 2, "zona": "salon"}
         estado, cuerpo, duracion = _post(url, payload)
         duraciones.append(duracion)
