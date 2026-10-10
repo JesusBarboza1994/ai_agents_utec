@@ -1,6 +1,12 @@
 name: Execute evaluations
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag a evaluar (lo pasa el workflow Release)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -11,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: evals-clemente-${{ github.event.inputs.tag || github.ref }}
+  group: evals-clemente-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 defaults:
@@ -29,7 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -39,7 +45,7 @@ jobs:
       - name: Instalar dependencias (runtime + eval)
         run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Correr los evaluadores contra la config real de produccion
+      - name: DeepEval (metricas nativas) con gate
         # Mismas variables que usa caclmt01 en produccion (ver Container App):
         # el codigo evaluado corre sobre los mismos backends de Azure OpenAI y
         # Azure Search que produccion, asi que lo que miden estos evaluadores
@@ -64,20 +70,38 @@ jobs:
           LANGSMITH_TRACING: "true"
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-        run: |
-          echo "::group::DeepEval (metricas nativas)"
-          python3 tests/evals/deepeval/evaluador_deepeval.py
-          echo "::endgroup::"
+        run: python3 tests/evals/deepeval/evaluador_deepeval.py
 
-          echo "::group::LangSmith (LLM-as-judge propio + enrutamiento)"
-          python3 tests/evals/langsmith/evaluador_langsmith.py
-          echo "::endgroup::"
+      # Los dos evaluadores corren siempre, aunque el primero rechace: asi el
+      # reporte muestra TODO lo que falla, no solo el primer motivo. Cada uno
+      # termina con exit 1 si no pasa el gate (ver tests/evals/gate.py), y eso
+      # deja el job en rojo.
+      - name: LangSmith (LLM-as-judge propio + enrutamiento) con gate
+        if: ${{ !cancelled() }}
+        env:
+          AGENT_MODEL: azure
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT: ${{ vars.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT }}
+          RAG_BACKEND: azure_search
+          EMBEDDINGS_BACKEND: azure
+          AZURE_SEARCH_ENDPOINT: ${{ vars.AZURE_SEARCH_ENDPOINT }}
+          AZURE_SEARCH_INDEX: ${{ vars.AZURE_SEARCH_INDEX }}
+          AZURE_SEARCH_API_KEY: ${{ secrets.AZURE_SEARCH_API_KEY }}
+          CLEMENTE_BACKEND_RESERVAS: json
+          CLEMENTE_BACKEND_INCIDENCIAS: json
+          LANGSMITH_TRACING: "true"
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        run: python3 tests/evals/langsmith/evaluador_langsmith.py
 
       - name: Publicar reportes como artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: evals-clemente-${{ github.event.inputs.tag || github.sha }}
+          name: evals-clemente-${{ inputs.tag || github.sha }}
           path: |
             Clemente_Multiagente/tests/evals/deepeval/reportes/
             Clemente_Multiagente/tests/evals/langsmith/reportes/

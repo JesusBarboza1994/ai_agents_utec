@@ -6,10 +6,16 @@ on:
     paths:
       - "Clemente_Multiagente/**"
       - ".github/workflows/deploy-azure.yml"
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag a desplegar (lo pasa el workflow Release, ya evaluado)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag a desplegar (ver pestana Tags del repo, ej. v0.2.0)"
+        description: "Tag a desplegar a mano (rollback o despliegue puntual, sin pasar por los evals)"
         required: true
 
 permissions:
@@ -41,14 +47,14 @@ jobs:
 
   build-and-deploy:
     name: Build y despliegue a Azure
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Checkout del tag elegido
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ inputs.tag }}
 
       - name: Login en Azure (OIDC, sin secreto de cliente)
         uses: azure/login@v2
@@ -61,14 +67,14 @@ jobs:
         run: |
           az acr login --name ${{ vars.AZURE_ACR_NAME }}
           if az acr repository show --name ${{ vars.AZURE_ACR_NAME }} \
-               --image clemente:${{ github.event.inputs.tag }} >/dev/null 2>&1; then
-            echo "clemente:${{ github.event.inputs.tag }} ya existe en ACR, se reusa sin reconstruir (ej. un rollback)."
+               --image clemente:${{ inputs.tag }} >/dev/null 2>&1; then
+            echo "clemente:${{ inputs.tag }} ya existe en ACR, se reusa sin reconstruir (ej. un rollback)."
           else
             docker build \
-              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }} \
+              -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ inputs.tag }} \
               -t ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest \
               .
-            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }}
+            docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ inputs.tag }}
             docker push ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:latest
           fi
 
@@ -77,5 +83,5 @@ jobs:
           az containerapp update \
             --name ${{ vars.AZURE_CONTAINERAPP_NAME }} \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ github.event.inputs.tag }}
+            --image ${{ vars.AZURE_ACR_NAME }}.azurecr.io/clemente:${{ inputs.tag }}
 
