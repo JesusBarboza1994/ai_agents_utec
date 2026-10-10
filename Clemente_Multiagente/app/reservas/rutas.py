@@ -24,6 +24,12 @@ from .validaciones import ReservaInvalida
 bp = Blueprint("reservas_debug", __name__, url_prefix="/api/reservas")
 
 
+@bp.get("")
+def listar():
+    """GET /api/reservas: lista todas las reservas (sin autenticacion; solo depuracion)."""
+    return jsonify([r.__dict__ for r in obtener_servicio().listar_reservas()])
+
+
 @bp.post("")
 def crear():
     """POST /api/reservas: crea una reserva validando y saneando el cuerpo; 400 si los datos son invalidos."""

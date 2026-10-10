@@ -32,6 +32,10 @@ WHATSAPP_PREFIX = "whatsapp:"
 # privacy features mask the customer's phone.
 _BSUID_PATTERN = re.compile(r"^[A-Za-z]{2}\.[A-Za-z0-9]+$")
 
+MENSAJE_AUDIO_ILEGIBLE = (
+    "No pude escuchar bien tu audio. ¿Me lo puedes escribir o volver a enviar?"
+)
+
 # E.164 allows up to 15 digits; anything shorter than 7 is not a reachable number.
 _E164_DIGITS_PATTERN = re.compile(r"^\d{7,15}$")
 
@@ -128,10 +132,10 @@ def parse_inbound(form) -> IncomingMessage:
     """Translates Twilio's raw form payload into Clemente's channel-agnostic contract."""
     text = (form.get("Body") or "").strip()
     media = media_service.extract_media(form)
-    # Una imagen es contenido utilizable aunque no traiga texto; audio, video o
-    # documentos solos siguen sin manejarse.
+    # Una imagen o un audio son contenido utilizable aunque no traigan texto; video
+    # o documentos solos siguen sin manejarse.
     sin_soporte = None
-    if not text and media and not any(adjunto.es_imagen for adjunto in media):
+    if not text and media and not any(adjunto.es_imagen or adjunto.es_audio for adjunto in media):
         sin_soporte = f"media sin manejar ({media[0].content_type})"
 
     return IncomingMessage(
@@ -159,6 +163,11 @@ def process_inbound(message: IncomingMessage) -> str | None:
     Cloudinary en `MensajeEntrante.imagenes`, nunca las de Twilio. Si ninguna
     imagen se pudo subir y no habia texto, no hay turno que atender.
 
+    Los audios se suben y se transcriben (`media_service.procesar_audios`); la
+    transcripcion se une al texto del turno y el agente la recibe como si el
+    cliente la hubiera escrito. Si un audio no se pudo transcribir y no hay
+    nada mas que atender, se responde `MENSAJE_AUDIO_ILEGIBLE`.
+
     El `sesion_id` del hilo es estable entre mensajes (`whatsapp-<chat_key>`),
     porque de el cuelgan la propiedad de las reservas y las revisiones
     pendientes del orquestador.
@@ -167,7 +176,8 @@ def process_inbound(message: IncomingMessage) -> str | None:
         return None
     sesion_id = f"{message.channel}-{message.chat_key}"
     imagenes = [adjunto for adjunto in message.media if adjunto.es_imagen]
-    if not message.text and not imagenes:
+    audios = [adjunto for adjunto in message.media if adjunto.es_audio]
+    if not message.text and not imagenes and not audios:
         if message.unsupported_reason:
             registrar(
                 "mensaje_no_soportado", message.chat_key,
@@ -175,16 +185,27 @@ def process_inbound(message: IncomingMessage) -> str | None:
             )
         return None
 
+    config = current_app.config["CLEMENTE"]
     urls: list[str] = []
     if imagenes:
-        urls = media_service.subir_imagenes(imagenes, current_app.config["CLEMENTE"], sesion_id)
-        if not message.text and not urls:
-            return None
+        urls = media_service.subir_imagenes(imagenes, config, sesion_id)
+
+    audios_procesados = media_service.procesar_audios(audios, config, sesion_id) if audios else []
+    transcripciones = [a.transcripcion for a in audios_procesados if a.transcripcion]
+
+    # Al agente le llega UN solo texto: lo escrito mas lo transcrito, sin marca de
+    # que parte fue un audio. Lo escrito se conserva aparte para guardarlo.
+    texto = "\n".join(parte for parte in (message.text, *transcripciones) if parte)
+    if not texto and not urls:
+        if audios:
+            # Habia audio pero no se pudo leer: avisar es mejor que dejar al cliente sin respuesta.
+            return MENSAJE_AUDIO_ILEGIBLE
+        return None
 
     respuesta = chat_service.handle_incoming_message(
         MensajeEntrante(
             sesion_id=sesion_id,
-            texto=message.text,
+            texto=texto,
             canal=message.channel,
             nombre_cliente=message.sender_name,
             telefono=message.sender_phone,
@@ -194,6 +215,8 @@ def process_inbound(message: IncomingMessage) -> str | None:
             chat_key=message.chat_key,
             channel_number=message.channel_number,
             provider_message_id=message.provider_message_id,
+            audios=audios_procesados,
+            texto_escrito=message.text,
         ),
     )
     return respuesta.texto

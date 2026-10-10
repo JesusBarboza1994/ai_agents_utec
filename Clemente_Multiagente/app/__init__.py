@@ -53,5 +53,7 @@ def create_app(config: Config | None = None) -> Flask:
     if os.getenv("CLEMENTE_DEBUG_ROUTES") == "1":
         from .reservas.rutas import bp as bp_reservas_debug
         app.register_blueprint(bp_reservas_debug)
+        from .communication.rutas_chats import bp as bp_chats_debug
+        app.register_blueprint(bp_chats_debug)
 
     return app

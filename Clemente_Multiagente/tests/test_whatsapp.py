@@ -125,8 +125,8 @@ def test_parse_inbound_flags_media_without_body_as_unsupported():
     form = {
         "From": "whatsapp:+51999111222", "NumMedia": "1",
         "MediaUrl0": "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages/MM1/Media/ME1",
-        "MediaContentType0": "audio/ogg",
+        "MediaContentType0": "video/mp4",
     }
     message = parse_inbound(form)
     assert message.text == ""
-    assert message.unsupported_reason and "audio/ogg" in message.unsupported_reason
+    assert message.unsupported_reason and "video/mp4" in message.unsupported_reason

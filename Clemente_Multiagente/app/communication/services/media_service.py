@@ -1,5 +1,5 @@
 """
-Imagenes que llegan por WhatsApp: de la URL de Twilio a una URL de Cloudinary.
+Imagenes y audios que llegan por WhatsApp: de la URL de Twilio a una URL de Cloudinary.
 
 Twilio no adjunta el archivo al webhook: manda `NumMedia` y, por cada adjunto,
 `MediaUrl{i}` + `MediaContentType{i}`. Esa URL vive en la cuenta de Twilio,
@@ -10,6 +10,11 @@ agente. Por eso el recorrido es:
 
 El archivo local solo existe mientras se sube y se borra pase lo que pase.
 Lo que sigue viaje es la URL de Cloudinary, que es lo que recibe el agente.
+
+Los audios hacen el mismo recorrido y ademas se transcriben con ElevenLabs
+(`transcription_service`) desde el mismo temporal, antes de borrarlo. Al
+agente nunca le llega el audio: le llega el texto transcrito, como si el
+cliente lo hubiera escrito.
 
 Como `outbound_whatsapp_service`, habla con las dos APIs por HTTP directo con
 `requests`, sin SDK: son dos llamadas y no justifican una dependencia mas.
@@ -25,20 +30,31 @@ import time
 import requests
 
 from ...observabilidad.trazas import registrar
+from . import transcription_service
 
 TWILIO_MEDIA_PREFIX = "https://api.twilio.com/"
 CLOUDINARY_API_BASE = "https://api.cloudinary.com/v1_1"
 
-# Lo que Clemente acepta como imagen. Audio, video y documentos siguen siendo
-# media sin manejar (ver `whatsapp_service.parse_inbound`).
+# Lo que Clemente acepta como imagen o audio. Video y documentos siguen siendo
+# media sin manejar (ver `whatsapp_service.parse_inbound`). Las notas de voz de
+# WhatsApp llegan como audio/ogg (opus).
 IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+AUDIO_CONTENT_TYPES = {
+    "audio/ogg", "audio/mpeg", "audio/mp4", "audio/aac", "audio/amr", "audio/webm",
+}
 
 # WhatsApp limita las imagenes a 5 MB; el margen cubre cambios del proveedor
 # sin dejar que un adjunto inesperado llene el disco.
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+# WhatsApp limita los audios a 16 MB.
+MAX_AUDIO_BYTES = 16 * 1024 * 1024
 _CHUNK_BYTES = 64 * 1024
 
-_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+_EXTENSIONS = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+    "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a",
+    "audio/aac": ".aac", "audio/amr": ".amr", "audio/webm": ".webm",
+}
 
 
 class MediaError(RuntimeError):
@@ -53,9 +69,19 @@ class MediaAdjunto:
     content_type: str
 
     @property
+    def tipo_mime(self) -> str:
+        """El MIME sin parametros: Twilio puede mandar `audio/ogg; codecs=opus`."""
+        return self.content_type.split(";")[0].strip().lower()
+
+    @property
     def es_imagen(self) -> bool:
         """True para los formatos de imagen que Clemente procesa."""
-        return self.content_type in IMAGE_CONTENT_TYPES
+        return self.tipo_mime in IMAGE_CONTENT_TYPES
+
+    @property
+    def es_audio(self) -> bool:
+        """True para los formatos de audio que Clemente transcribe."""
+        return self.tipo_mime in AUDIO_CONTENT_TYPES
 
 
 def extract_media(form) -> list[MediaAdjunto]:
@@ -72,7 +98,10 @@ def extract_media(form) -> list[MediaAdjunto]:
     return adjuntos
 
 
-def download_twilio_media(adjunto: MediaAdjunto, account_sid: str, auth_token: str, destino: str) -> str:
+def download_twilio_media(
+    adjunto: MediaAdjunto, account_sid: str, auth_token: str, destino: str,
+    max_bytes: int | None = None,
+) -> str:
     """
     Descarga el adjunto a un archivo temporal dentro de `destino` y devuelve su ruta.
 
@@ -80,14 +109,15 @@ def download_twilio_media(adjunto: MediaAdjunto, account_sid: str, auth_token: s
     asi una URL inesperada nunca recibe nuestras credenciales. Twilio responde
     con una redireccion a su almacenamiento; `requests` no reenvia la
     autenticacion a otro host, que es justo lo correcto. Corta la descarga si
-    pasa de MAX_IMAGE_BYTES y borra el archivo si algo falla a medias.
+    pasa de `max_bytes` (MAX_IMAGE_BYTES por defecto) y borra el archivo si algo falla a medias.
     """
     if not adjunto.url.startswith(TWILIO_MEDIA_PREFIX):
         raise MediaError("La URL del adjunto no es de la API de Twilio.")
     if not account_sid or not auth_token:
         raise MediaError("Faltan TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN para descargar el adjunto.")
 
-    descriptor, ruta = tempfile.mkstemp(suffix=_EXTENSIONS.get(adjunto.content_type, ""), dir=destino)
+    limite = max_bytes or MAX_IMAGE_BYTES
+    descriptor, ruta = tempfile.mkstemp(suffix=_EXTENSIONS.get(adjunto.tipo_mime, ""), dir=destino)
     try:
         with os.fdopen(descriptor, "wb") as archivo, requests.get(
             adjunto.url, auth=(account_sid, auth_token), stream=True, timeout=15,
@@ -97,8 +127,8 @@ def download_twilio_media(adjunto: MediaAdjunto, account_sid: str, auth_token: s
             escritos = 0
             for bloque in respuesta.iter_content(_CHUNK_BYTES):
                 escritos += len(bloque)
-                if escritos > MAX_IMAGE_BYTES:
-                    raise MediaError(f"El adjunto supera {MAX_IMAGE_BYTES} bytes.")
+                if escritos > limite:
+                    raise MediaError(f"El adjunto supera {limite} bytes.")
                 archivo.write(bloque)
     except Exception:
         os.remove(ruta)
@@ -106,13 +136,19 @@ def download_twilio_media(adjunto: MediaAdjunto, account_sid: str, auth_token: s
     return ruta
 
 
-def upload_to_cloudinary(ruta: str, cloud_name: str, api_key: str, api_secret: str, folder: str) -> str:
+def upload_to_cloudinary(
+    ruta: str, cloud_name: str, api_key: str, api_secret: str, folder: str,
+    resource_type: str = "image",
+) -> str:
     """
     Sube el archivo con una subida firmada y devuelve su `secure_url`.
 
     Firma de Cloudinary: SHA-1 de los parametros firmados, ordenados como
     `clave=valor` unidos por '&', seguidos del api_secret. `file`, `api_key`
     y la propia firma no entran en la firma.
+
+    `resource_type` es "image" o, para audio, "video": Cloudinary guarda el
+    audio bajo ese tipo.
     """
     if not cloud_name or not api_key or not api_secret:
         raise MediaError("Faltan CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET.")
@@ -125,7 +161,7 @@ def upload_to_cloudinary(ruta: str, cloud_name: str, api_key: str, api_secret: s
 
     with open(ruta, "rb") as archivo:
         respuesta = requests.post(
-            f"{CLOUDINARY_API_BASE}/{cloud_name}/image/upload",
+            f"{CLOUDINARY_API_BASE}/{cloud_name}/{resource_type}/upload",
             data={**firmados, "api_key": api_key, "signature": firma},
             files={"file": archivo},
             timeout=30,
@@ -168,3 +204,55 @@ def subir_imagenes(adjuntos: list[MediaAdjunto], config, sesion_id: str) -> list
             })
             urls.append(url)
     return urls
+
+
+@dataclass(frozen=True)
+class AudioProcesado:
+    """Un audio ya subido a Cloudinary y, si se pudo, su transcripcion."""
+
+    url: str
+    transcripcion: str | None
+
+
+def procesar_audios(adjuntos: list[MediaAdjunto], config, sesion_id: str) -> list[AudioProcesado]:
+    """
+    Pasa cada audio por Twilio -> temporal -> (Cloudinary + ElevenLabs) y devuelve el resultado.
+
+    La transcripcion sale del mismo temporal que se sube a Cloudinary. Si la
+    transcripcion falla, el audio se conserva igual (con `transcripcion=None`)
+    para que el personal pueda oirlo; si falla la subida, la transcripcion
+    todavia sirve al agente, pero sin URL no hay nada que guardar y el audio se
+    omite. Los errores se trazan sin contenido del audio.
+    """
+    resultados: list[AudioProcesado] = []
+    with tempfile.TemporaryDirectory(prefix="clemente-media-") as destino:
+        for indice, adjunto in enumerate(a for a in adjuntos if a.es_audio):
+            detalle = {"indice": indice, "content_type": adjunto.content_type}
+            try:
+                ruta = download_twilio_media(
+                    adjunto, config.twilio_account_sid, config.twilio_auth_token,
+                    destino, max_bytes=MAX_AUDIO_BYTES,
+                )
+            except Exception as error:
+                registrar("error", sesion_id, detalle={**detalle, "paso": "descargar_audio", "error": str(error)})
+                continue
+
+            try:
+                transcripcion = transcription_service.transcribir(
+                    ruta, config.elevenlabs_api_key, config.elevenlabs_stt_model,
+                )
+            except Exception as error:
+                transcripcion = None
+                registrar("error", sesion_id, detalle={**detalle, "paso": "transcribir_audio", "error": str(error)})
+
+            try:
+                url = upload_to_cloudinary(
+                    ruta, config.cloudinary_cloud_name, config.cloudinary_api_key,
+                    config.cloudinary_api_secret, config.cloudinary_folder, resource_type="video",
+                )
+            except Exception as error:
+                registrar("error", sesion_id, detalle={**detalle, "paso": "subir_audio", "error": str(error)})
+                continue
+            registrar("audio_subido", sesion_id, detalle={**detalle, "url": url, "transcrito": bool(transcripcion)})
+            resultados.append(AudioProcesado(url=url, transcripcion=transcripcion))
+    return resultados
