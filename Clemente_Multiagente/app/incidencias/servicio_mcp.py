@@ -131,20 +131,21 @@ class ServicioIncidenciasMCP:
 
     def crear_incidencia(
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
-        reserva_id: str | None = None,
+        reserva_id: str | None = None, codigo: str | None = None,
     ) -> Incidencia:
         """Llama crear_ticket por MCP y devuelve Incidencia; ante error registra el caso en JSON.
 
-        El respaldo local no acredita que la tarjeta haya llegado a Trello."""
+        El respaldo local no acredita que la tarjeta haya llegado a Trello. Con `codigo` (el G-XXXXXX de un
+        grupo) el ticket y el respaldo conservan ese mismo codigo."""
         try:
             datos = self.llamar(
                 "crear_ticket", descripcion=descripcion, sesion_id=sesion_id,
-                tipo=tipo, reserva_id=reserva_id or "",
+                tipo=tipo, reserva_id=reserva_id or "", codigo=codigo or "",
             )
             return Incidencia(**datos)
         except Exception as error:
             log.warning("el servidor MCP no respondio (%s): se registra en local", describir_error(error))
-            incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
+            incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id, codigo=codigo)
             avisar_sin_tarjeta(incidencia.id, sesion_id, error)
             return incidencia
 

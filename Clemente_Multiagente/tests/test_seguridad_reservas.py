@@ -10,8 +10,9 @@ from app.orquestador import grafo
 from app.contratos import MensajeEntrante
 from app.agentes import autorizacion, fecha
 
-# 2026-10-05 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que se corra la suite.
-INSTANTE = datetime(2026, 10, 6, 2, 0, tzinfo=timezone.utc)
+# Martes 2026-10-06 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que
+# se corra la suite. Es un martes a proposito: los lunes el restaurante no atiende y "hoy" no podria reservarse.
+INSTANTE = datetime(2026, 10, 7, 2, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +61,7 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
 
 
 @pytest.mark.parametrize("fecha_pedida, hora, esperado", [
-    ("2026-10-05", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del 5 de octubre en Lima
+    ("2026-10-06", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del martes 6 de octubre en Lima
     ("2027-06-01", "20:00", "30"),           # mas de 30 dias a futuro
     ("2026-10-10", "03:00", "turno"),        # el restaurante no tiene turno de madrugada
 ])
@@ -279,7 +280,7 @@ def test_repetir_una_reserva_desde_otra_conversacion_no_revela_su_codigo(entorno
     _, intruso = propuesta_crear("intruso")
     texto, datos = autorizacion.confirmar("intruso", intruso, servicio)
     assert datos == {}
-    assert codigo not in texto and "verifique tu identidad" in texto
+    assert codigo not in texto and "verificar tu identidad" in texto
     assert not autorizacion.es_propietario("intruso", codigo)
     assert len(servicio.buscar_reservas_de("900000001")) == 1
 
@@ -348,7 +349,7 @@ def test_cierre_muestra_propuesta_aunque_modelo_afirme_confirmada(entorno):
     final = grafo._nodo_cierre({"sesion_id": "propietario", "contexto": contexto.context,
         "respuestas": [{"agente": "reservas", "texto": "Tu mesa está confirmada R-FALSO"}]})
     assert "R-FALSO" not in final["respuesta"]
-    assert "Todavía no se realizó" in final["respuesta"]
+    assert "Todavía no está hecho" in final["respuesta"]
 
 
 def test_incidencias_no_es_un_camino_alterno_para_leer_reservas(entorno):
@@ -399,7 +400,7 @@ def test_fallo_al_crear_ticket_no_finge_escalamiento(entorno, monkeypatch):
     final = grafo._nodo_cierre({"sesion_id": "propietario", "contexto": ctx,
         "respuestas": [{"agente": "reservas", "texto": "te llamaremos"}]})
     assert not ctx.escalado
-    assert "No pude registrar" in final["respuesta"]
+    assert final["respuesta"] == grafo.ESCALAMIENTO_RESERVA_FALLIDO
 
 
 def test_el_juez_recibe_el_codigo_creado_por_el_cierre(entorno):

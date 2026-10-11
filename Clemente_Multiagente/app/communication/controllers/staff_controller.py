@@ -2,6 +2,8 @@
 import secrets
 from flask import current_app, request, jsonify
 
+from ..services import aviso_staff_service
+
 def _staff_autorizado() -> bool:
     """Comprueba el Bearer token del personal con comparacion constante.
 
@@ -24,7 +26,9 @@ def resolver_revision_staff(sesion_id: str):
 
     Solo admite approve o reject (400); token incorrecto devuelve 401 y
     revision inexistente 404. Devuelve la respuesta para el cliente y datos
-    de negocio; este endpoint no entrega por si mismo el mensaje por WhatsApp."""
+    de negocio. Una vez resuelta, avisa al cliente por WhatsApp con ese mismo
+    texto y devuelve en `notificacion` si salio o por que no: la decision del
+    personal no depende del aviso, y el webchat no tiene canal de salida."""
     if not _staff_autorizado():
         return jsonify(error="No autorizado"), 401
     datos = request.get_json(silent=True) or {}
@@ -36,8 +40,9 @@ def resolver_revision_staff(sesion_id: str):
         respuesta = resolver_revision(sesion_id, decision, str(datos.get("motivo", "")))
     except KeyError as error:
         return jsonify(error=str(error)), 404
+    notificacion = aviso_staff_service.avisar_decision(sesion_id, respuesta.texto)
     return jsonify(
         estado="resuelta", decision=decision, sesion_id=sesion_id,
         respuesta_cliente=respuesta.texto, escalado=respuesta.escalado,
-        datos=respuesta.datos,
+        datos=respuesta.datos, notificacion=notificacion,
     )

@@ -15,8 +15,13 @@ class AgenteFalso:
         self.invocaciones = 0
 
     def get_state(self, config):
-        """Como LangGraph: `next` trae los nodos pendientes cuando el hilo esta pausado."""
-        return SimpleNamespace(next=("tools",) if self.en_pausa else ())
+        """Como LangGraph: un hilo pausado por la revision trae nodos en `next` y la interrupcion en `interrupts`.
+
+        Solo `next` no alcanza: un turno cortado por un error tambien deja nodos pendientes,
+        pero sin interrupcion (ver test_hilo_en_revision.py)."""
+        if self.en_pausa:
+            return SimpleNamespace(next=("tools",), interrupts=(SimpleNamespace(value={"accion": "revision"}),))
+        return SimpleNamespace(next=(), interrupts=())
 
     def invoke(self, entrada, config=None, context=None):
         """Responde algo fijo, anota que se llamo al modelo y con que configuracion."""

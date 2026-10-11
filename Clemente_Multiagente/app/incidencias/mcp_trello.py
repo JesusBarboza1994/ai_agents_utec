@@ -98,7 +98,7 @@ def _como_dict(incidencia: Incidencia) -> dict:
 
 @mcp.tool()
 def crear_ticket(
-    descripcion: str, sesion_id: str, tipo: str = "otro", reserva_id: str = "",
+    descripcion: str, sesion_id: str, tipo: str = "otro", reserva_id: str = "", codigo: str = "",
 ) -> dict:
     """Registra una incidencia con el backend del servidor y devuelve sus datos estructurados.
 
@@ -111,10 +111,11 @@ def crear_ticket(
         sesion_id: identificador de la conversacion, para poder rastrear el caso.
         tipo: "espera", "servicio", "producto", "reserva" u "otro".
         reserva_id: codigo de la reserva relacionada, si la hay.
+        codigo: codigo que debe llevar el caso (G-XXXXXX para un grupo); vacio genera uno I-XXXXXX.
     """
     incidencia = _backend().crear_incidencia(
         sesion_id=sesion_id, descripcion=descripcion, tipo=tipo,
-        reserva_id=reserva_id or None,
+        reserva_id=reserva_id or None, codigo=codigo or None,
     )
     return _como_dict(incidencia)
 

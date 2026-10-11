@@ -22,15 +22,19 @@ class _Descarga:
     """Respuesta falsa de `requests.get` con streaming."""
 
     def __init__(self, contenido=b"\xff\xd8imagen", status_code=200):
+        """Guarda el contenido de la descarga simulada y su codigo de estado HTTP."""
         self.contenido, self.status_code = contenido, status_code
 
     def iter_content(self, _tamano):
+        """Entrega el contenido simulado en un unico bloque, como `requests` al leer por trozos."""
         yield self.contenido
 
     def __enter__(self):
+        """Permite usar la descarga simulada como administrador de contexto."""
         return self
 
     def __exit__(self, *_):
+        """Cierra el contexto sin suprimir excepciones."""
         return False
 
 
@@ -38,10 +42,12 @@ class _Subida:
     """Respuesta falsa de la API de subida de Cloudinary."""
 
     def __init__(self, status_code=200, secure_url=URL_CLOUDINARY):
+        """Guarda el codigo de estado y la URL segura que devolveria Cloudinary."""
         self.status_code, self.text = status_code, "rechazado"
         self._json = {"secure_url": secure_url}
 
     def json(self):
+        """Devuelve el cuerpo JSON simulado de la subida."""
         return self._json
 
 
@@ -112,6 +118,7 @@ def test_descarga_con_credenciales_de_twilio(monkeypatch, tmp_path):
     pedido = {}
 
     def falso_get(url, **kwargs):
+        """Anota la peticion de descarga y devuelve una descarga simulada, sin tocar la red."""
         pedido.update(url=url, **kwargs)
         return _Descarga()
 
@@ -151,6 +158,7 @@ def test_subida_firmada_a_cloudinary(monkeypatch, tmp_path):
     pedido = {}
 
     def falso_post(url, data, files, timeout):
+        """Anota la peticion de subida firmada a Cloudinary y devuelve una respuesta simulada."""
         pedido.update(url=url, data=data, nombre=files["file"].name)
         return _Subida()
 
@@ -182,11 +190,13 @@ def test_subir_imagenes_borra_los_temporales_y_omite_lo_que_falla(monkeypatch):
     rutas = []
 
     def falso_get(url, **_kwargs):
+        """Devuelve una descarga fallida (404) para las URL que terminan en 'falla' y una correcta para las demas."""
         if url.endswith("falla"):
             return _Descarga(status_code=404)
         return _Descarga()
 
     def falso_post(url, data, files, timeout):
+        """Anota el archivo temporal que se sube y devuelve una subida simulada correcta."""
         rutas.append(files["file"].name)
         return _Subida()
 
@@ -213,6 +223,7 @@ def _patch_flujo(monkeypatch, recibidos):
     monkeypatch.setattr(f"{ruta}.customers_repository.get_customer", lambda *a, **k: {})
 
     def orquestador(entrante, **_kwargs):
+        """Orquestador simulado: guarda el mensaje entrante que recibe y responde 'ok'."""
         recibidos.append(entrante)
         return RespuestaClemente(texto="ok", agente="informacion", sesion_id=entrante.sesion_id)
 
@@ -254,7 +265,9 @@ def test_el_orquestador_pone_las_imagenes_en_el_contexto_del_agente(monkeypatch)
     capturado = {}
 
     class _Grafo:
+        """Grafo simulado que captura el contexto del turno en lugar de ejecutar el orquestador."""
         def invoke(self, estado):
+            """Guarda el contexto recibido y devuelve un cierre fijo para el turno."""
             capturado["contexto"] = estado["contexto"]
             return {"respuesta": "ok", "ruta": "informacion", "motivo_ruta": "prueba", "plan": []}
 
@@ -297,6 +310,7 @@ def _patch_persistencia(monkeypatch, guardados, recibidos, recientes=()):
     )
 
     def orquestador(entrante, historial=None, **_kwargs):
+        """Orquestador simulado: guarda el historial que recibe y responde 'ok'."""
         recibidos.append(historial)
         return RespuestaClemente(texto="ok", agente="informacion", sesion_id=entrante.sesion_id)
 
@@ -393,7 +407,9 @@ def test_ejecutar_manda_la_imagen_al_modelo(monkeypatch):
     enviados = {}
 
     class _Agente:
+        """Agente simulado que captura los mensajes que se enviarian al modelo."""
         def invoke(self, entrada, config=None, context=None):
+            """Guarda los mensajes de la entrada y responde con un texto fijo."""
             enviados["mensajes"] = entrada["messages"]
             return {"messages": [type("M", (), {"content": "Veo la foto"})()]}
 
@@ -416,10 +432,13 @@ def test_el_planificador_atiende_un_turno_solo_imagen(monkeypatch):
     recibido = {}
 
     class _Modelo:
+        """Modelo simulado del planificador: guarda la entrada que recibe y devuelve un plan fijo."""
         def with_structured_output(self, _esquema):
+            """Devuelve el mismo modelo simulado, sin aplicar el esquema."""
             return self
 
         def invoke(self, mensajes):
+            """Guarda el ultimo mensaje recibido y devuelve un plan hacia incidencias."""
             recibido["entrada"] = mensajes[-1].content
             return grafo.PlanDeResolucion(pasos=["incidencias"], motivo="foto de un reclamo")
 
@@ -500,12 +519,14 @@ def _patch_audio(monkeypatch, transcripcion="quiero reservar para dos"):
     monkeypatch.setattr(media_service.requests, "get", lambda *a, **k: _Descarga(b"OggS"))
 
     def falso_post(url, **_kwargs):
+        """Anota la URL de subida y devuelve una subida simulada del audio."""
         usadas.append(url)
         return _Subida(secure_url=URL_AUDIO)
 
     monkeypatch.setattr(media_service.requests, "post", falso_post)
 
     def transcribir(ruta, api_key, modelo):
+        """Devuelve la transcripcion simulada o lanza la excepcion configurada."""
         if isinstance(transcripcion, Exception):
             raise transcripcion
         return transcripcion
@@ -615,12 +636,15 @@ def test_transcribir_llama_a_elevenlabs(tmp_path, monkeypatch):
     visto = {}
 
     class _Resp:
+        """Respuesta HTTP simulada de ElevenLabs con una transcripcion con espacios alrededor."""
         status_code = 200
         text = ""
         def json(self):
+            """Devuelve el texto transcrito simulado."""
             return {"text": "  hola mundo \n"}
 
     def falso_post(url, headers, data, files, timeout):
+        """Anota la peticion enviada a ElevenLabs y devuelve la respuesta simulada."""
         visto.update(url=url, headers=headers, data=data, nombre=files["file"].name)
         return _Resp()
 
@@ -639,9 +663,11 @@ def test_transcribir_sin_clave_o_sin_voz_falla(tmp_path, monkeypatch):
         transcription_service.transcribir(str(archivo), "")
 
     class _Vacia:
+        """Respuesta HTTP simulada de ElevenLabs cuya transcripcion queda vacia."""
         status_code = 200
         text = ""
         def json(self):
+            """Devuelve una transcripcion de solo espacios."""
             return {"text": "   "}
 
     monkeypatch.setattr(transcription_service.requests, "post", lambda *a, **k: _Vacia())

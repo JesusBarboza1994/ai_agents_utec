@@ -146,7 +146,7 @@
             Vie y sáb 12:00–16:00 y 19:00–00:00<br>
             Dom 12:00–17:00 · Lunes cerrado</dd>
         <dt>Reservas</dt>
-        <dd>+51 1 555-0142</dd>
+        <dd>+51 940070695</dd>
       </dl>
       <p class="pie">Los datos de este panel salen del mismo catálogo que consulta
         el orquestador.</p>
@@ -157,7 +157,7 @@
     <div id="conversacion">
       <div class="msg clemente">
         <div class="etiqueta informacion">Clemente</div>
-        Hola, soy Clemente, del restaurante. ¿En qué te ayudo?
+        Hola, soy Clemente, del restaurante. ¿En qué te ayudo? 😊
       </div>
     </div>
 
@@ -198,6 +198,7 @@
       <input id="staff-token" type="password" placeholder="CLEMENTE_HITL_TOKEN" autocomplete="off">
       <button class="staff-recargar" id="staff-recargar" type="button">Cargar pendientes</button>
       <div class="staff-estado" id="staff-estado">Sin autenticar</div>
+      <div class="staff-estado" id="staff-aviso"></div>
       <div id="staff-revisiones"></div>
     </div>
 
@@ -219,6 +220,8 @@ const formulario = document.getElementById('formulario');
 const entrada = document.getElementById('entrada');
 const boton = document.getElementById('enviar');
 let sesionId = null;
+let ultimoAviso = 0;            // ultimo aviso del servidor que ya se mostro (el servidor borra hasta ahi)
+const avisosMostrados = new Set();
 
 fetch('/api/salud').then(r => r.json())
   .then(d => document.getElementById('estado').textContent = `modelo: ${d.modelo}`)
@@ -311,6 +314,30 @@ async function reiniciar() {
 }
 window.chatDemo = {enviar, reiniciar};
 
+/**
+ * Pregunta al servidor si dejo algo para este navegador (la decision del personal sobre una solicitud de grupo o
+ * el cierre del caso en Trello) y lo muestra como un mensaje de Clemente, sin que el cliente tenga que escribir.
+ * `visto` le dice al servidor hasta que numero ya se mostro; un aviso repetido (por ejemplo, si la respuesta anterior
+ * se perdio) se descarta por su numero. Con la pestana oculta no pregunta.
+ */
+async function recogerAvisos() {
+  if (document.hidden) return;
+  try {
+    const r = await fetch(`/api/chat/avisos?visto=${ultimoAviso}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    for (const a of d.avisos || []) {
+      if (!avisosMostrados.has(a.id)) {
+        avisosMostrados.add(a.id);
+        burbuja(a.texto, 'clemente', 'orquestador', '', {tipo: 'escalado', etiqueta: 'Aviso del restaurante'});
+      }
+      ultimoAviso = Math.max(ultimoAviso, a.id);
+    }
+  } catch (e) { /* sin servidor no hay avisos que recoger */ }
+}
+setInterval(recogerAvisos, 4000);
+recogerAvisos();
+
 // El formulario omite entradas vacias y delega el envio sin recargar la pagina.
 formulario.addEventListener('submit', e => {
   e.preventDefault();
@@ -340,6 +367,7 @@ document.querySelectorAll('.ejemplo').forEach(b =>
 
 const staffToken = document.getElementById('staff-token');
 const staffEstado = document.getElementById('staff-estado');
+const staffAviso = document.getElementById('staff-aviso');
 const staffRevisiones = document.getElementById('staff-revisiones');
 
 // El token se recuerda solo mientras la pestaña siga abierta (sessionStorage): al recargar la pagina en
@@ -387,7 +415,7 @@ async function cargarRevisiones() {
   staffEstado.textContent = d.revisiones.length ? `${d.revisiones.length} pendiente(s)` : 'Sin revisiones pendientes';
   d.revisiones.forEach(item => {
     const card = document.createElement('div'); card.className = 'revision-card';
-    const titulo = document.createElement('b'); titulo.textContent = `Sesión ${item.sesion_id}`;
+    const titulo = document.createElement('b'); titulo.textContent = `${item.codigo ? item.codigo + ' · ' : ''}Sesión ${item.sesion_id}`;
     const detalle = document.createElement('div'); detalle.textContent = resumenDeSolicitud(item.solicitud);
     const acciones = document.createElement('div'); acciones.className = 'staff-acciones';
     [['approve','Aprobar','aprobar'],['reject','Rechazar','rechazar']].forEach(([decision,texto,clase]) => {
@@ -403,6 +431,15 @@ async function cargarRevisiones() {
  * Muestra el resultado en este chat si corresponde a su sesion y recarga la cola.
  * El servidor valida el token y la decision; no se confirma una mesa desde el DOM.
  */
+function textoDelAviso(n) {
+  if (!n) return '';
+  const canal = n.canal === 'webchat' ? 'el webchat' : 'WhatsApp';
+  if (n.estado === 'enviado') {
+    return n.canal === 'webchat' ? 'Aviso dejado en el webchat del cliente: le aparece solo.' : 'Aviso enviado al cliente por WhatsApp.';
+  }
+  return 'No se pudo avisar por ' + canal + ': ' + n.motivo + '.';
+}
+
 async function resolverRevision(id, decision) {
   const token = staffToken.value.trim();
   const r = await fetch(`/api/staff/revisiones/${encodeURIComponent(id)}/resolver`, {
@@ -412,10 +449,16 @@ async function resolverRevision(id, decision) {
   const d = await r.json();
   if (!r.ok) { staffEstado.textContent=d.error || 'No se pudo resolver'; return; }
   staffEstado.textContent = decision === 'approve' ? 'Solicitud aprobada' : 'Solicitud rechazada';
+  staffAviso.textContent = textoDelAviso(d.notificacion);
   if (id === sesionId && d.respuesta_cliente) {
-    burbuja(d.respuesta_cliente,'clemente','reservas','decisión del personal',
-      {tipo:decision === 'approve' ? 'escalado' : 'acceso_protegido',
-       etiqueta:decision === 'approve' ? 'Revisión aprobada' : 'Revisión rechazada'});
+    // Si el chat ya recogio este aviso de la bandeja, no se dibuja dos veces.
+    const idAviso = d.notificacion && d.notificacion.aviso_id;
+    if (!idAviso || !avisosMostrados.has(idAviso)) {
+      if (idAviso) { avisosMostrados.add(idAviso); ultimoAviso = Math.max(ultimoAviso, idAviso); }
+      burbuja(d.respuesta_cliente,'clemente','reservas','decisión del personal',
+        {tipo:decision === 'approve' ? 'escalado' : 'acceso_protegido',
+         etiqueta:decision === 'approve' ? 'Revisión aprobada' : 'Revisión rechazada'});
+    }
   }
   cargarRevisiones();
 }

@@ -35,6 +35,7 @@ import io
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path, PurePosixPath
 
 from ...contratos import Fragmento
@@ -45,6 +46,8 @@ CARPETA_INDICE = Path(__file__).parent / "chroma_index"
 EXTENSIONES_ADMITIDAS = {".md", ".txt", ".pdf", ".docx"}
 
 _vector_store = None
+# Dos herramientas del catalogo corren en paralelo y Chroma no admite abrir el mismo directorio dos veces a la vez.
+_candado_indice = threading.Lock()
 
 
 def _leer_documentos_blob() -> list[tuple[str, bytes]]:
@@ -144,7 +147,15 @@ def _cargar_documentos(archivos: list[tuple[str, bytes]] | None = None):
 
 
 def construir_o_cargar_indice(forzar_reindexado: bool = False):
-    """Devuelve la coleccion Chroma, construyendola la primera vez."""
+    """Devuelve la coleccion Chroma, construyendola la primera vez.
+
+    Es seguro llamarla desde varios hilos: el candado evita que dos herramientas abran el mismo directorio a la vez."""
+    with _candado_indice:
+        return _abrir_indice(forzar_reindexado)
+
+
+def _abrir_indice(forzar_reindexado: bool):
+    """Abre (o crea) el indice Chroma y lo indexa si esta vacio; quien la llama ya tiene el candado."""
     global _vector_store
     from langchain_chroma import Chroma
 

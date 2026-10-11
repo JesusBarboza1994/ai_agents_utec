@@ -15,7 +15,7 @@ from flask import current_app, jsonify, render_template, request, session
 
 from ...arranque import en_produccion
 from ...contratos import MensajeEntrante, RespuestaClemente
-from ..services import chat_service, media_service
+from ..services import bandeja_webchat, chat_service, media_service
 
 
 def _estado_ui(respuesta: RespuestaClemente) -> dict:
@@ -120,6 +120,18 @@ def chat_imagen():
         imagenes=[url],
     ))
     return _respuesta_json(respuesta)
+
+
+def avisos():
+    """Avisos que el servidor dejo para este navegador (decision del personal, cierre del caso en Trello).
+
+    La sesion sale de la cookie firmada, nunca del cliente. `visto` es el ultimo numero que el chat ya mostro: se borra
+    hasta ahi y se devuelve lo posterior. Un `visto` que no es un entero valido cuenta como 0."""
+    try:
+        visto = max(int(request.args.get("visto", "0")), 0)
+    except ValueError:
+        visto = 0
+    return jsonify(avisos=bandeja_webchat.recoger(browser_session_id(), visto))
 
 
 def reset(sesion_id: str):

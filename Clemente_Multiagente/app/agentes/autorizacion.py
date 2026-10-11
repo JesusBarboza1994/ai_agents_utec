@@ -16,7 +16,7 @@ from threading import RLock
 
 from . import fecha as reloj
 from ..datos import carpeta_de_datos
-from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
+from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
 ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
@@ -24,11 +24,37 @@ VIGENCIA_SEGUNDOS = 600
 MAX_INTENTOS_CONFIRMO = 5
 _intentos_fallidos: dict[str, int] = {}
 _lock = RLock()
-DENEGADO = "No puedo acceder a esa reserva desde esta conversación. Solicita al restaurante que verifique tu identidad para recuperarla."
+DENEGADO = ("No puedo acceder a esa reserva desde esta conversación, por tu seguridad. Si necesitas recuperarla, "
+            "el restaurante puede verificar tu identidad y ayudarte.")
 # No confirma que exista otra reserva ni da su codigo: quien escribe podria no ser su dueno.
 RESERVA_REPETIDA_DE_OTRA_CONVERSACION = (
     "No pude registrar esa reserva con esos datos. Si ya habías reservado ese turno desde otra conversación, "
-    "solicita al restaurante que verifique tu identidad para recuperarla; si no, prueba con otro horario."
+    "el restaurante puede verificar tu identidad y ayudarte a recuperarla; si no, prueba con otro horario y "
+    "con gusto lo intento de nuevo."
+)
+# Un emoji por texto, al final de una frase, como pide la voz de Clemente (VOZ_CLEMENTE). Solo en lo positivo o neutro:
+# nunca en un rechazo, un error ni un aviso de seguridad.
+EMOJI_DEL_RESUMEN = {"crear": "🍽️", "modificar": "📅", "cancelar": "📅"}
+CIERRE_DE_LA_OPERACION = {
+    "crear": " ¡Te esperamos! 😄",
+    "modificar": " Todo quedó actualizado 👍",
+    "cancelar": " Cuando quieras, te ayudo a reservar de nuevo 😊",
+}
+# Tres motivos distintos por los que un CONFIRMO no se acepta; antes los tres decian "no es valida o vencio".
+SIN_RESUMEN_PENDIENTE = (
+    "No encuentro un resumen pendiente de confirmar: si escribiste otro mensaje después del resumen, se anuló. "
+    "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
+)
+CODIGO_NO_COINCIDE = (
+    "Ese código no coincide con el último resumen. Revisa que hayas copiado el CONFIRMO completo; "
+    "no se hizo ninguna operación."
+)
+RESUMEN_VENCIDO = (
+    "Ese resumen venció (valía 10 minutos). No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
+)
+DEMASIADOS_INTENTOS = (
+    "Hubo demasiados intentos con un código que no coincide, así que cancelé ese resumen por seguridad. "
+    "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
 )
 
 
@@ -153,9 +179,14 @@ def proponer(contexto, accion, datos, servicio):
                 validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
         except ReservaInvalida as err:
             return f"No se preparó la operación: {err}"
+        # El destino de crear o modificar debe caer en el horario de atencion. La hora solo se
+        # revisa si es un turno valido: si no lo es, ya lo rechazo la validacion de arriba.
+        fuera = reloj.fuera_de_horario(fecha, hora if hora in TURNOS_VALIDOS else None)
+        if fuera:
+            return fuera
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
-        resumen = (f"{'Crear reserva' if accion == 'crear' else 'Modificar reserva ' + datos['reserva_id']}: "
+        resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
                    f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora} (hora de Lima), {personas} personas")
         if accion == "crear":
             resumen += f", contacto {datos['telefono']}, zona {datos.get('zona') or 'según disponibilidad'}"
@@ -163,14 +194,14 @@ def proponer(contexto, accion, datos, servicio):
                 resumen += f", observaciones: {datos['notas']}"
     else:
         r = datos["anterior"]
-        resumen = f"Cancelar reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']} (hora de Lima), {r['personas']} personas"
+        resumen = f"Voy a cancelar la reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']} (hora de Lima), {r['personas']} personas"
 
     _intentos_fallidos.pop(sesion, None)
     codigo = _codigo_de_confirmacion()
     with _db() as db:
         db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
                    (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
-    texto = f"{resumen}. Todavía no se realizó la operación. Para autorizarla escribe CONFIRMO {codigo}. Válido durante 10 minutos."
+    texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
     contexto.datos["confirmacion_pendiente"] = texto
     return texto
 
@@ -196,14 +227,17 @@ def confirmar(sesion, texto, servicio):
         with _db() as db:
             db.execute("BEGIN IMMEDIATE")
             fila = db.execute("SELECT codigo, accion, datos, vence FROM propuestas WHERE sesion=?", (sesion,)).fetchone()
-            if not fila or not secrets.compare_digest(fila[0], match[1].upper()) or fila[3] < time.time():
+            coincide = bool(fila) and secrets.compare_digest(fila[0], match[1].upper())
+            if not fila or not coincide or fila[3] < time.time():
                 if fila:
                     _intentos_fallidos[sesion] = _intentos_fallidos.get(sesion, 0) + 1
                     if _intentos_fallidos[sesion] >= MAX_INTENTOS_CONFIRMO:
                         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
                         _intentos_fallidos.pop(sesion, None)
-                        return "Hubo demasiados intentos con un código inválido y la propuesta se canceló. Solicita un nuevo resumen; no se realizó ninguna operación.", {}
-                return "La confirmación no es válida o venció. Solicita un nuevo resumen; no se realizó ninguna operación.", {}
+                        return DEMASIADOS_INTENTOS, {}
+                if not fila:
+                    return SIN_RESUMEN_PENDIENTE, {}
+                return (CODIGO_NO_COINCIDE if not coincide else RESUMEN_VENCIDO), {}
             db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
             _intentos_fallidos.pop(sesion, None)
         _, accion, crudo, _ = fila
@@ -214,7 +248,7 @@ def confirmar(sesion, texto, servicio):
             if not es_propietario(sesion, datos["reserva_id"]):
                 return DENEGADO, {}
             if actual is None or actual.__dict__ != anterior:
-                return "La reserva cambió desde el resumen. Solicita uno nuevo antes de confirmar.", {}
+                return "La reserva cambió desde que te mostré el resumen, así que no la toqué. Pídeme uno nuevo y lo confirmamos.", {}
         try:
             if accion == "crear":
                 r = servicio.crear_reserva(**datos)
@@ -224,7 +258,7 @@ def confirmar(sesion, texto, servicio):
                     # El servicio no creo otra: devolvio una reserva que ya existia (mismo telefono, dia, hora y
                     # personas) y esa ya tiene dueno. A quien la hizo se le dice cual es; a otra conversacion no.
                     if es_propietario(sesion, r.id):
-                        return (f"Ya tenías esta reserva y no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
+                        return (f"Ya tenías esta reserva, así que no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
                                 f"(hora de Lima), {r.personas} personas, zona {r.zona}.",
                                 {"reserva": r.__dict__, "operacion": "ya_existia"})
                     return RESERVA_REPETIDA_DE_OTRA_CONVERSACION, {}
@@ -233,11 +267,12 @@ def confirmar(sesion, texto, servicio):
             else:
                 r = servicio.cancelar_reserva(**datos)
             if r is None:
-                return "No se pudo completar la operación. Solicita revisar la reserva.", {}
+                return "No pude completar la operación. Pídeme revisar la reserva y lo intentamos de nuevo.", {}
         except ReservaInvalida as err:
-            return f"No se pudo completar la operación: {err}", {}
+            return f"No pude completar la operación: {err}", {}
         except ValueError:
-            return "No se pudo completar la operación: la disponibilidad o los datos cambiaron. Solicita un nuevo resumen.", {}
+            return "No pude completar la operación porque la disponibilidad o los datos cambiaron. Pídeme un nuevo resumen y lo vemos.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
-        return (f"Reserva {r.id} {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), {r.personas} personas, zona {r.zona}.",
+        return (f"Listo, tu reserva {r.id} quedó {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), "
+                f"{r.personas} personas, zona {r.zona}.{CIERRE_DE_LA_OPERACION[accion]}",
                 {"reserva": r.__dict__, "operacion": accion})

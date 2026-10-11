@@ -46,6 +46,7 @@ que venia atendiendo, con una regla explicita de continuidad.
 """
 
 import json
+import re
 import sys
 import threading
 import time
@@ -57,6 +58,8 @@ from typing_extensions import TypedDict
 
 from ..agentes import AGENTES
 from ..agentes import autorizacion
+from ..agentes import fecha as reloj
+from ..agentes.prompts import HORARIO_DE_ATENCION, TELEFONO_RESTAURANTE
 from ..reservas import obtener_servicio as servicio_reservas
 from ..agentes.contexto import ContextoConversacion
 from ..contratos import MensajeEntrante, RespuestaClemente
@@ -92,12 +95,46 @@ _ultimo_agente: dict[str, str] = {}
 # dentro del mismo hilo (ver `_escalar`).
 _escalado_de: dict[str, str] = {}
 
+# Caso escalado cuyo pedido el cliente ya retiro con CANCELAR SOLICITUD: sesion_id -> codigo. Evita anotar
+# lo mismo en la tarjeta cada vez que repite el comando; un dato nuevo del cliente vuelve a abrirlo.
+_retirado_de: dict[str, str] = {}
+
+# Paso que se le ofrecio al cliente en el turno anterior porque dependia de otro
+# ("si tienen opciones veganas, reserva"): sesion_id -> {"agente", "tarea"}. Vive un
+# solo turno: el siguiente lo usa si el cliente acepta y se descarta en cualquier caso.
+# En memoria, como `_ultimo_agente`: un reinicio lo pierde y el planificador se guia
+# por el hilo; cualquier operacion igual exige CONFIRMO.
+_pendiente_de: dict[str, dict] = {}
+
 # Revisiones pausadas por HumanInTheLoopMiddleware. El estado detallado del
 # agente vive en su checkpointer; aquí se conserva el contexto de negocio que
 # recibirá la tool cuando el staff reanude el mismo thread_id.
 _revisiones: dict[str, dict] = {}
 # Una revision se resuelve una sola vez: quien la reclama la saca de la cola bajo este candado.
 _lock_revisiones = threading.Lock()
+# Sesiones cuya revision esta reanudando el staff en este momento: su hilo no se toca.
+_resolviendo: set[str] = set()
+
+# Una pausa sin decision del staff vence: el cliente no puede quedar atrapado para siempre.
+VENCIMIENTO_REVISION_SEGUNDOS = 24 * 60 * 60
+
+# Comando exacto, como CONFIRMO, para que el cliente retire una solicitud que espera al staff.
+# Es un comando y no una frase libre para no confundirlo con "cancelar mi reserva".
+COMANDO_CANCELAR = re.compile(r"\s*CANCELAR\s+SOLICITUD\s*[.!]?\s*", re.IGNORECASE)
+SOLICITUD_CANCELADA = "Listo, ya cancelé tu solicitud. Cuando quieras, te ayudo con otra reserva 😊"
+SOLICITUD_CANCELADA_CON_CODIGO = "Listo, ya cancelé tu solicitud {codigo}. Cuando quieras, te ayudo con otra reserva 😊"
+SOLICITUD_EN_RESOLUCION = ("Tu solicitud ya está en manos del equipo del restaurante, que la está resolviendo "
+                           "ahora mismo 🧠 En un momento te cuento qué decidieron.")
+NO_SE_PUDO_CANCELAR = ("Disculpa, no pude cancelar tu solicitud en este momento. Inténtalo de nuevo en unos "
+                       "minutos escribiendo CANCELAR SOLICITUD.")
+PAUSA_SIN_VIGENCIA = ("Tu solicitud anterior al equipo ya no estaba vigente, así que la cerré para que puedas "
+                      "seguir. ¿Me cuentas de nuevo en qué te ayudo? 😊")
+# CANCELAR SOLICITUD cuando no hay una pausa del staff: retira el pedido de hablar con una persona, si lo hay.
+PEDIDO_AL_EQUIPO_RETIRADO = ("Listo, avisé al equipo que ya no necesitas que te atiendan por tu pedido {codigo}. "
+                             "Cuando quieras, aquí estoy 😊")
+NO_SE_PUDO_RETIRAR_EL_PEDIDO = ("Disculpa, no pude avisar al equipo que retiras tu pedido. Puedes decírselo "
+                                f"directamente al restaurante al {TELEFONO_RESTAURANTE}.")
+SIN_SOLICITUD_EN_ESPERA = "No tengo ninguna solicitud tuya en espera. Si quieres, te ayudo con una reserva."
 ARCHIVO_REVISIONES = carpeta_de_datos(Path(__file__).resolve().parent.parent / "agentes" / "datos") / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
@@ -134,6 +171,91 @@ def _guardar_revisiones() -> None:
     temporal.replace(ARCHIVO_REVISIONES)
 
 
+def _es_cancelar_solicitud(texto: str) -> bool:
+    """True si el mensaje es exactamente el comando CANCELAR SOLICITUD (sin importar mayusculas)."""
+    return bool(COMANDO_CANCELAR.fullmatch(texto or ""))
+
+
+def _cancelar_solicitud(sesion_id: str) -> str | None:
+    """Retira la solicitud que espera al staff y libera el hilo; None si no habia ninguna.
+
+    Funciona tambien con una pausa huerfana (hilo pausado sin entrada en la cola). Si el
+    staff la esta resolviendo en este momento no toca nada. Si no se pudo borrar la
+    pausa, la solicitud queda como estaba y se avisa sin anunciar la cancelacion."""
+    from ..agentes import reservas
+
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id in _resolviendo:
+            return SOLICITUD_EN_RESOLUCION
+        if sesion_id not in _revisiones and not reservas.tiene_hilo_guardado(sesion_id):
+            return None
+        if not reservas.liberar_pausa(sesion_id):
+            registrar("error", sesion_id, detalle={"paso": "cancelar_solicitud"})
+            return NO_SE_PUDO_CANCELAR
+        retirada = _revisiones.pop(sesion_id, None)
+    if retirada is not None:
+        _guardar_revisiones()
+    registrar("solicitud_cancelada", sesion_id, agente="reservas",
+              detalle={"estaba_en_cola": retirada is not None})
+    codigo = (retirada or {}).get("codigo")
+    return SOLICITUD_CANCELADA_CON_CODIGO.format(codigo=codigo) if codigo else SOLICITUD_CANCELADA
+
+
+def _retirar_pedido_al_equipo(sesion_id: str) -> str:
+    """CANCELAR SOLICITUD sin pausa del staff: avisa en la tarjeta del pedido de hablar con una persona.
+
+    No cierra la tarjeta: cerrarla es del equipo (la mueve a Resuelto y el cliente recibe el aviso). Deja una
+    nota, una sola vez por pedido. Si la nota no se pudo dejar no se anuncia el retiro; si no hay ningun
+    pedido abierto lo dice, sin llamar al modelo."""
+    codigo = _escalado_de.get(sesion_id) or _escalamiento_previo(sesion_id)
+    if not codigo:
+        return SIN_SOLICITUD_EN_ESPERA
+    _escalado_de[sesion_id] = codigo
+    if _retirado_de.get(sesion_id) != codigo:
+        try:
+            anotada = servicio_incidencias().anotar(
+                codigo, "[el cliente retiró su pedido] Escribió CANCELAR SOLICITUD: ya no necesita que lo atiendan "
+                        "por este caso. Si no hay nada pendiente, se puede cerrar.")
+        except Exception as error:
+            registrar_error(sesion_id, "retirar_pedido", error)
+            anotada = False
+        if not anotada:
+            return NO_SE_PUDO_RETIRAR_EL_PEDIDO
+        _retirado_de[sesion_id] = codigo
+        registrar("pedido_retirado", sesion_id, agente="orquestador", detalle={"incidencia": codigo})
+    return PEDIDO_AL_EQUIPO_RETIRADO.format(codigo=codigo)
+
+
+def _liberar_pausa_sin_vigencia(sesion_id: str) -> str | None:
+    """Libera un hilo pausado cuya solicitud ya no puede resolverse; devuelve el texto para el cliente o None.
+
+    Dos casos: la solicitud ya no esta en la cola (alguien reinicio la sesion o se
+    perdio el archivo), o lleva mas de VENCIMIENTO_REVISION_SEGUNDOS sin decision. A
+    una solicitud guardada antes de existir el vencimiento se le pone la hora de hoy."""
+    from ..agentes import reservas
+
+    ahora = time.time()
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id in _resolviendo:
+            return None
+        pendiente = _revisiones.get(sesion_id)
+        if pendiente is not None and "creada" not in pendiente:
+            pendiente["creada"] = ahora
+            _guardar_revisiones()
+            return None
+        if pendiente is not None and ahora - pendiente["creada"] < VENCIMIENTO_REVISION_SEGUNDOS:
+            return None
+        if not reservas.liberar_pausa(sesion_id):
+            return None
+        _revisiones.pop(sesion_id, None)
+        _guardar_revisiones()
+    registrar("pausa_liberada", sesion_id, agente="reservas",
+              detalle={"motivo": "vencida" if pendiente is not None else "huerfana"})
+    return PAUSA_SIN_VIGENCIA
+
+
 class EstadoConversacion(TypedDict, total=False):
     """
     Estado compartido que viaja por el grafo.
@@ -149,23 +271,62 @@ class EstadoConversacion(TypedDict, total=False):
     ultimo_agente: str
     contexto: ContextoConversacion
 
+    tarea_ofrecida: dict     # paso que se le ofrecio al cliente el turno anterior, si lo hay
+
     # --- lo que produce el planificador ---
     plan: list[str]          # pasos en orden, p. ej. ["incidencias", "reservas"]
+    tareas: list[str]        # una tarea por paso, alineada con `plan` ("" = sin tarea)
     paso: int                # cual de esos pasos toca ahora
     motivo_ruta: str
     pendientes: list[str]    # temas que el tope de pasos dejo sin atender
+    accion: str              # delegar | escalar_humano | responder_directo
+    respuesta_directa: str   # texto del planificador cuando no hace falta un agente
+    entendimiento: str
+    restricciones: list[str]
+    datos_resueltos: dict
+    diferido: dict           # paso que depende del primero: se ofrece, no se ejecuta
 
     # --- lo que producen los nodos de trabajo ---
     respuestas: list[dict]   # [{"agente": "reservas", "texto": "..."}]
 
     # --- lo que arma el cierre ---
-    ruta: str                # agente que cierra el turno (para metricas y UI)
+    ruta: str                # componente que respondio el turno (para metricas y UI)
+    continuar_con: str       # componente que atiende el proximo mensaje (continuidad)
     respuesta: str           # texto unico que ve el cliente
 
 
-class PlanDeResolucion(BaseModel):
-    """Salida forzada del planificador: a quien llamar y en que orden."""
+Restriccion = Literal[
+    "dia_cerrado", "fuera_de_horario", "grupo_grande", "pide_humano",
+    "reclamo", "condicional", "fuera_de_alcance",
+]
 
+
+class DatosResueltos(BaseModel):
+    """Datos del pedido que el planificador ya pudo fijar con el hilo y el calendario.
+
+    Viajan en la tarea del componente; las herramientas los vuelven a validar."""
+
+    fecha: str | None = Field(None, description="Fecha en formato AAAA-MM-DD, si se sabe")
+    dia: str | None = Field(None, description="Dia de la semana de esa fecha")
+    hora: str | None = Field(None, description="Hora en formato HH:MM, si se sabe")
+    personas: int | None = Field(None, description="Numero de personas, si se sabe")
+
+
+class PlanDeResolucion(BaseModel):
+    """Salida forzada del planificador: que entendio, que decide y a quien delega.
+
+    Los campos nuevos son opcionales con valor por defecto None A PROPOSITO: en Azure la
+    salida estructurada es estricta y el SDK de OpenAI solo quita del esquema los valores
+    por defecto None; uno como [] o "delegar" podria hacer que Azure rechace cada llamada.
+    El codigo interpreta None como el valor por defecto. `pasos` y `motivo` siguen siendo
+    obligatorios, asi que `PlanDeResolucion(pasos=[...], motivo=...)` funciona como antes."""
+
+    entendimiento: str | None = Field(None, description="Que pide el cliente, en maximo 15 palabras")
+    datos_resueltos: DatosResueltos | None = Field(None, description="Fecha, hora y personas ya fijadas")
+    restricciones: list[Restriccion] | None = Field(None, description="Restricciones que aplican al pedido")
+    accion: Literal["delegar", "escalar_humano", "responder_directo"] | None = Field(
+        None, description="Como se atiende el mensaje",
+    )
     pasos: list[Literal["informacion", "reservas", "incidencias"]] = Field(
         ...,
         description=(
@@ -176,56 +337,96 @@ class PlanDeResolucion(BaseModel):
             "promociones). 'reservas': quiere consultar disponibilidad, reservar, "
             "cambiar o cancelar una mesa, o pregunta por una reserva suya. "
             "'incidencias': se queja de algo que YA ocurrio (espera, mal servicio, un "
-            "plato, una reserva que no aparecio, un reclamo sin respuesta)."
+            "plato, una reserva que no aparecio, un reclamo sin respuesta). Vacio si la "
+            "accion no es delegar."
         ),
     )
+    tareas: list[str] | None = Field(None, description="Una tarea por paso, en el mismo orden")
+    depende_del_anterior: bool | None = Field(
+        None, description="True si el segundo paso depende de la respuesta del primero",
+    )
+    respuesta_directa: str | None = Field(None, description="Solo si la accion es responder_directo")
     motivo: str = Field(..., description="Una frase corta explicando el plan")
 
 
-PROMPT_PLANIFICADOR = """Eres el orquestador de un restaurante. No le respondes al cliente:
-armas el plan de resolucion del ULTIMO mensaje y nada mas.
+PROMPT_PLANIFICADOR = f"""Eres el orquestador de Clemente, restaurante en Barranco. No conversas con
+el cliente: decides como se atiende su ULTIMO mensaje. Recibes el hilo reciente, el componente
+que venia atendiendo, la tarea que se le ofrecio al cliente en el turno anterior (si la hay), la
+fecha de Lima con los proximos dias y este horario:
 
-Devuelves los pasos en el orden en que hay que atenderlos. Lo normal es UN paso.
+{HORARIO_DE_ATENCION}
 
-Cuando son dos: el mensaje trae dos pedidos distintos y atender solo uno dejaria al
-cliente sin respuesta a la mitad de lo que escribio. El caso tipico es la queja que
-termina pidiendo una mesa: primero 'incidencias', despues 'reservas'. Lo que ya salio
-mal se atiende antes que lo que viene. Si el cliente pregunta un dato general y ademas
-quiere reservar, primero 'informacion' y despues 'reservas': el dato puede cambiar lo
-que quiera reservar.
+Componentes:
+- informacion: datos generales del restaurante (horarios, direccion, carta, estacionamiento,
+  opciones vegetarianas, politicas, promociones). Solo consulta.
+- reservas: disponibilidad, reservar, modificar, cancelar o ver reservas propias; guarda los
+  datos personales que el cliente cuenta.
+- incidencias: reclamos por algo que ya ocurrio y consulta de reclamos anteriores.
 
-Nunca pongas dos veces el mismo paso, y nunca pongas mas de dos. Si el mensaje trae mas
-temas de los que caben en dos pasos, atiende los dos mas importantes y escribe en `motivo`
-la palabra PENDIENTE: seguida de lo que quedo fuera, para que el cliente sepa que falta.
+1. Entiende. En `entendimiento`, maximo 15 palabras. En `datos_resueltos`, la fecha (AAAA-MM-DD
+   y su dia), la hora y las personas que esten en el mensaje o en el hilo. Convierte "el lunes" o
+   "manana" con el calendario que recibes, nunca de memoria. Si dudas, dejalo vacio.
 
-REGLA DE CONTINUIDAD, tan importante como las anteriores: la conversacion es un hilo.
-Si el ultimo mensaje es una continuacion de lo que se venia hablando -- responde a una
-pregunta que hizo Clemente, aporta un dato suelto (un nombre, un telefono, una fecha, un
-numero de personas, un codigo de reserva, un si o un no) o insiste en lo mismo --, el
-plan es UN solo paso: el MISMO agente que venia atendiendo. Un dato suelto no cambia de
-tema, lo completa. Solo cambias de agente si aparece una senal clara de otro alcance.
+2. Marca en `restricciones` las que apliquen:
+   - dia_cerrado o fuera_de_horario: una reserva nueva o un cambio de reserva cae fuera del
+     horario, sumando lo dicho antes en el hilo. Ver o cancelar una reserva existente no tiene
+     esta restriccion.
+   - grupo_grande: mas de 8 personas.
+   - pide_humano: pide hablar con una persona, o acepta una oferta de Clemente de dejar su
+     pedido al equipo. NO es pide_humano el pedido de mesa de un grupo de mas de 8 personas,
+     aunque diga "envialo al equipo" o "que lo vea el equipo": ese pedido es de 'reservas', que
+     lo lleva al equipo con su propia herramienta (accion delegar).
+   - reclamo: se queja de algo que ya ocurrio.
+   - condicional: un pedido depende de la respuesta a otro ("si si", "si se puede").
+   - fuera_de_alcance: algo que no es del restaurante.
 
-Un pedido de mesa (reservar, cambiar o cancelar una reserva, ver las reservas propias) SIEMPRE
-lleva el paso 'reservas', aunque el mismo mensaje traiga ademas algo que no es del restaurante:
-'informacion' no puede reservar ni confirmar nada y dejaria al cliente sin su mesa. Lo que no es
-del restaurante (un examen, una ecuacion, un poema) NO es un paso: no lo mandes a 'informacion'
-ni a ningun agente; el agente que atiende el pedido de mesa lo declina en una frase.
+3. Elige `accion`, la primera que aplique:
+   a. escalar_humano: pide_humano sin reclamo. Si hay reclamo, delega a incidencias: el caso que
+      registra es lo que ve el equipo.
+   b. responder_directo: el mensaje es SOLO un saludo, un agradecimiento, una despedida o algo
+      fuera de alcance, sin ningun pedido del restaurante. Escribe `respuesta_directa` en una o
+      dos frases con la voz de Clemente: calida, tuteando con respeto, y cierra con un solo
+      emoji al final (😊 al saludar, agradecer o despedirte; 🍽️ o 📅 si ofreces la carta o una
+      reserva). Si es fuera de alcance, declinalo y ofrece lo que si hace Clemente. Un saludo
+      junto a un pedido NO es respuesta directa.
+   c. delegar: todo lo demas.
 
-Cuando el cliente cuenta algo suyo sin preguntar nada -- su nombre, un telefono de contacto,
-una mascota, su cumpleanos -- es un dato para su ficha: va a 'reservas', que es quien lo guarda,
-incluso si venia hablando con 'informacion'. Si ademas pregunta por una politica (por ejemplo
-si puede ir con su mascota), primero 'informacion' y despues 'reservas'.
-
-IMAGENES: si el mensaje trae una imagen (lo indica la linea "[El cliente adjunto ...]") o
-pregunta por una imagen reciente del hilo ("[imagen del cliente] ..."), decides por lo que el
-cliente quiere hacer con ella, no por el agente que venia atendiendo; esta regla le gana a la
+4. Si delegas, arma `pasos` con los nombres de los componentes (uno o dos; nunca el mismo dos
+   veces) y `tareas`, una por paso y en el mismo orden.
+   - Cada tarea: una o dos frases con la parte del mensaje que atiende ese componente, los datos
+     resueltos y las restricciones que lo afectan. Ejemplo: "Reserva para 10 el lunes
+     2026-10-12. El restaurante no atiende los lunes: ofrecele otro dia antes de pedir datos."
+   - Orden: lo que ya salio mal va antes que lo que viene; una pregunta que condiciona una
+     reserva va antes de la reserva.
+   - Si el segundo paso depende de la respuesta del primero, marca `depende_del_anterior`: ese
+     paso no se hace en este turno, se le ofrece al cliente.
+   - Tarea ofrecida en el turno anterior: si el cliente la acepta ("si", "dale", "ok"), un solo
+     paso con ese componente y esa tarea. Si la rechaza o cambia de tema, ignorala y planifica
+     el mensaje nuevo. Si no hay tarea ofrecida y no queda claro que acepta, la tarea del paso es
+     pedirle que aclare.
+   - Continuidad: si el mensaje completa lo que se venia hablando (un dato suelto, un nombre, un
+     telefono, una fecha, un codigo, un si o un no), un solo paso con el componente que venia
+     atendiendo. Cambia solo ante una senal clara de otro alcance o ante pide_humano.
+   - Un pedido de mesa (reservar, cambiar o cancelar una reserva, ver las reservas propias)
+     SIEMPRE lleva el paso 'reservas', aunque el mensaje traiga algo que no es del restaurante.
+     Lo que no es del restaurante NO es un paso: el agente que atiende el pedido de mesa lo
+     declina en una frase.
+   - Cuando el cliente cuenta algo suyo sin preguntar nada (su nombre, un telefono, una mascota,
+     su cumpleanos), es un dato para su ficha: va a 'reservas', que es quien lo guarda, incluso
+     si venia hablando con 'informacion'. Si ademas pregunta por una politica (por ejemplo, si
+     puede ir con su mascota), primero 'informacion' y despues 'reservas'.
+   - IMAGENES: si el mensaje trae una imagen (lo indica la linea "[El cliente adjunto ...]") o
+     pregunta por una imagen reciente del hilo ("[imagen del cliente] ..."), decides por lo que
+     el cliente quiere hacer con ella, no por el componente que venia atendiendo; esta regla le gana a la
 de continuidad. Si muestra algo que salio mal (un plato, la cuenta, el local) es 'incidencias';
-si pregunta que es, como es el local o la compara con el restaurante, es 'informacion'; solo
-es 'reservas' si la usa para su reserva. Una imagen ajena al restaurante va a 'informacion'.
+     si pregunta que es, como es el local o la compara con el restaurante, es 'informacion'; solo
+     es 'reservas' si la usa para su reserva. Una imagen ajena al restaurante va a 'informacion'.
+   - Si hay mas temas de los que caben en dos pasos, atiende los dos mas importantes y escribe
+     en `motivo` la palabra PENDIENTE: seguida de lo que quedo fuera.
+   - Ante la duda entre informacion y reservas, sin hilo previo, elige 'informacion'.
 
-Ante la duda entre informacion y reserva, y sin hilo previo, elige 'informacion':
-responder de mas sobre horarios cuesta una aclaracion; comprometer una mesa que no
-existe cuesta un cliente parado en la puerta."""
+`motivo`: una frase corta. Nunca afirmes disponibilidad, codigos ni politicas: eso lo resuelven
+los componentes con sus herramientas."""
 
 
 PROMPT_SINTESIS = """Une estos mensajes de Clemente en UNO solo, como si siempre hubiera
@@ -249,7 +450,7 @@ _grafo = None
 # sin ellas al lado de una suya delata que hay dos autores. Se noto en el
 # experimento del 2026-09-08: "Tu codigo de caso es..." pegado despues de
 # "La mesa todavia no esta confirmada" escrito por el agente.
-SIN_MENSAJE = "No me llegó ningún mensaje. Escribime qué necesitás y te ayudo."
+SIN_MENSAJE = "Parece que tu mensaje llegó vacío. Cuéntame qué necesitas y con gusto te ayudo 😊"
 
 
 def _sesion_de(estado: EstadoConversacion) -> str:
@@ -324,38 +525,77 @@ def _limpiar_plan(pasos: list[str]) -> list[str]:
     return vistos[:PASOS_MAXIMOS]
 
 
+def _normalizar_pasos(pasos: list[str], tareas: list[str] | None = None) -> list[tuple[str, str]]:
+    """Pasos ejecutables con su tarea: sin repetidos, sin desconocidos, con tope y SIN separar paso y tarea.
+
+    Cada tarea se une a su paso por la posicion que trajo el modelo ANTES de limpiar;
+    asi descartar un repetido o recortar el plan nunca le pasa a un componente la
+    tarea de otro. Si faltan tareas, el paso queda con tarea vacia (corre como antes);
+    las tareas sobrantes se ignoran."""
+    tareas = list(tareas or [])
+    pares: list[tuple[str, str]] = []
+    vistos: set[str] = set()
+    for indice, paso in enumerate(pasos or []):
+        if paso not in NODOS or paso in vistos:
+            continue
+        vistos.add(paso)
+        tarea = tareas[indice] if indice < len(tareas) else ""
+        pares.append((paso, str(tarea or "").strip()))
+    return pares[:PASOS_MAXIMOS]
+
+
+def _texto_de_datos(datos: dict) -> str:
+    """Datos resueltos en una linea para la tarea ("fecha 2026-10-12 (lunes), hora 20:00, personas 10")."""
+    partes = []
+    if datos.get("fecha"):
+        dia = f" ({datos['dia']})" if datos.get("dia") else ""
+        partes.append(f"fecha {datos['fecha']}{dia}")
+    if datos.get("hora"):
+        partes.append(f"hora {datos['hora']}")
+    if datos.get("personas"):
+        partes.append(f"personas {datos['personas']}")
+    return ", ".join(partes)
+
+
 # ------------------------------- nodos -------------------------------------
 
 def _nodo_planificador(estado: EstadoConversacion) -> dict:
-    """Calcula el plan ordenado de resolucion del turno y devuelve la actualizacion del estado.
+    """Decide como se atiende el turno: entiende, marca restricciones, elige accion y delega con tareas.
 
-    Lee mensaje, historial, ultimo_agente y sesion_id. Solicita al modelo
-    PlanDeResolucion, elimina pasos repetidos o desconocidos y limita el plan
-    a PASOS_MAXIMOS. Escribe plan, paso=0, motivo_ruta y respuestas=[]; registra
-    el plan para auditoria, sin responder al cliente ni ejecutar herramientas.
+    Lee mensaje, historial, ultimo_agente, tarea_ofrecida y sesion_id, y recibe el
+    calendario de Lima. Pide al modelo PlanDeResolucion y lo normaliza en codigo:
+    pasos con su tarea (sin repetidos, con tope), un segundo paso dependiente se
+    difiere (se ofrece, no se ejecuta), y escalar_humano marca el escalamiento para
+    que lo abra el cierre. No responde al cliente ni ejecuta herramientas.
 
     Sin mensaje devuelve un plan vacio para ir al cierre sin llamar al modelo.
     Si falla la invocacion o procesamiento de la decision, usa ultimo_agente
-    o informacion y registra el error. La construccion del modelo ocurre
+    o informacion sin tarea y registra el error. La construccion del modelo ocurre
     antes del try: sus errores se propagan al llamador."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     mensaje = _mensaje_de(estado)
-    contexto = estado.get("contexto")
-    imagenes = contexto.imagenes if contexto else []
+    sesion = _sesion_de(estado)
+    contexto = estado.get("contexto") or ContextoConversacion(sesion_id=sesion, canal="studio")
+    imagenes = contexto.imagenes
     if not mensaje and not imagenes:
         # Sin texto ni imagen no hay nada que planificar, y llamar al modelo seria
         # gastar por nada. El plan vacio cae directo al cierre.
-        registrar("plan", _sesion_de(estado),
-                  detalle={"plan": [], "motivo": "turno sin texto"})
-        return {"plan": [], "paso": 0, "motivo_ruta": "turno sin texto", "pendientes": [], "respuestas": []}
+        registrar("plan", sesion, detalle={"plan": [], "motivo": "turno sin texto"})
+        return {"plan": [], "tareas": [], "paso": 0, "motivo_ruta": "turno sin texto",
+                "pendientes": [], "respuestas": [], "accion": "delegar", "contexto": contexto}
 
     venia_de = estado.get("ultimo_agente") or "ninguno"
+    ofrecida = estado.get("tarea_ofrecida") or {}
     entrada = (
+        f"{reloj.calendario_para_planificador()}\n\n"
         f"Conversacion previa:\n{_resumen_del_hilo(estado.get('historial') or [])}\n\n"
         f"Agente que venia atendiendo: {venia_de}\n\n"
-        f"ULTIMO MENSAJE DEL CLIENTE (el que hay que planificar):\n{mensaje or '(sin texto)'}"
     )
+    if ofrecida.get("agente"):
+        entrada += (f"Tarea ofrecida en el turno anterior: {ofrecida['agente']} -- "
+                    f"{ofrecida.get('tarea') or 'continuar con lo que se venia hablando'}\n\n")
+    entrada += f"ULTIMO MENSAJE DEL CLIENTE (el que hay que planificar):\n{mensaje or '(sin texto)'}"
     if imagenes:
         # El planificador no mira la imagen (es texto y barato); solo sabe que
         # existe. El agente elegido es el que la recibe y la ve.
@@ -365,28 +605,92 @@ def _nodo_planificador(estado: EstadoConversacion) -> dict:
         PlanDeResolucion
     )
     pendientes: list[str] = []
+    entendimiento, restricciones, datos, respuesta_directa = "", [], {}, ""
+    diferido: dict = {}
     try:
         decision = modelo.invoke([
             SystemMessage(content=PROMPT_PLANIFICADOR),
             HumanMessage(content=entrada),
         ])
-        plan, motivo = _limpiar_plan(decision.pasos), decision.motivo
-        pendientes = _pendientes_de(decision.pasos, plan, motivo)
+        motivo = decision.motivo
+        accion = decision.accion or "delegar"
+        entendimiento = (decision.entendimiento or "").strip()
+        restricciones = list(decision.restricciones or [])
+        if decision.datos_resueltos is not None:
+            datos = decision.datos_resueltos.model_dump(exclude_none=True)
+        respuesta_directa = (decision.respuesta_directa or "").strip()
+        if accion == "responder_directo" and not respuesta_directa:
+            # Sin texto no hay respuesta directa: se atiende como un pedido mas.
+            accion = "delegar"
+        pares: list[tuple[str, str]] = []
+        if accion == "delegar":
+            pares = _normalizar_pasos(decision.pasos, decision.tareas)
+            pendientes = _pendientes_de(decision.pasos, [paso for paso, _ in pares], motivo)
+            if (len(pares) == 1 and not pares[0][1] and ofrecida.get("agente") == pares[0][0]):
+                # Acepto lo que se le ofrecio: si el modelo no copio la tarea, se usa la guardada.
+                pares = [(pares[0][0], ofrecida.get("tarea") or "")]
+            if decision.depende_del_anterior and len(pares) == 2:
+                # La condicion no se puede acreditar en codigo: el paso dependiente no se
+                # ejecuta en este turno, se le ofrece al cliente.
+                diferido = {"agente": pares[1][0], "tarea": pares[1][1]}
+                pares = pares[:1]
     except Exception as error:
         # Un planificador caido no puede tumbar la conversacion: se cae al agente
         # que venia atendiendo, y si no habia, al mas barato de equivocarse.
-        plan = [estado.get("ultimo_agente") or "informacion"]
-        registrar_error(_sesion_de(estado), "planificacion", error)
+        accion = "delegar"
+        pares = [(estado.get("ultimo_agente") or "informacion", "")]
+        registrar_error(sesion, "planificacion", error)
         motivo = "fallback por error de planificacion"
 
-    if not plan:
-        plan, motivo = ["informacion"], f"{motivo} (plan vacio, se atiende como consulta)"
+    plan = [paso for paso, _ in pares]
+    tareas = [tarea for _, tarea in pares]
+    if accion == "delegar" and not plan:
+        plan, tareas = ["informacion"], [""]
+        motivo = f"{motivo} (plan vacio, se atiende como consulta)"
+    if accion == "escalar_humano":
+        # El escalamiento lo abre el cierre, como cuando lo pide un agente.
+        contexto.escalado = True
+        contexto.datos["escalamiento"] = {
+            "origen": "orquestador",
+            "motivo": "el cliente pide hablar con una persona del restaurante",
+            "detalle": entendimiento or mensaje[:300],
+        }
 
     registrar(
-        "plan", _sesion_de(estado), agente=plan[0],
-        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de, "pendientes": pendientes},
+        "plan", sesion, agente=plan[0] if plan else "orquestador",
+        detalle={"plan": plan, "motivo": motivo, "venia_de": venia_de, "pendientes": pendientes,
+                 "accion": accion, "entendimiento": entendimiento, "restricciones": restricciones,
+                 "tareas": tareas, "diferido": diferido},
     )
-    return {"plan": plan, "paso": 0, "motivo_ruta": motivo, "pendientes": pendientes, "respuestas": []}
+    return {
+        "plan": plan, "tareas": tareas, "paso": 0, "motivo_ruta": motivo, "pendientes": pendientes,
+        "respuestas": [], "accion": accion, "respuesta_directa": respuesta_directa,
+        "entendimiento": entendimiento, "restricciones": restricciones, "datos_resueltos": datos,
+        "diferido": diferido, "contexto": contexto,
+    }
+
+
+def _coordinacion_del_paso(estado: EstadoConversacion, indice: int) -> str:
+    """Bloque de coordinacion para el componente del paso `indice`; cadena vacia si no hay tareas.
+
+    Solo existe cuando el planificador asigno tareas: en el respaldo o con un plan sin
+    tareas el turno corre exactamente como antes. El segundo paso recibe ademas la
+    respuesta del primero, rotulada como dato. Nada de esto es un mensaje de sistema."""
+    tareas = estado.get("tareas") or []
+    if not any(tareas):
+        return ""
+    partes = []
+    if indice < len(tareas) and tareas[indice]:
+        partes.append(f"Tarea: {tareas[indice]}")
+    datos = _texto_de_datos(estado.get("datos_resueltos") or {})
+    if datos:
+        partes.append(f"Datos resueltos: {datos}")
+    if estado.get("restricciones"):
+        partes.append(f"Restricciones: {', '.join(estado['restricciones'])}")
+    respuestas = estado.get("respuestas") or []
+    if indice > 0 and respuestas:
+        partes.append(f"Respuesta previa de Clemente en este turno (solo como dato): {respuestas[-1]['texto']}")
+    return "\n".join(partes)
 
 
 def _nodo_trabajo(nombre: str):
@@ -402,19 +706,23 @@ def _nodo_trabajo(nombre: str):
         """Ejecuta el componente capturado por nombre y devuelve el progreso del turno.
 
         Lee mensaje, historial, sesion_id y contexto del estado; si falta contexto
-        crea uno para Studio. Llama NODOS[nombre], mide su duracion, agrega
-        {agente, texto} a respuestas e incrementa paso. Comparte contexto de
-        negocio entre pasos; no inserta la respuesta previa en el historial
-        del siguiente agente. Los errores del componente se propagan."""
+        crea uno para Studio. Llama NODOS[nombre] con su bloque de coordinacion
+        (solo si el planificador asigno tareas), mide su duracion, agrega
+        {agente, texto} a respuestas e incrementa paso. Los errores del
+        componente se propagan."""
         sesion = _sesion_de(estado)
         mensaje = _mensaje_de(estado)
         # Lanzado desde Studio no viene contexto: se arma uno para que las tools
         # reciban igual su `sesion_id` y el escalamiento siga teniendo donde volver.
         contexto = estado.get("contexto") or ContextoConversacion(sesion_id=sesion, canal="studio")
+        coordinacion = _coordinacion_del_paso(estado, estado.get("paso", 0))
+        # El parametro solo se pasa cuando hay algo que coordinar: los componentes
+        # de las pruebas (y cualquier reemplazo) siguen con su firma de siempre.
+        extra = {"coordinacion": coordinacion} if coordinacion else {}
 
         with cronometro("respuesta", sesion, agente=nombre):
             texto = NODOS[nombre](
-                mensaje, sesion, estado.get("historial") or [], contexto=contexto,
+                mensaje, sesion, estado.get("historial") or [], contexto=contexto, **extra,
             )
 
         return {
@@ -428,16 +736,34 @@ def _nodo_trabajo(nombre: str):
     return nodo
 
 
-def _siguiente(estado: EstadoConversacion) -> str:
-    """Selecciona la transicion condicional usando plan y paso, sin llamar al modelo.
+def _debe_detenerse(contexto) -> bool:
+    """True si el turno no debe seguir con otro componente despues del paso actual.
 
-    Devuelve plan[paso] mientras queden pasos y no se supere PASOS_MAXIMOS;
-    en otro caso devuelve cierre. No modifica el estado. El plan debe estar
-    normalizado por _limpiar_plan antes de llegar a esta funcion.
-    """
+    Se detiene ante una revision humana pendiente, un hilo que ya estaba pausado,
+    un acceso denegado o una operacion preparada que espera CONFIRMO. No usa el modelo."""
+    if contexto is None:
+        return False
+    datos = contexto.datos
+    revision = datos.get("revision_humana") or {}
+    return bool(
+        revision.get("estado") == "pendiente"
+        or datos.get("hilo_en_revision")
+        or datos.get("guardrail_autorizacion")
+        or datos.get("confirmacion_pendiente")
+    )
+
+
+def _siguiente(estado: EstadoConversacion) -> str:
+    """Selecciona la transicion condicional usando plan, paso y estado del turno, sin llamar al modelo.
+
+    Devuelve plan[paso] mientras queden pasos y no se supere PASOS_MAXIMOS; antes de
+    un segundo paso revisa _debe_detenerse y, si corresponde, va al cierre. No
+    modifica el estado: lo que quedo sin atender lo avisa el cierre."""
     plan = estado.get("plan") or []
     paso = estado.get("paso", 0)
     if paso < len(plan) and paso < PASOS_MAXIMOS:
+        if paso > 0 and _debe_detenerse(estado.get("contexto")):
+            return "cierre"
         return plan[paso]
     return "cierre"
 
@@ -493,7 +819,8 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     Se detecto en el experimento del 2026-09-08.
 
     El dato del segundo turno no se pierde: entra como nota en la tarjeta que ya
-    existe, que es donde la persona que atiende lo va a leer.
+    existe, que es donde la persona que atiende lo va a leer. Un pedido de hablar
+    con una persona (origen orquestador) se registra con tipo "otro": no es de mesa.
     """
     servicio = servicio_incidencias()
     detalle = f"{escalamiento.get('motivo', '')}: {escalamiento.get('detalle', '')}"
@@ -501,92 +828,131 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     abierto = _escalado_de.get(sesion) or _escalamiento_previo(sesion)
     if abierto:
         _escalado_de[sesion] = abierto
+        _retirado_de.pop(sesion, None)
         if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
             raise RuntimeError("No se pudo actualizar el caso existente")
         contexto.datos["incidencia"] = {"id": abierto, "actualizada": True}
         return abierto
 
+    origen = escalamiento.get("origen", "agente")
+    # La solicitud de un grupo grande ya tiene su G-XXXXXX desde que se pauso: la tarjeta lo conserva.
+    codigo_grupo = contexto.datos.get("codigo_grupo") if origen == "reservas_hitl" else None
     incidencia = servicio.crear_incidencia(
         sesion_id=sesion,
         descripcion=(
-            f"[escalado desde {escalamiento.get('origen', 'agente')}] {detalle}\n"
+            f"[escalado desde {origen}] {detalle}\n"
             f"Mensaje del cliente: {mensaje}"
         ),
-        tipo="reserva",
+        tipo="otro" if origen == "orquestador" else "reserva",
+        **({"codigo": codigo_grupo} if codigo_grupo else {}),
     )
     _escalado_de[sesion] = incidencia.id
     contexto.datos["incidencia"] = incidencia.__dict__
     return incidencia.id
 
 
+# Textos fijos del cierre. Tutean, como el resto de textos que escribe el codigo.
+ESCALAMIENTO_HUMANO = ("Gracias por escribirnos. Dejé tu pedido para hablar con una persona del restaurante con "
+                       "el código {codigo}; el equipo lo va a revisar 😊")
+# En el webchat el caso no lleva el telefono del cliente (en WhatsApp si, es su numero): el equipo no puede
+# escribirle, asi que se le da el del restaurante por si es urgente.
+ESCALAMIENTO_HUMANO_WEBCHAT = ("Gracias por escribirnos. Dejé tu pedido para hablar con una persona del restaurante con "
+                               "el código {codigo}; el equipo lo va a revisar. "
+                               f"Si es urgente, también puedes llamar al {TELEFONO_RESTAURANTE} 😊")
+ESCALAMIENTO_HUMANO_FALLIDO = ("Disculpa, no pude registrar tu pedido. Puedes comunicarte directamente con el "
+                               f"restaurante al {TELEFONO_RESTAURANTE}.")
+ESCALAMIENTO_RESERVA = ("Dejé tu solicitud registrada con el código {codigo} para que el equipo del restaurante "
+                        "la revise. La mesa todavía no está confirmada; apenas haya novedades te avisamos por aquí 😊")
+# Solo cuando el personal APROBO la solicitud de un grupo grande (origen reservas_hitl): ahi si es cierto que la aceptó.
+ESCALAMIENTO_RESERVA_APROBADA = ("¡Buenas noticias! El equipo aceptó tu solicitud {codigo} y ya la está coordinando. "
+                                 "La mesa todavía no está confirmada; apenas esté lista te avisamos por aquí 🍽️")
+ESCALAMIENTO_RESERVA_FALLIDO = ("Disculpa, no pude dejar tu caso registrado para el restaurante, y todavía no hay "
+                                "una mesa confirmada. Por favor comunícate directamente con el restaurante al "
+                                f"{TELEFONO_RESTAURANTE}.")
+OFERTA_DIFERIDO = "Si con esa información quieres seguir con {tema}, avísame y lo vemos juntos."
+
+
 def _nodo_cierre(estado: EstadoConversacion) -> dict:
     """
     Construye la respuesta final del recorrido del grafo y gestiona escalamiento.
 
-    Lee respuestas, sesion_id, mensaje y contexto. Devuelve respuesta, ruta
-    y contexto; la ruta conserva el ultimo componente que atendio el turno.
-    Sin respuestas devuelve SIN_MENSAJE. Si hay confirmacion_pendiente usa
-    el resumen del servidor en lugar del texto de reservas; en otro caso
-    sintetiza las respuestas con _sintetizar.
+    Orden: respuesta directa del planificador; pedido de hablar con una persona
+    (el texto lo arma el escalamiento); sin respuestas, SIN_MENSAJE; con
+    respuestas, el resumen del servidor si hay confirmacion_pendiente o la
+    sintesis. Despues el escalamiento (texto y tipo segun su origen), la oferta del
+    paso diferido y el aviso de lo que quedo sin atender.
 
-    Si contexto solicita escalamiento, _escalar crea o actualiza el caso y
-    registra la traza. Sustituye promesas del modelo por el codigo devuelto,
-    sin confirmar una mesa. Si falla, devuelve un aviso y desactiva escalado.
+    Devuelve respuesta, ruta (quien respondio, para metricas y UI), continuar_con
+    (quien atiende el proximo mensaje: el componente diferido, si lo hay) y
+    contexto. La ruta siempre es un componente real, nunca "orquestador": el
+    respaldo ante un error del planificador la usa como nombre de nodo.
     Un codigo local no acredita entrega a Trello o notificacion al personal.
     La validacion de salida del canal se ejecuta despues, en _atender.
     """
     sesion = _sesion_de(estado)
     respuestas = estado.get("respuestas") or []
     contexto = estado.get("contexto") or ContextoConversacion(sesion_id=sesion, canal="studio")
+    accion = estado.get("accion") or "delegar"
+    diferido = estado.get("diferido") or {}
 
-    if not respuestas:
-        return {"respuesta": SIN_MENSAJE, "ruta": "informacion", "contexto": contexto}
+    ruta = respuestas[-1]["agente"] if respuestas else (estado.get("ultimo_agente") or "informacion")
+    if ruta not in NODOS:
+        ruta = "informacion"
+    continuar_con = diferido["agente"] if diferido.get("agente") in NODOS else ruta
 
     pendiente = contexto.datos.get("confirmacion_pendiente")
-    # El resumen autorizado lo escribe el servidor, nunca lo reescribe el LLM.
-    if pendiente:
+    if accion == "responder_directo":
+        texto = estado.get("respuesta_directa") or SIN_MENSAJE
+    elif accion == "escalar_humano":
+        texto = ""
+    elif not respuestas:
+        return {"respuesta": SIN_MENSAJE, "ruta": "informacion", "continuar_con": ruta, "contexto": contexto}
+    elif pendiente:
+        # El resumen autorizado lo escribe el servidor, nunca lo reescribe el LLM.
         otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
         texto = " ".join(otros + [pendiente])
     else:
         texto = _sintetizar(respuestas, sesion)
 
-    # Escalamiento: el agente levanto la mano, el ticket lo abre el orquestador,
-    # que es el unico que tiene el turno completo delante.
+    # Escalamiento: quien lo pidio (un agente o el planificador) levanto la mano;
+    # el ticket lo abre el cierre, que es el unico que tiene el turno completo delante.
     escalamiento = contexto.datos.get("escalamiento")
     if contexto.escalado and escalamiento:
+        del_orquestador = escalamiento.get("origen") == "orquestador"
         try:
             codigo = _escalar(sesion, escalamiento, _mensaje_de(estado), contexto)
         except Exception as error:
             registrar_error(sesion, "escalamiento", error)
             contexto.escalado = False
-            texto = "No pude registrar el caso para el restaurante. No hay una mesa confirmada por este escalamiento. Contacta directamente al local."
-            return {"respuesta": texto, "ruta": respuestas[-1]["agente"], "contexto": contexto}
-        registrar("escalado", sesion, agente=respuestas[-1]["agente"],
+            texto = ESCALAMIENTO_HUMANO_FALLIDO if del_orquestador else ESCALAMIENTO_RESERVA_FALLIDO
+            return {"respuesta": texto, "ruta": ruta, "continuar_con": continuar_con, "contexto": contexto}
+        registrar("escalado", sesion, agente="orquestador" if del_orquestador else ruta,
                   detalle={"incidencia": codigo, **escalamiento})
-        # Solo se agrega el codigo si el agente no lo dijo ya. Antes se pegaba
-        # siempre una frase completa ("tu caso quedo registrado y una persona te
-        # va a contactar") encima de la del agente, que decia exactamente lo
-        # mismo: el cliente leia la promesa dos veces.
         # Sustituye la promesa del modelo: el codigo real existe recien aqui.
-        texto = (f"Tu solicitud quedó registrada con el código {codigo}. "
-                 "La mesa todavía no está confirmada. Puedes consultar el estado de tu caso al restaurante.")
-        otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
+        if del_orquestador:
+            texto = (ESCALAMIENTO_HUMANO if contexto.canal == "whatsapp" else ESCALAMIENTO_HUMANO_WEBCHAT).format(codigo=codigo)
+            otros = [r["texto"] for r in respuestas]
+        else:
+            aprobada = escalamiento.get("origen") == "reservas_hitl"
+            texto = (ESCALAMIENTO_RESERVA_APROBADA if aprobada else ESCALAMIENTO_RESERVA).format(codigo=codigo)
+            otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
         if otros:
             texto = " ".join(otros + [texto])
         if pendiente:
             texto += " " + pendiente
 
-    pendientes = estado.get("pendientes") or []
+    if diferido.get("agente") in NODOS:
+        tema = TEMA_PENDIENTE.get(diferido["agente"], TEMA_PENDIENTE["otros"])
+        texto = f"{texto} {OFERTA_DIFERIDO.format(tema=tema)}"
+
+    pendientes = list(estado.get("pendientes") or [])
+    if accion == "delegar":
+        # Un paso que el control de estado no dejo ejecutar tambien se avisa: no se descarta en silencio.
+        pendientes += [p for p in (estado.get("plan") or [])[len(respuestas):] if p not in pendientes]
     if pendientes:
         texto = f"{texto} {_aviso_pendientes(pendientes)}"
 
-    return {
-        "respuesta": texto,
-        # Con quien queda la conversacion: es lo que el proximo turno usara como
-        # continuidad, asi que es el ULTIMO que hablo, no el primero.
-        "ruta": respuestas[-1]["agente"],
-        "contexto": contexto,
-    }
+    return {"respuesta": texto.strip(), "ruta": ruta, "continuar_con": continuar_con, "contexto": contexto}
 
 
 def _construir_grafo():
@@ -651,6 +1017,7 @@ def reiniciar_grafo() -> None:
     for modulo in ("reservas", "incidencias"):
         __import__(f"app.agentes.{modulo}", fromlist=["reiniciar"]).reiniciar()
     _ultimo_agente.clear()
+    _pendiente_de.clear()
     limites.reiniciar()
 
 
@@ -721,6 +1088,8 @@ def _responder_turno(
         "mensaje": entrante.texto,
         "historial": historial or [],
         "ultimo_agente": _ultimo_agente.get(entrante.sesion_id, ""),
+        # La tarea ofrecida vive un solo turno: se consume aqui, se use o no.
+        "tarea_ofrecida": _pendiente_de.pop(entrante.sesion_id, None) or {},
         "contexto": contexto,
         "plan": [],
         "paso": 0,
@@ -740,12 +1109,28 @@ def _responder_turno(
             final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": "confirmacion validada por el servidor", "plan": ["reservas"]}
             registrar("plan", entrante.sesion_id, agente="reservas", detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
             registrar("operacion", entrante.sesion_id, agente="reservas", detalle={"salida": texto, **datos})
+        elif _es_cancelar_solicitud(entrante.texto):
+            # Como CONFIRMO: un comando exacto que el codigo resuelve sin modelo, haya o no algo que retirar.
+            cancelacion = _cancelar_solicitud(entrante.sesion_id)
+            if cancelacion is None:
+                cancelacion = _retirar_pedido_al_equipo(entrante.sesion_id)
+            final = {"respuesta": cancelacion, "ruta": "reservas",
+                     "motivo_ruta": "solicitud al staff retirada por el cliente", "plan": ["reservas"]}
+            registrar("plan", entrante.sesion_id, agente="reservas",
+                      detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
         else:
             # Un nuevo pedido invalida el resumen anterior; no se confirma algo
             # que quedo atras en la conversacion. Las tools pueden proponer otro.
             autorizacion.descartar(entrante.sesion_id)
             with contexto_de_trazado():
                 final = obtener_grafo().invoke(estado_inicial)
+            if contexto.datos.get("hilo_en_revision"):
+                # El hilo seguia esperando al staff. Si esa espera ya no tiene sentido
+                # (solicitud vencida o perdida de la cola), se libera en vez de atrapar al cliente.
+                liberada = _liberar_pausa_sin_vigencia(entrante.sesion_id)
+                if liberada:
+                    contexto.datos.pop("hilo_en_revision", None)
+                    final = {**final, "respuesta": liberada}
     except Exception as error:
         registrar_error(entrante.sesion_id, "turno", error)
         texto_error = (
@@ -767,6 +1152,13 @@ def _responder_turno(
         )
 
     plan = final.get("plan") or []
+    accion = final.get("accion") or "delegar"
+    if not plan and accion != "delegar":
+        # Una accion directa del orquestador queda registrada como tal, no como un turno de un agente.
+        plan = [f"orquestador:{accion}"]
+    diferido = final.get("diferido") or {}
+    if diferido.get("agente"):
+        _pendiente_de[entrante.sesion_id] = diferido
     revision = contexto.datos.get("revision_humana")
     if revision and revision.get("estado") == "pendiente":
         _cargar_revisiones()
@@ -775,9 +1167,13 @@ def _responder_turno(
             "contexto": contexto,
             "solicitud": revision.get("solicitud", {}),
             "canal": entrante.canal,
+            "creada": time.time(),
+            "codigo": revision.get("codigo"),
         }
         _guardar_revisiones()
-    _ultimo_agente[entrante.sesion_id] = final["ruta"]
+    # Continuidad: quien atiende el proximo mensaje. Con un paso ofrecido es ese
+    # componente, aunque este turno haya respondido otro.
+    _ultimo_agente[entrante.sesion_id] = final.get("continuar_con") or final["ruta"]
     duracion = (time.perf_counter() - inicio) * 1000
 
     registrar_conversacion(
@@ -804,12 +1200,25 @@ def olvidar_sesion(sesion_id: str) -> None:
     Al reiniciar un hilo, el planificador deja de arrastrar el agente anterior.
 
     Tambien se olvida el caso escalado: un hilo nuevo con el mismo identificador
-    es otra conversacion, y su escalamiento merece su propio ticket.
+    es otra conversacion, y su escalamiento merece su propio ticket. Y se libera
+    la pausa del hilo de reservas: si solo se sacara la solicitud de la cola, el
+    hilo quedaria esperando una decision que el staff ya no puede tomar. Una
+    revision que el staff esta resolviendo en este momento no se toca.
     """
+    from ..agentes import reservas
+
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
-    _cargar_revisiones()
-    if _revisiones.pop(sesion_id, None) is not None:
+    _retirado_de.pop(sesion_id, None)
+    _pendiente_de.pop(sesion_id, None)
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id not in _resolviendo:
+            retirada = _revisiones.pop(sesion_id, None)
+            reservas.liberar_pausa(sesion_id)
+        else:
+            retirada = None
+    if retirada is not None:
         _guardar_revisiones()
     autorizacion.descartar(sesion_id)
 
@@ -818,9 +1227,15 @@ def revisiones_pendientes() -> list[dict]:
     """Vista serializable para el panel/API del staff; no expone objetos internos."""
     _cargar_revisiones()
     return [
-        {"sesion_id": sid, "solicitud": item["solicitud"], "canal": item["canal"]}
+        {"sesion_id": sid, "solicitud": item["solicitud"], "canal": item["canal"], "codigo": item.get("codigo")}
         for sid, item in _revisiones.items()
     ]
+
+
+def codigo_de_revision(sesion_id: str) -> str | None:
+    """El G-XXXXXX de la solicitud que espera al personal en esa sesion, o None si no hay o no tiene codigo."""
+    _cargar_revisiones()
+    return (_revisiones.get(sesion_id) or {}).get("codigo")
 
 
 def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> RespuestaClemente:
@@ -833,6 +1248,9 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     with _lock_revisiones:
         _cargar_revisiones()
         pendiente = _revisiones.pop(sesion_id, None)
+        if pendiente is not None:
+            # Mientras se reanuda, ni la cancelacion del cliente ni el vencimiento tocan el hilo.
+            _resolviendo.add(sesion_id)
     if pendiente is None:
         raise KeyError("No existe una revisión pendiente para esa sesión")
     try:
@@ -840,9 +1258,22 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     except Exception:
         with _lock_revisiones:
             _revisiones[sesion_id] = pendiente
+            _resolviendo.discard(sesion_id)
         raise
+    with _lock_revisiones:
+        _resolviendo.discard(sesion_id)
     _guardar_revisiones()
     return respuesta
+
+
+# Lo que el agente lee cuando el PERSONAL rechaza una solicitud de grupo. Sin esto, sin motivo, LangChain le entrega
+# "User rejected the tool call..." y el modelo lo lee como si el cliente hubiera dicho que no: vuelve a ofrecer dejar la
+# solicitud y, al siguiente mensaje, la pide otra vez.
+MENSAJE_RECHAZO_DEL_PERSONAL = (
+    "El equipo del restaurante NO aprobo la solicitud del grupo. Dile al cliente, con claridad y amabilidad, que no "
+    "fue aprobada y que no hay mesa; ofrecele elegir otra fecha o turno. No vuelvas a pedir la excepcion con los mismos "
+    "datos ni ofrezcas dejar la solicitud al equipo."
+)
 
 
 def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: dict) -> RespuestaClemente:
@@ -858,8 +1289,15 @@ def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: 
     contexto = pendiente.get("contexto") or ContextoConversacion(
         sesion_id=sesion_id, canal=pendiente.get("canal", "webchat"),
     )
+    if pendiente.get("codigo"):
+        # El codigo viaja en la cola (sobrevive a un reinicio); `_escalar` lo usa para la tarjeta.
+        contexto.datos["codigo_grupo"] = pendiente["codigo"]
     decision_hitl = {"type": decision}
-    if motivo:
+    if decision == "reject":
+        decision_hitl["message"] = (
+            f"{MENSAJE_RECHAZO_DEL_PERSONAL} Motivo del equipo: {motivo}" if motivo else MENSAJE_RECHAZO_DEL_PERSONAL
+        )
+    elif motivo:
         decision_hitl["message"] = motivo
     with contexto_de_trazado():
         texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)

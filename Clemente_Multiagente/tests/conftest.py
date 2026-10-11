@@ -67,6 +67,7 @@ def aislar_estado(tmp_path, monkeypatch):
     app.incidencias.reiniciar_servicio()
     trazas._trazas.clear()
     grafo._escalado_de.clear()
+    grafo._retirado_de.clear()
     grafo._revisiones.clear()
     grafo._revisiones_cargadas = True
     grafo.reiniciar_grafo()

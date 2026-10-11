@@ -8,12 +8,12 @@ por su cuenta porque su tool solo llama a `crear_incidencia` y `consultar`.
 """
 
 import json
-import uuid
 from datetime import datetime
 from pathlib import Path
 
 from ..contratos import Incidencia
 from ..datos import carpeta_de_datos
+from .codigos import PREFIJO_INCIDENCIA, codigo_admitido, nuevo_codigo
 
 ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "incidencias.json"
 
@@ -44,20 +44,24 @@ class ServicioIncidenciasJSON:
 
     def crear_incidencia(
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
-        reserva_id: str | None = None,
+        reserva_id: str | None = None, codigo: str | None = None,
     ) -> Incidencia:
         """Crea un codigo I-XXXXXX, persiste el caso abierto y devuelve la Incidencia.
 
-        Un tipo desconocido se normaliza a otro; el plazo procede de PLAZOS_HORAS."""
+        Un tipo desconocido se normaliza a otro; el plazo procede de PLAZOS_HORAS. Con `codigo` (por ejemplo
+        el G-XXXXXX de una solicitud de grupo) se usa ese codigo si tiene la forma valida y no existe ya;
+        si no, se genera uno I-XXXXXX."""
+        registro = self._leer()
+        usados = {caso["id"] for caso in registro}
+        codigo_final = codigo if codigo_admitido(codigo) and codigo not in usados else nuevo_codigo(PREFIJO_INCIDENCIA)
         incidencia = Incidencia(
-            id=f"I-{uuid.uuid4().hex[:6].upper()}",
+            id=codigo_final,
             sesion_id=sesion_id,
             descripcion=descripcion,
             tipo=tipo if tipo in PLAZOS_HORAS else "otro",
             reserva_id=reserva_id,
             plazo_horas=PLAZOS_HORAS.get(tipo, 24),
         )
-        registro = self._leer()
         registro.append(incidencia.__dict__)
         self._escribir(registro)
         return incidencia

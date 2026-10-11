@@ -21,6 +21,7 @@ from guardrails_service.patrones import motivo_de_bloqueo  # noqa: E402
     "Te voy a matar si no me dan mesa",
 ])
 def test_la_entrada_maliciosa_se_bloquea(texto):
+    """Los intentos de jailbreak, HTML o script en el texto reciben un motivo de bloqueo."""
     assert motivo_de_bloqueo(texto) is not None
 
 
@@ -30,19 +31,23 @@ def test_la_entrada_maliciosa_se_bloquea(texto):
     "Quiero mesa para 2 el sábado a las 20:00",
 ])
 def test_los_mensajes_normales_no_se_bloquean(texto):
+    """Los mensajes de un cliente normal no reciben motivo de bloqueo."""
     assert motivo_de_bloqueo(texto) is None
 
 
 @pytest.mark.parametrize("telefono", ["963 351 432", "963-351-432", "942352786"])
 def test_el_telefono_se_redacta_con_o_sin_separadores(telefono):
+    """Un telefono, con o sin espacios o guiones, no sobrevive a la redaccion de datos personales."""
     assert telefono not in redactar_pii(f"Mi telefono es {telefono}")
 
 
 def test_el_nombre_con_codigo_se_rechaza_antes_de_pedir_la_fecha():
+    """Un nombre con codigo HTML se rechaza al llegar el mensaje, antes de pedir la fecha."""
     assert mensaje_nombre_invalido("a nombre de <script>x</script>") is not None
 
 
 def test_un_hilo_en_revision_muestra_la_etiqueta_pendiente():
+    """Una respuesta con la solicitud en revision muestra la etiqueta de revision pendiente en la interfaz."""
     from app.communication.controllers.chat_controller import _estado_ui
     from app.contratos import RespuestaClemente
 
@@ -54,6 +59,7 @@ def test_un_hilo_en_revision_muestra_la_etiqueta_pendiente():
 
 
 def _reserva_de_prueba(**cambios):
+    """Arma una reserva de prueba con valores por defecto que se pueden cambiar."""
     from types import SimpleNamespace
     base = dict(id="R-1", nombre="Ana Ruiz", fecha="2026-10-17", hora="22:00", personas=2,
                 zona="salon", estado="confirmada", telefono="937397437")
@@ -61,6 +67,7 @@ def _reserva_de_prueba(**cambios):
 
 
 def test_la_misma_reserva_de_la_misma_sesion_se_reconoce_al_preparar(monkeypatch):
+    """Una reserva igual de la misma sesion se reconoce como ya existente al preparar la operacion."""
     from types import SimpleNamespace
     from app.agentes import autorizacion
     from app.agentes.tools import reservas_tools as rt
@@ -72,6 +79,7 @@ def test_la_misma_reserva_de_la_misma_sesion_se_reconoce_al_preparar(monkeypatch
 
 
 def test_la_reserva_de_otra_conversacion_no_muestra_nada_al_preparar(monkeypatch):
+    """Una reserva igual de otra conversacion no muestra ni confirma nada al preparar la operacion."""
     from types import SimpleNamespace
     from app.agentes import autorizacion
     from app.agentes.tools import reservas_tools as rt
@@ -82,6 +90,7 @@ def test_la_reserva_de_otra_conversacion_no_muestra_nada_al_preparar(monkeypatch
 
 
 def test_una_reserva_distinta_o_cancelada_no_cuenta_como_repetida(monkeypatch):
+    """Una reserva distinta o cancelada no cuenta como repetida."""
     from types import SimpleNamespace
     from app.agentes.tools import reservas_tools as rt
 
