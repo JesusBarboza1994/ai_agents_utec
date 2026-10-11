@@ -7,6 +7,7 @@ __pycache__/
 app/agentes/rag/chroma_index/
 app/reservas/datos/reservas.json
 app/incidencias/datos/incidencias.json
+app/incidencias/datos/avisos_cierre.json
 .pytest_cache/
 app/observabilidad/datos/
 tests/eval/resultados/
