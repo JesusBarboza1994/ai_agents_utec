@@ -85,7 +85,7 @@ más que quién hace qué:
 | Bloque | Sugerencia | Por qué |
 |---|---|---|
 | Infraestructura compartida (`contexto.py`, `base.py`) | **Los dos, primero, en una llamada corta** | Bloquea todo lo demás; mejor definirla junta que negociarla por PR después. |
-| Agente de Conocimiento + RAG (`conocimiento.py`, `rag/indice.py`) | Jean | Es el más simple (sin escrituras), buen lugar para dejar el patrón `create_agent` funcionando antes de los agentes con más guardrails. |
+| Agente de Conocimiento + RAG (`conocimiento.py`, `rag/indice_catalogo.py`) | Jean | Es el más simple (sin escrituras), buen lugar para dejar el patrón `create_agent` funcionando antes de los agentes con más guardrails. |
 | Orquestador (`grafo.py`, `DecisionRuta`) | Jean | Puede desarrollarse y probarse contra los *stubs* actuales — no depende de que Reservas/Incidencias estén terminados. |
 | Agente de Reservas (`reservas.py`) | Christian | El de más guardrails de negocio (doble verificación, confirmación explícita, límite de 10 personas). |
 | Agente de Incidencias (`incidencias.py`) | Christian | Reusa el patrón de Reservas; su restricción es "de tools que no existen", más simple de codear una vez que el patrón está probado. |
@@ -186,17 +186,17 @@ agente. Aunque el prompt fallara, el modelo no tiene con qué cerrar un caso ni 
 
 | Tool | Envuelve | Nota |
 |---|---|---|
-| `buscar_en_catalogo(pregunta)` | búsqueda semántica en Chroma (`rag/indice.py`) | Solo `app/agentes/rag/documentos/*.md`. |
+| `buscar_en_catalogo(pregunta)` | búsqueda semántica en Chroma (`rag/indice_catalogo.py`) | Solo `app/agentes/rag/documentos/*.md`. |
 | `consultar_politica(pregunta)` | misma búsqueda, acotada a `03_politicas.md` (o el mismo índice completo, según la decisión #2) | Expuesta también aparte para que Reservas/Incidencias la llamen con un nombre semánticamente claro. |
 
 **Guardrail**: si la búsqueda no devuelve nada por encima de un umbral de similitud, el agente
 debe decir que no tiene esa información y escalar — nunca aproximar un horario o una condición
 que no esté en el fragmento recuperado.
 
-`app/agentes/rag/indice.py` (nuevo, falta crear):
+`app/agentes/rag/indice_catalogo.py` (nuevo, falta crear):
 
 ```
-python -m app.agentes.rag.indice --reindexar
+python -m app.agentes.rag.indice_catalogo --reindexar
 ```
 
 - Carga `rag/documentos/*.md`, los divide (decisión #4 de §0) con `langchain-text-splitters`.
@@ -339,7 +339,7 @@ falta escribirlo desde cero, `langsmith.evaluate` ya tiene el enganche para esto
 ## 8. Orden y ramas — resumen
 
 1. `feat/agentes-infra` (Christian + Jean, juntos) → `contexto.py`, `base.py` → merge rápido a `main`.
-2. En paralelo: `feat/agentes-conocimiento` (Jean, incluye `rag/indice.py`) y
+2. En paralelo: `feat/agentes-conocimiento` (Jean, incluye `rag/indice_catalogo.py`) y
    `feat/agentes-reservas` + `feat/agentes-incidencias` (Christian).
 3. `feat/orquestador-ruteo` (Jean) — no depende de que 2. esté terminado, ya que los *stubs*
    respetan la misma firma.

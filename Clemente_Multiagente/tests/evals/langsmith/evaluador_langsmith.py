@@ -48,6 +48,7 @@ Uso (desde la raíz del proyecto):
     python tests/evals/langsmith/evaluador_langsmith.py quality safety
 """
 
+import os
 import sys
 import time
 import uuid
@@ -649,6 +650,12 @@ def correr_suite(nombre_suite: str) -> None:
         evaluators=suite["evaluadores"](),
         experiment_prefix=suite["experimento"],
         description=suite["descripcion"],
+        # Indices de Azure AI Search contra los que corrio: permite comparar en
+        # LangSmith dos experimentos que solo difieren en el indice (ej. v1 vs v2).
+        metadata={
+            "indice_catalogo": os.getenv("AZURE_SEARCH_INDEX", "catalogo-clemente"),
+            "indice_incidencias": os.getenv("AZURE_SEARCH_INDEX_INCIDENCIAS", "incidencias-clemente"),
+        },
         max_concurrency=2,
     )
 

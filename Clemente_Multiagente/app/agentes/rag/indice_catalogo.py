@@ -1,15 +1,19 @@
 """
-Indice vectorial (RAG) del catalogo validado del restaurante -- Sesion 13.
+Indice `catalogo-clemente`: RAG del catalogo validado del restaurante -- Sesion 13.
 
-Recorre `documentos/` (horarios, carta, politicas, servicios), parte cada
-archivo en chunks y los indexa. El Agente de Conocimiento solo llama a
-`buscar()`.
+Lee los documentos del catalogo (horarios, carta, politicas) del contenedor
+AZURE_STORAGE_CONTAINER_CATALOGO de Blob Storage (por defecto "catalogo"), que es
+la unica fuente; parte cada archivo en chunks y los indexa. El Agente de
+Conocimiento solo llama a `buscar()`. Los casos de incidencias tienen su propio
+indice en `indice_incidencias.py`.
 
 Backend del indice: `RAG_BACKEND` en el .env.
-  chroma        (default) -- coleccion Chroma persistente local.
+  chroma        (default) -- coleccion Chroma persistente local; se puebla en la
+                    primera consulta si esta vacia.
   azure_search  -- push directo al indice de Azure AI Search via SDK, sin
-                    Blob Storage ni indexer/skillset: este mismo script arma
-                    los chunks y los empuja, igual que hoy hace con Chroma.
+                    indexer/skillset: este mismo script arma los chunks y los
+                    empuja. Solo se reindexa a demanda (workflow reindex-rag),
+                    nunca desde la app: asi el contenedor no necesita el Blob.
 
 Embeddings: los define EMBEDDINGS_BACKEND en el .env (ollama por defecto,
 openai como alternativa). Con Ollama hace falta una sola vez:
@@ -22,41 +26,48 @@ silencio. En Azure Search, el indice tiene una dimension de vector fija
 (1536, text-embedding-3-small) -- cambiar de modelo de embeddings ahi
 requiere recrear el indice a mano.
 
-Reconstruir el indice tras editar los documentos:
-    python -m app.agentes.rag.indice --reindexar
+Reconstruir el indice tras editar los documentos del contenedor:
+    python -m app.agentes.rag.indice_catalogo --reindexar
 """
 
 import base64
+import io
 import os
 import shutil
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from ...contratos import Fragmento
 from ...llm import nombre_embeddings, resolver_embeddings
+from .blob import leer_contenedor
 
-CARPETA_DOCUMENTOS = Path(__file__).parent / "documentos"
 CARPETA_INDICE = Path(__file__).parent / "chroma_index"
 EXTENSIONES_ADMITIDAS = {".md", ".txt", ".pdf", ".docx"}
 
 _vector_store = None
-_azure_search_verificado = False
 
 
-def _extraer_texto(ruta: Path) -> str:
-    """Lee texto de TXT, Markdown, DOCX o PDF segun la extension de ruta.
+def _leer_documentos_blob() -> list[tuple[str, bytes]]:
+    """(nombre, bytes) de los documentos del catalogo en su contenedor de Blob."""
+    return leer_contenedor(
+        os.getenv("AZURE_STORAGE_CONTAINER_CATALOGO", "catalogo"), EXTENSIONES_ADMITIDAS,
+    )
 
-    Devuelve cadena vacia para extensiones no admitidas; los errores de lectura
-    o de los lectores de documentos se propagan."""
-    sufijo = ruta.suffix.lower()
+
+def _extraer_texto(nombre: str, contenido: bytes) -> str:
+    """Lee texto de TXT, Markdown, DOCX o PDF segun la extension del nombre.
+
+    Devuelve cadena vacia para extensiones no admitidas; los errores de los
+    lectores de documentos se propagan."""
+    sufijo = PurePosixPath(nombre).suffix.lower()
     if sufijo in {".md", ".txt"}:
-        return ruta.read_text(encoding="utf-8", errors="ignore")
+        return contenido.decode("utf-8", errors="ignore")
     if sufijo == ".docx":
         from docx import Document as DocumentoWord
-        return "\n".join(p.text for p in DocumentoWord(ruta).paragraphs)
+        return "\n".join(p.text for p in DocumentoWord(io.BytesIO(contenido)).paragraphs)
     if sufijo == ".pdf":
         from pypdf import PdfReader
-        return "\n".join(pagina.extract_text() or "" for pagina in PdfReader(ruta).pages)
+        return "\n".join(pagina.extract_text() or "" for pagina in PdfReader(io.BytesIO(contenido)).pages)
     return ""
 
 
@@ -68,28 +79,32 @@ TAMANO_MAXIMO = 1200
 SOLAPE = 120
 
 
-def _cargar_documentos():
+def _cargar_documentos(archivos: list[tuple[str, bytes]] | None = None):
     """Devuelve los documentos fragmentados y sus identificadores para el indice RAG.
 
-    Recorre CARPETA_DOCUMENTOS en orden, omite archivos vacios o no admitidos,
-    divide Markdown por encabezados y luego todos los textos por tamano con
-    solape. Cada fragmento conserva fuente y seccion; no crea embeddings aqui."""
+    `archivos` son pares (nombre, bytes); por defecto se leen del contenedor del
+    catalogo. Omite archivos vacios o no admitidos, divide Markdown por
+    encabezados y luego todos los textos por tamano con solape. Cada fragmento
+    conserva fuente y seccion; no crea embeddings aqui."""
     from langchain_core.documents import Document
     from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
+    if archivos is None:
+        archivos = _leer_documentos_blob()
     por_encabezado = MarkdownHeaderTextSplitter(headers_to_split_on=ENCABEZADOS)
     por_tamano = RecursiveCharacterTextSplitter(chunk_size=TAMANO_MAXIMO, chunk_overlap=SOLAPE)
     documentos, ids = [], []
     repetidos: dict[str, int] = {}
 
-    for archivo in sorted(CARPETA_DOCUMENTOS.rglob("*")):
-        if not archivo.is_file() or archivo.suffix.lower() not in EXTENSIONES_ADMITIDAS:
+    for ruta, contenido in sorted(archivos):
+        nombre = PurePosixPath(ruta).name
+        if PurePosixPath(nombre).suffix.lower() not in EXTENSIONES_ADMITIDAS:
             continue
-        texto = _extraer_texto(archivo)
+        texto = _extraer_texto(nombre, contenido)
         if not texto.strip():
             continue
 
-        es_markdown = archivo.suffix.lower() == ".md"
+        es_markdown = PurePosixPath(nombre).suffix.lower() == ".md"
         secciones = (
             por_encabezado.split_text(texto)
             if es_markdown
@@ -114,12 +129,12 @@ def _cargar_documentos():
                 documentos.append(Document(
                     page_content=cuerpo,
                     metadata={
-                        "fuente": archivo.name,
+                        "fuente": nombre,
                         "seccion": titulo,
                         "contenido": chunk,
                     },
                 ))
-                id_base = f"{archivo.name}::{titulo or 'raiz'}::{i}"
+                id_base = f"{nombre}::{titulo or 'raiz'}::{i}"
                 # Dos secciones con el mismo titulo en un archivo compartirian id y una pisaria a la otra.
                 veces = repetidos.get(id_base, 0)
                 repetidos[id_base] = veces + 1
@@ -233,27 +248,13 @@ def _borrar_obsoletos_azure_search(cliente, ids_vigentes: set[str]) -> int:
     return len(obsoletos)
 
 
-def _asegurar_azure_search_indexado():
-    """Primera consulta del proceso: si el indice esta vacio, lo puebla -- misma
-    logica de arranque perezoso que ya usa `construir_o_cargar_indice()` con
-    Chroma (`_collection.count() == 0`)."""
-    global _azure_search_verificado
-    if _azure_search_verificado:
-        return
-    cliente = _cliente_azure_search()
-    if cliente.get_document_count() == 0:
-        documentos, ids = _cargar_documentos()
-        if documentos:
-            total = _empujar_a_azure_search(cliente, documentos, ids)
-            print(f"[rag] Indexados {total}/{len(documentos)} chunks del catalogo (azure_search).")
-    _azure_search_verificado = True
-
-
 def _buscar_azure_search(pregunta: str, k: int) -> list[Fragmento]:
-    """Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador."""
+    """Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador.
+
+    No puebla el indice si esta vacio: eso lo hace solo el workflow reindex-rag,
+    que es quien tiene acceso al Blob."""
     from azure.search.documents.models import VectorizedQuery
 
-    _asegurar_azure_search_indexado()
     cliente = _cliente_azure_search()
     vector = resolver_embeddings().embed_query(pregunta)
     resultados = cliente.search(

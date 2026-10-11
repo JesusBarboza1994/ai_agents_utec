@@ -268,7 +268,7 @@ def resolver_embeddings():
 
     OJO: los vectores de dos modelos distintos NO son comparables. Si el
     equipo cambia de backend hay que reconstruir el indice
-    (`python -m app.agentes.rag.indice --reindexar`); por eso el nombre del
+    (`python -m app.agentes.rag.indice_catalogo --reindexar`); por eso el nombre del
     modelo entra en el nombre de la coleccion de Chroma.
     """
     backend = os.getenv("EMBEDDINGS_BACKEND", "ollama")

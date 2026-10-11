@@ -589,12 +589,17 @@ pytest -q                         # 126 casos (113 funciones), no llaman al mode
 `.env` está incompleto — arrancar sin clave es visible, no un misterio. Sin clave el chat no se
 cae: responde con un mensaje de escalamiento y `escalado: true`.
 
-El índice del RAG se construye solo en la primera consulta de información. Tras
-editar los documentos del catálogo, o tras cambiar `EMBEDDINGS_BACKEND`:
+Los documentos del RAG viven en Azure Blob Storage (`AZURE_STORAGE_CONNECTION_STRING`):
+el catálogo en el contenedor `catalogo` y los casos de incidencias en `incidencias`. Con
+Chroma (local), el índice del catálogo se construye solo en la primera consulta. Tras
+editar documentos en el Blob, o tras cambiar `EMBEDDINGS_BACKEND`:
 
 ```bash
-python -m app.agentes.rag.indice --reindexar
+python -m app.agentes.rag.indice_catalogo --reindexar   # catalogo-clemente
+python -m app.agentes.rag.indice_incidencias            # incidencias-clemente (Azure AI Search)
 ```
+
+En producción se usa el workflow manual `reindex-rag` (Actions), que corre los dos.
 
 ### 3.2 Ver el grafo en LangGraph Studio
 
@@ -672,7 +677,8 @@ cd D:\...\Proyecto_Final\Entregable_Final\clemente
 | Estado del sistema | `curl http://localhost:5000/api/salud` | JSON |
 | LangGraph Studio | `.\.venv\Scripts\langgraph.exe dev` | la URL que imprime |
 | Studio sin ruido de recarga | `.\.venv\Scripts\langgraph.exe dev --no-reload` | ídem |
-| Reconstruir el índice del RAG | `.\.venv\Scripts\python.exe -m app.agentes.rag.indice --reindexar` | consola |
+| Reconstruir el índice del catálogo | `.\.venv\Scripts\python.exe -m app.agentes.rag.indice_catalogo --reindexar` | consola |
+| Reconstruir el índice de incidencias | `.\.venv\Scripts\python.exe -m app.agentes.rag.indice_incidencias` | consola |
 | Diagrama del grafo, en Mermaid | `.\.venv\Scripts\python.exe -m app.orquestador.grafo` | consola |
 | Diagrama del grafo, en imagen | `.\.venv\Scripts\python.exe -m app.orquestador.grafo --png` | `grafo_clemente.png` |
 
@@ -1687,8 +1693,13 @@ clemente/
                                   consultar_politica. Las usa el orquestador;
                                   `consultar_politica` la comparten los agentes
       rag/
-        indice.py                 índice Chroma: chunking, indexado y búsqueda
-        documentos/               EL CATÁLOGO VALIDADO — fuente única de verdad
+        blob.py                   lee los documentos fuente de Azure Blob Storage
+        indice_catalogo.py        catalogo-clemente: chunking por encabezados +
+                                  recursivo 1200/120, indexado y búsqueda vectorial
+        indice_incidencias.py     incidencias-clemente: 1 caso = 1 chunk, analizador
+                                  en español, búsqueda híbrida
+        documentos/               copia del catálogo validado; la fuente que se
+                                  indexa es el contenedor `catalogo` del Blob
           01_horarios_y_ubicacion.md   horarios, dirección, estacionamiento,
                                        accesibilidad, zonas del local
           02_carta_y_servicios.md      carta, opciones vegetarianas y veganas,
