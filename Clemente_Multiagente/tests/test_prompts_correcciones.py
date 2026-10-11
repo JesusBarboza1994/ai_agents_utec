@@ -88,6 +88,54 @@ def test_la_voz_es_de_atencion_al_cliente_con_emojis_acotados():
     assert "como maximo un emoji por mensaje" in plano and "Nunca uses emojis en un reclamo" in plano
 
 
+def test_las_respuestas_directas_del_orquestador_cierran_con_un_emoji():
+    """Saludos, gracias y despedidas los contesta el planificador, que no usa VOZ_CLEMENTE: lleva su propia regla."""
+    plano = _plano(PROMPT_PLANIFICADOR)
+    assert "cierra con un solo emoji al final" in plano
+    assert "Un saludo junto a un pedido NO es respuesta directa" in plano
+
+
+def test_los_textos_fijos_del_servidor_no_llevan_emojis():
+    """Resumenes con CONFIRMO, confirmaciones, codigos, avisos y errores los escribe el codigo y se leen sobrios.
+
+    Revisa cada cadena del codigo de agentes y orquestador; solo se exceptuan los prompts
+    (instrucciones al modelo), que si nombran los emojis permitidos."""
+    import ast
+    import re
+    from pathlib import Path
+
+    emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿⭐⭕️]")
+    raiz = Path(__file__).resolve().parent.parent / "app"
+    archivos = [p for p in (raiz / "agentes").rglob("*.py") if p.name != "prompts.py"]
+    archivos += list((raiz / "orquestador").rglob("*.py"))
+    prompts_permitidos = {"PROMPT_PLANIFICADOR"}
+
+    class _Cadenas(ast.NodeVisitor):
+        """Junta las cadenas literales de un modulo, sin entrar en las asignaciones de prompts."""
+
+        def __init__(self):
+            """Empieza sin cadenas."""
+            self.cadenas = []
+
+        def visit_Assign(self, nodo):
+            """Salta el valor de un prompt permitido; el resto se revisa como siempre."""
+            if any(isinstance(t, ast.Name) and t.id in prompts_permitidos for t in nodo.targets):
+                return
+            self.generic_visit(nodo)
+
+        def visit_Constant(self, nodo):
+            """Guarda cada cadena literal con su linea."""
+            if isinstance(nodo.value, str):
+                self.cadenas.append((nodo.lineno, nodo.value))
+
+    con_emoji = []
+    for archivo in archivos:
+        visitante = _Cadenas()
+        visitante.visit(ast.parse(archivo.read_text(encoding="utf-8")))
+        con_emoji += [f"{archivo.relative_to(raiz)}:{linea}" for linea, texto in visitante.cadenas if emoji.search(texto)]
+    assert archivos and not con_emoji, con_emoji
+
+
 def test_el_planificador_conoce_el_horario_y_marca_el_dia_cerrado():
     """F1 en el planificador: recibe el horario y marca la restriccion para la tarea de reservas."""
     plano = _plano(PROMPT_PLANIFICADOR)
