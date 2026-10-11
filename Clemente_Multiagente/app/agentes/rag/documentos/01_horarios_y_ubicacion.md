@@ -19,7 +19,7 @@ Av. Grau 320, Barranco, Lima. A tres cuadras del Puente de los Suspiros.
 
 - **Estacionamiento:** convenio con la playa de estacionamiento de Av. Grau 410. Dos horas liberadas presentando el ticket de consumo.
 - **Accesibilidad:** ingreso a nivel de vereda, sin escalones. Servicios higiénicos adaptados en el primer piso. La terraza está en el segundo piso y se accede por escalera.
-- **Contacto:** +51 1 555-0142 · reservas@clemente.demo
+- **Contacto:** +51 940070695 · reservas@clemente.demo
 
 ## Zonas del local
 
