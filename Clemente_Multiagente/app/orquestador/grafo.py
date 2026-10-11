@@ -1216,6 +1216,16 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     return respuesta
 
 
+# Lo que el agente lee cuando el PERSONAL rechaza una solicitud de grupo. Sin esto, sin motivo, LangChain le entrega
+# "User rejected the tool call..." y el modelo lo lee como si el cliente hubiera dicho que no: vuelve a ofrecer dejar la
+# solicitud y, al siguiente mensaje, la pide otra vez.
+MENSAJE_RECHAZO_DEL_PERSONAL = (
+    "El equipo del restaurante NO aprobo la solicitud del grupo. Dile al cliente, con claridad y amabilidad, que no "
+    "fue aprobada y que no hay mesa; ofrecele elegir otra fecha o turno. No vuelvas a pedir la excepcion con los mismos "
+    "datos ni ofrezcas dejar la solicitud al equipo."
+)
+
+
 def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: dict) -> RespuestaClemente:
     """Reanuda el agente con la decisión del personal y arma la respuesta de cierre.
 
@@ -1233,7 +1243,11 @@ def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: 
         # El codigo viaja en la cola (sobrevive a un reinicio); `_escalar` lo usa para la tarjeta.
         contexto.datos["codigo_grupo"] = pendiente["codigo"]
     decision_hitl = {"type": decision}
-    if motivo:
+    if decision == "reject":
+        decision_hitl["message"] = (
+            f"{MENSAJE_RECHAZO_DEL_PERSONAL} Motivo del equipo: {motivo}" if motivo else MENSAJE_RECHAZO_DEL_PERSONAL
+        )
+    elif motivo:
         decision_hitl["message"] = motivo
     with contexto_de_trazado():
         texto_agente = reservas.resolver_revision(sesion_id, decision_hitl, contexto)
