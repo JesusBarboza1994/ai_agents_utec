@@ -20,7 +20,9 @@ from . import con_traza, limpiar_texto
 from ...observabilidad.trazas import registrar
 from ...reservas import obtener_servicio as servicio_reservas
 from ...reservas.servicio_json import ARCHIVO_MESAS
-from ...reservas.validaciones import TELEFONO_RE, ReservaInvalida, validar_cambio_turno, validar_nombre
+from ...reservas.validaciones import (
+    TELEFONO_RE, TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_nombre,
+)
 from .. import autorizacion
 from .. import fecha as reloj
 from ..contexto import ContextoConversacion, telefono_de
@@ -62,12 +64,17 @@ def _telefono_conocido(contexto: ContextoConversacion) -> str:
     return ""
 
 
-def _rechazo_de_fecha(runtime: ToolRuntime, fecha: str | None, dia_semana: str) -> str | None:
-    """Texto de rechazo si el dia de la semana no cae en la fecha o la fecha ya paso; None si esta bien.
+def _rechazo_de_fecha(
+    runtime: ToolRuntime, fecha: str | None, dia_semana: str, hora: str | None = None,
+) -> str | None:
+    """Texto de rechazo si el dia no cae en la fecha, la fecha ya paso o cae fuera de horario; None si esta bien.
 
-    La contradiccion deja `guardrail_fecha` en el contexto y en la traza: el
-    servidor no elige entre "viernes" y "el 13", lo pregunta el agente. Una
-    fecha con formato invalido no se rechaza aqui: sigue su camino de siempre."""
+    El orden importa y conserva los mensajes de siempre: contradiccion, fecha pasada y
+    recien despues el horario de atencion. La hora solo se compara con el horario si es
+    un turno valido; si no lo es, la reporta la validacion de turno con su mensaje.
+    La contradiccion deja `guardrail_fecha` en el contexto y en la traza: el servidor
+    no elige entre "viernes" y "el 13", lo pregunta el agente. Una fecha con formato
+    invalido no se rechaza aqui: sigue su camino de siempre."""
     if not fecha:
         return None
     contradiccion = reloj.contradiccion_dia(dia_semana, fecha)
@@ -83,7 +90,11 @@ def _rechazo_de_fecha(runtime: ToolRuntime, fecha: str | None, dia_semana: str) 
             return "Indica una fecha válida que no esté en el pasado."
     except ValueError:
         pass
-    return None
+    fuera = reloj.fuera_de_horario(fecha, hora if hora in TURNOS_VALIDOS else None)
+    if fuera:
+        registrar("guardrail_horario", runtime.context.sesion_id, agente="reservas",
+                  detalle={"fecha": fecha, "hora": hora})
+    return fuera
 
 
 @tool
@@ -102,7 +113,7 @@ def consultar_disponibilidad(
         dia_semana: el dia de la semana que dijo el cliente ("viernes"), si lo dijo.
             El servidor comprueba que coincida con la fecha antes de consultar.
     """
-    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana, hora)
     if rechazo:
         return rechazo
 
@@ -163,7 +174,7 @@ def crear_reserva(
         dia_semana: el dia de la semana que dijo el cliente, si lo dijo; el servidor
             rechaza el resumen si no coincide con la fecha.
     """
-    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana, hora)
     if rechazo:
         return rechazo
     if personas > LIMITE_GRUPO_AUTONOMO:
@@ -247,7 +258,7 @@ def modificar_reserva(
         personas: nuevo numero de personas, 0 si no cambia.
         dia_semana: el dia de la semana que dijo el cliente para la nueva fecha, si lo dijo.
     """
-    rechazo = _rechazo_de_fecha(runtime, fecha or None, dia_semana)
+    rechazo = _rechazo_de_fecha(runtime, fecha or None, dia_semana, hora or None)
     if rechazo:
         return rechazo
     return autorizacion.proponer(runtime.context, "modificar", {
@@ -318,7 +329,7 @@ def solicitar_excepcion_grupo(
     """
     if personas <= LIMITE_GRUPO_AUTONOMO:
         return "No requiere excepción: usa el flujo normal de disponibilidad y reserva."
-    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana)
+    rechazo = _rechazo_de_fecha(runtime, fecha, dia_semana, hora)
     if rechazo:
         return rechazo
     try:

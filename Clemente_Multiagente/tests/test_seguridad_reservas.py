@@ -10,8 +10,9 @@ from app.orquestador import grafo
 from app.contratos import MensajeEntrante
 from app.agentes import autorizacion, fecha
 
-# 2026-10-05 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que se corra la suite.
-INSTANTE = datetime(2026, 10, 6, 2, 0, tzinfo=timezone.utc)
+# Martes 2026-10-06 21:00 en Lima: antes del 2026-10-10 que usan estas pruebas, sin depender del dia en que
+# se corra la suite. Es un martes a proposito: los lunes el restaurante no atiende y "hoy" no podria reservarse.
+INSTANTE = datetime(2026, 10, 7, 2, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +61,7 @@ def test_el_codigo_de_confirmacion_no_lo_tapa_el_filtro_de_dni(entorno, monkeypa
 
 
 @pytest.mark.parametrize("fecha_pedida, hora, esperado", [
-    ("2026-10-05", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del 5 de octubre en Lima
+    ("2026-10-06", "20:00", "ya paso"),      # el reloj fijo marca las 21:00 del martes 6 de octubre en Lima
     ("2027-06-01", "20:00", "30"),           # mas de 30 dias a futuro
     ("2026-10-10", "03:00", "turno"),        # el restaurante no tiene turno de madrugada
 ])
