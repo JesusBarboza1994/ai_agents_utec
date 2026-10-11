@@ -3,7 +3,8 @@
 Se midieron con el modelo real: sin ellas el agente de reservas cerraba el turno tras guardar el nombre del cliente
 (respuestas vacias o "voy a revisar...") y, con una regla solo a medias, volvia a pedir la excepcion de grupo
 despues de que el personal la aprobara. Que el modelo las cumpla se mide con la bateria; aqui solo se protege que
-sigan en el prompt.
+sigan en el prompt. Los prompts estan escritos en estilo ReAct (pensar, ejecutar la herramienta, leer el resultado y
+volver a pensar): tambien se protege que conserven ese esqueleto y no vuelvan a ser una tabla de condiciones.
 """
 import pytest
 
@@ -16,13 +17,26 @@ def _plano(texto):
 
 
 @pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
-def test_los_tres_agentes_siguen_tras_el_resultado_de_una_herramienta(prompt):
-    """El bloque de decision dice que el turno no termina con la primera herramienta, y el de accion manda volver a decidir."""
+def test_los_tres_agentes_trabajan_en_ciclo_react(prompt):
+    """Cada agente razona en vueltas: piensa que falta, ejecuta una herramienta, lee el resultado y vuelve a pensar."""
     plano = _plano(prompt)
 
-    assert "Elige UNA accion por vuelta" in plano
-    assert "no termina con la primera herramienta" in plano
-    assert "Despues vuelve a <decide>" in plano
+    assert "Como trabajas (ReAct)" in plano
+    assert "piensas que falta" in plano
+    assert "lees su resultado" in plano and "vuelves a pensar con eso" in plano
+
+
+@pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+def test_los_prompts_no_son_una_tabla_de_condiciones(prompt):
+    """Sin lista de opciones `when=`: las reglas fijas quedan en 'Reglas que no puedes desactivar' y el resto se razona."""
+    assert "<option" not in prompt and "when=" not in prompt
+    assert "Reglas que no puedes desactivar" in prompt
+
+
+@pytest.mark.parametrize("prompt", [PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+def test_reservas_e_incidencias_siguen_tras_el_resultado_de_una_herramienta(prompt):
+    """Una herramienta no es el final del turno: tras guardar, consultar o registrar el agente sigue."""
+    assert "Una herramienta no es el final del turno" in _plano(prompt)
 
 
 @pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
@@ -35,7 +49,7 @@ def test_reservas_no_termina_anunciando_lo_que_va_a_hacer():
     """Una frase como 'voy a revisar la disponibilidad' no es una respuesta: se ejecuta la herramienta o se responde."""
     plano = _plano(PROMPT_RESERVAS)
 
-    assert "solo anuncie lo que vas a hacer" in plano
+    assert 'Nunca termines anunciando lo que vas a hacer ("voy a revisar la disponibilidad")' in plano
     assert "o ejecutas la herramienta o respondes con su resultado" in plano
 
 
@@ -43,13 +57,12 @@ def test_reservas_sigue_tras_guardar_datos_o_consultar_la_disponibilidad():
     """Guardar el nombre del cliente o consultar la disponibilidad no cierra el turno: falta preparar la reserva."""
     plano = _plano(PROMPT_RESERVAS)
 
-    assert "guardar un dato del cliente o consultar la disponibilidad no es el final del turno" in plano
-    assert "Datos del cliente actualizados, o disponibilidad consultada: no es el final" in plano
+    assert "guardar un dato o consultar la disponibilidad solo es un paso" in plano
 
 
 def test_reservas_no_pregunta_la_zona():
     """La zona es opcional: si el cliente no la nombra, va vacia y la herramienta asigna una disponible."""
-    assert "No preguntes la zona" in _plano(PROMPT_RESERVAS)
+    assert "la zona es opcional y no se pregunta" in _plano(PROMPT_RESERVAS)
 
 
 def test_el_planificador_no_confunde_un_grupo_grande_con_pedir_una_persona():
@@ -66,16 +79,14 @@ def test_con_los_cinco_datos_la_excepcion_de_grupo_se_pide_en_ese_turno():
     """Un grupo de mas de 8 con todos los datos pausa en el primer mensaje: sin preguntas previas ni 'ya anote'."""
     plano = _plano(PROMPT_RESERVAS)
 
-    assert "ejecuta solicitar_excepcion_grupo EN ESE MISMO TURNO" in plano
+    assert "pide la excepcion en ese mismo turno" in plano
     assert "sin preguntar antes por alergias, ocasion ni zona" in plano
-    assert "Nunca digas que quedo anotado o registrado antes de haberla ejecutado" in plano
+    assert "Nunca digas que quedo anotado antes de haberla pedido" in plano
 
 
 def test_la_excepcion_de_grupo_se_pide_una_sola_vez():
     """Tras la decision del personal el agente no repite la excepcion (eso producia una segunda interrupcion)."""
     plano = _plano(PROMPT_RESERVAS)
 
-    assert "Se ejecuta UNA sola vez" in plano and "no la repitas" in plano
-    assert "El resultado trae la decision del equipo sobre el grupo" in plano
-    assert "No vuelvas a ejecutar solicitar_excepcion_grupo ni escalar_a_staff" in plano
-    assert "cuando el equipo ya decidio sobre el grupo" in plano
+    assert "Se pide UNA sola vez" in plano
+    assert "cuando el resultado trae la decision del equipo, respondes con ella y terminas" in plano

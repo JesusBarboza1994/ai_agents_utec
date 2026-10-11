@@ -22,9 +22,9 @@ def test_el_horario_de_los_prompts_sale_de_la_misma_tabla_que_las_validaciones()
 def test_reservas_revisa_el_horario_antes_de_pedir_datos():
     """F1: el horario se aplica a reservas nuevas y cambios, no a ver o cancelar."""
     plano = _plano(PROMPT_RESERVAS)
-    assert "Va antes que pedir datos o tramitar un grupo" in plano
-    assert "Ver, modificar o cancelar una reserva existente (aqui NO se exige el horario a la reserva original)" in plano
-    assert "Si el nuevo dia o turno cae fuera del horario, diselo y ofrece otro" in plano
+    assert "Revisa el pedido COMPLETO contra el horario cada vez que llega un dato" in plano
+    assert "se rechaza con el horario de ese dia y otra opcion, antes de pedir datos" in plano
+    assert "ver o cancelar una reserva que ya existe no se rechaza por horario" in plano
 
 
 def test_el_telefono_del_restaurante_es_el_acordado():
@@ -38,7 +38,7 @@ def test_la_confirmacion_es_solo_confirmo():
     """F6: ya no se pide un "si" previo; se prepara con los datos y la disponibilidad."""
     plano = _plano(PROMPT_RESERVAS)
     assert "esperas el si" not in plano
-    assert 'No pidas un "si" previo' in plano
+    assert 'no pidas un "si" previo' in plano
 
 
 def test_el_acceso_denegado_ofrece_una_salida():
@@ -51,7 +51,7 @@ def test_el_acceso_denegado_ofrece_una_salida():
 def test_pedir_una_persona_tiene_regla_en_reservas_y_en_el_planificador():
     """F8: el orquestador escala directo (escalar_humano); reservas conserva escalar_a_staff como respaldo."""
     plano_reservas = _plano(PROMPT_RESERVAS)
-    assert 'when="pide hablar con una persona del restaurante"> Ejecuta escalar_a_staff' in plano_reservas
+    assert "Si pide hablar con una persona, usa escalar_a_staff con el motivo y un resumen" in plano_reservas
     plano = _plano(PROMPT_PLANIFICADOR)
     assert "pide_humano: pide hablar con una persona" in plano and "escalar_humano: pide_humano sin reclamo" in plano
 
@@ -60,8 +60,8 @@ def test_incidencias_no_promete_anotar_sin_herramienta():
     """F9: no hay herramienta para anotar despues de registrar; la compensacion va en la descripcion."""
     plano = _plano(PROMPT_INCIDENCIAS)
     assert "lo anotas en la incidencia" not in plano and "las anotas en la incidencia" not in plano
-    assert "pide una compensacion, incluyelo en la descripcion" in plano
-    assert "Dices que actualizaste o anotaste algo que ninguna herramienta hizo?" in plano
+    assert "pide hablar con una persona o una compensacion, incluyelo en la descripcion" in plano
+    assert "No dices que actualizaste o anotaste algo que ninguna herramienta hizo" in plano
 
 
 def test_informacion_da_el_contacto_en_vez_de_prometer():
@@ -74,7 +74,7 @@ def test_informacion_da_el_contacto_en_vez_de_prometer():
 def test_incidencias_sabe_consultar_un_caso_existente():
     """F11: con el codigo consulta el estado y se detiene, sin registrar otro caso."""
     plano = _plano(PROMPT_INCIDENCIAS)
-    assert "Ejecuta consultar_incidencia. Con el resultado, informa el estado y detente: no registres otro caso" in plano
+    assert "consulta su estado y detente: no registres otro caso" in plano
 
 
 def test_la_voz_es_de_atencion_al_cliente_con_emojis_acotados():
