@@ -578,6 +578,7 @@ def test_al_siguiente_mensaje_se_puede_preparar_otra(entorno):
 
 def test_dos_propuestas_a_la_vez_dejan_una_sola(entorno):
     """Dos herramientas en paralelo sobre el mismo contexto: exactamente una se acepta y es la que queda guardada."""
+    import contextvars
     import threading
 
     for intento in range(20):
@@ -589,8 +590,10 @@ def test_dos_propuestas_a_la_vez_dejan_una_sola(entorno):
             barrera.wait()
             salidas.append(tools.crear_reserva.func(nombre, telefono, "2026-10-10", "20:00", personas, rt))
 
-        hilos = [threading.Thread(target=preparar, args=("Ana Prueba", "900000001", 2)),
-                 threading.Thread(target=preparar, args=("Beto Prueba", "900000002", 3))]
+        # Cada hilo lleva una copia del contexto (como hace LangGraph con sus herramientas): con Postgres el
+        # servicio necesita el contexto de la aplicacion Flask, que un hilo nuevo no hereda por si solo.
+        hilos = [threading.Thread(target=contextvars.copy_context().run, args=(preparar, "Ana Prueba", "900000001", 2)),
+                 threading.Thread(target=contextvars.copy_context().run, args=(preparar, "Beto Prueba", "900000002", 3))]
         [h.start() for h in hilos]
         [h.join() for h in hilos]
         aceptadas = [s for s in salidas if s != autorizacion.OPERACION_YA_PREPARADA]
