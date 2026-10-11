@@ -10,10 +10,12 @@ import pytest
 from app import create_app
 from app.communication.services import aviso_staff_service as aviso
 from app.communication.services import outbound_whatsapp_service as saliente
+from app.communication.services.sesiones import limpiar_sesion, obtener_sesion
 from app.contratos import RespuestaClemente
 from app.seguridad.guardrails_ai import ResultadoEntrada
 
 SESION_WHATSAPP = "whatsapp-51999111222"
+SESION_WEB = "web-abc123def456"
 TOKEN = "token-staff"
 AUTORIZACION = {"Authorization": f"Bearer {TOKEN}"}
 TEXTO = "Tu solicitud quedó registrada con el código I-ABC123. La mesa todavía no está confirmada."
@@ -43,6 +45,8 @@ def staff(monkeypatch):
     )
     cliente = app.test_client()
     cliente.enviados = enviados
+    for sesion in (SESION_WHATSAPP, SESION_WEB):
+        limpiar_sesion(sesion)
     return cliente
 
 
@@ -210,7 +214,7 @@ def test_un_fallo_al_guardar_el_historial_no_afecta_al_aviso(staff, monkeypatch)
 
 
 def test_sin_base_no_se_toca_el_historial(staff, monkeypatch):
-    """Sin base configurada el aviso sale y no se intenta guardar nada."""
+    """Sin base configurada el aviso sale y no se toca Postgres (el hilo en memoria es otra cosa)."""
     def no_debe_llamarse(*args, **kwargs):
         """Falla la prueba si el servicio intenta escribir en la base sin tenerla configurada."""
         raise AssertionError("no debia tocar la base")
@@ -219,3 +223,82 @@ def test_sin_base_no_se_toca_el_historial(staff, monkeypatch):
     respuesta = _resolver(staff)
 
     assert respuesta.get_json()["notificacion"]["estado"] == "enviado"
+
+
+# --- el cliente tiene que enterarse de la decision al escribir de nuevo ---------------------------
+
+def test_el_webchat_guarda_la_decision_en_el_hilo_para_el_siguiente_mensaje(staff):
+    """El webchat no tiene envio, pero la decision queda como turno del asistente: al escribir de nuevo, el agente la sabe."""
+    _resolver(staff, sesion_id=SESION_WEB, decision="reject")
+
+    assert obtener_sesion(SESION_WEB, "webchat").historial[-1] == {"role": "assistant", "content": TEXTO}
+
+
+def test_si_el_envio_falla_la_decision_igual_queda_en_el_hilo(staff, monkeypatch):
+    """Fuera de la ventana de 24 horas el cliente no recibe el aviso, pero su siguiente mensaje ya encuentra la decision."""
+    def rechazo(*args):
+        """Simula el rechazo 63016 de Twilio por la ventana de 24 horas."""
+        raise saliente.WhatsAppSendError("Twilio rejected the message (400): {'code': 63016}")
+
+    monkeypatch.setattr(saliente, "send_whatsapp_message", rechazo)
+    _resolver(staff, decision="reject")
+
+    assert obtener_sesion(SESION_WHATSAPP, "whatsapp").historial[-1] == {"role": "assistant", "content": TEXTO}
+
+
+def test_sin_base_el_aviso_enviado_tambien_queda_en_el_hilo_en_memoria(staff):
+    """Sin Postgres el chat lee el hilo de la memoria: la decision tiene que estar ahi, aunque el aviso haya salido."""
+    _resolver(staff)
+
+    assert obtener_sesion(SESION_WHATSAPP, "whatsapp").historial[-1] == {"role": "assistant", "content": TEXTO}
+
+
+def test_el_hilo_guarda_la_decision_redactada(staff, monkeypatch):
+    """Lo que queda en el hilo va sin correo ni telefono, igual que lo que se guarda en Postgres."""
+    monkeypatch.setattr(
+        "app.orquestador.grafo.resolver_revision",
+        lambda sesion_id, decision, motivo="": RespuestaClemente(
+            texto="Escribe a ana@correo.com o llama al 900000001.", agente="reservas", sesion_id=sesion_id),
+    )
+    _resolver(staff, sesion_id=SESION_WEB)
+
+    contenido = obtener_sesion(SESION_WEB, "webchat").historial[-1]["content"]
+    assert "ana@correo.com" not in contenido and "900000001" not in contenido
+
+
+def test_con_base_el_webchat_guarda_la_decision_en_su_chat(staff, monkeypatch):
+    """Con Postgres, la decision del webchat entra al chat del navegador (chat_key = sesion_id, canal webchat)."""
+    guardados, canales = [], []
+    staff.application.config["CLEMENTE"] = replace(staff.application.config["CLEMENTE"], database_url="postgresql://x")
+    monkeypatch.setattr(aviso.customers_repository, "get_or_create_customer", lambda chat_key, **kw: f"cliente-{chat_key}")
+
+    def abrir_chat(chat_key, cliente_id, **kw):
+        """Anota el canal con el que se abre el chat y devuelve su id."""
+        canales.append((chat_key, kw.get("channel")))
+        return "chat-1"
+
+    monkeypatch.setattr(aviso.chats_repository, "get_or_create_chat", abrir_chat)
+    monkeypatch.setattr(aviso.chats_repository, "touch", lambda chat_id: None)
+    monkeypatch.setattr(aviso.messages_repository, "append_message",
+                        lambda chat_id, rol, texto, **kw: guardados.append((chat_id, rol, texto)))
+    _resolver(staff, sesion_id=SESION_WEB, decision="reject")
+
+    assert canales == [(SESION_WEB, "webchat")]
+    assert guardados == [("chat-1", "assistant", TEXTO)]
+    assert staff.enviados == []
+
+
+def test_con_base_y_envio_fallido_la_decision_se_guarda_igual(staff, monkeypatch):
+    """Si Twilio rechaza el envio, la decision igual entra a messages para el siguiente mensaje del cliente."""
+    guardados = []
+    staff.application.config["CLEMENTE"] = replace(staff.application.config["CLEMENTE"], database_url="postgresql://x")
+    monkeypatch.setattr(aviso.customers_repository, "get_or_create_customer", lambda chat_key, **kw: "cliente-1")
+    monkeypatch.setattr(aviso.chats_repository, "get_or_create_chat", lambda chat_key, cid, **kw: "chat-1")
+    monkeypatch.setattr(aviso.chats_repository, "touch", lambda chat_id: None)
+    monkeypatch.setattr(aviso.messages_repository, "append_message",
+                        lambda chat_id, rol, texto, **kw: guardados.append((chat_id, rol, texto)))
+    monkeypatch.setattr(saliente, "send_whatsapp_message",
+                        lambda *a: (_ for _ in ()).throw(saliente.WhatsAppSendError("code 63016")))
+    _resolver(staff, decision="reject")
+
+    assert guardados == [("chat-1", "assistant", TEXTO)]
