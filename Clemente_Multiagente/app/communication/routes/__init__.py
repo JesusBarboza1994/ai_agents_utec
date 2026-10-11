@@ -5,12 +5,14 @@ rule points straight at a controller function.
     GET  /                        -- webchat demo
     POST /api/chat                -- internal API (webchat + tests)
     POST /api/webhook/whatsapp    -- Twilio inbound
+    HEAD /api/webhook/trello      -- Trello comprueba la URL
+    POST /api/webhook/trello      -- Trello avisa que una tarjeta paso a Resuelto
     POST /api/sesiones/<id>/reset -- resets a thread (handy for the demo)
 """
 
 from flask import Blueprint
 
-from ..controllers import chat_controller, whatsapp_controller, staff_controller
+from ..controllers import chat_controller, whatsapp_controller, staff_controller, trello_controller
 
 bp = Blueprint("communication", __name__)
 
@@ -18,6 +20,8 @@ bp.add_url_rule("/", view_func=chat_controller.chat_demo, methods=["GET"])
 bp.add_url_rule("/api/chat", view_func=chat_controller.chat, methods=["POST"])
 bp.add_url_rule("/api/chat/imagen", view_func=chat_controller.chat_imagen, methods=["POST"])
 bp.add_url_rule("/api/webhook/whatsapp", view_func=whatsapp_controller.handle_webhook, methods=["POST"])
+bp.add_url_rule("/api/webhook/trello", view_func=trello_controller.verificar_webhook, methods=["HEAD"], endpoint="trello_verificar")
+bp.add_url_rule("/api/webhook/trello", view_func=trello_controller.recibir_webhook, methods=["POST"], endpoint="trello_recibir")
 bp.add_url_rule("/api/sesiones/<sesion_id>/reset", view_func=chat_controller.reset, methods=["POST"])
 
 bp.add_url_rule("/api/staff/revisiones", view_func=staff_controller.listar_revisiones, methods=["GET"])

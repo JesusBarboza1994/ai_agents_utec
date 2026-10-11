@@ -42,6 +42,11 @@ class Config:
     twilio_account_sid: str = ""
     twilio_whatsapp_from: str = ""
     twilio_webhook_url: str = ""
+    # Cierre de un caso desde Trello: cuando el personal mueve la tarjeta a "Resuelto", Trello llama a este
+    # webhook y Clemente avisa al cliente por WhatsApp. El secreto firma cada llamada (Power-Up de Trello) y la
+    # URL es la misma con la que se registro el webhook: la firma se calcula sobre el cuerpo mas esa URL.
+    trello_secret: str = ""
+    trello_webhook_url: str = ""
     # Imagenes de WhatsApp: se re-suben a Cloudinary (ver media_service).
     cloudinary_cloud_name: str = ""
     cloudinary_api_key: str = ""
@@ -112,6 +117,8 @@ class Config:
             twilio_account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             twilio_whatsapp_from=os.getenv("TWILIO_WHATSAPP_FROM", ""),
             twilio_webhook_url=os.getenv("TWILIO_WEBHOOK_URL", ""),
+            trello_secret=os.getenv("TRELLO_SECRET", ""),
+            trello_webhook_url=os.getenv("TRELLO_WEBHOOK_URL", ""),
             cloudinary_cloud_name=cloud_name,
             cloudinary_api_key=cloud_key,
             cloudinary_api_secret=cloud_secret,
