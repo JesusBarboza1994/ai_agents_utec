@@ -85,7 +85,11 @@ def test_la_voz_es_de_atencion_al_cliente_con_emojis_acotados():
     assert "atencion al cliente" in plano and "tuteas con respeto" in plano
     assert "Usa un emoji en la mayoria de tus mensajes" in plano
     assert "el emoji acompana la alternativa" in plano
-    assert "como maximo un emoji por mensaje" in plano and "Nunca uses emojis en un reclamo" in plano
+    assert "como maximo un emoji por mensaje" in plano
+    # Un reclamo leve se reconoce con un solo emoji triste; uno grave, o una mala noticia sin alternativa, no lleva ninguno.
+    assert "reconoces lo ocurrido con un solo 😔" in plano
+    assert "Si el reclamo es grave (alergia, salud, seguridad, maltrato)" in plano and "no uses emojis" in plano
+    assert "👍 al confirmar algo sencillo" in plano
 
 
 def test_las_respuestas_directas_del_orquestador_cierran_con_un_emoji():

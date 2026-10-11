@@ -36,8 +36,8 @@ RESERVA_REPETIDA_DE_OTRA_CONVERSACION = (
 # nunca en un rechazo, un error ni un aviso de seguridad.
 EMOJI_DEL_RESUMEN = {"crear": "🍽️", "modificar": "📅", "cancelar": "📅"}
 CIERRE_DE_LA_OPERACION = {
-    "crear": " ¡Te esperamos! ✅",
-    "modificar": " Todo quedó actualizado ✅",
+    "crear": " ¡Te esperamos! 😄",
+    "modificar": " Todo quedó actualizado 👍",
     "cancelar": " Cuando quieras, te ayudo a reservar de nuevo 😊",
 }
 # Tres motivos distintos por los que un CONFIRMO no se acepta; antes los tres decian "no es valida o vencio".
