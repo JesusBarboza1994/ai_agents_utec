@@ -287,6 +287,13 @@ lleva el paso 'reservas', aunque el mismo mensaje traiga ademas algo que no es d
 del restaurante (un examen, una ecuacion, un poema) NO es un paso: no lo mandes a 'informacion'
 ni a ningun agente; el agente que atiende el pedido de mesa lo declina en una frase.
 
+El restaurante cierra los lunes. Un pedido de mesa para un dia cerrado igual lleva el paso
+'reservas': es quien lo explica y ofrece otro dia.
+
+Si el cliente pide hablar con una persona del restaurante, el paso es 'reservas' (es quien puede
+dejar el pedido al equipo), aunque viniera hablando con otro componente. Si ademas se queja de
+algo que ya paso, el paso es 'incidencias' y lo pedido va en la descripcion del reclamo.
+
 Cuando el cliente cuenta algo suyo sin preguntar nada -- su nombre, un telefono de contacto,
 una mascota, su cumpleanos -- es un dato para su ficha: va a 'reservas', que es quien lo guarda,
 incluso si venia hablando con 'informacion'. Si ademas pregunta por una politica (por ejemplo
