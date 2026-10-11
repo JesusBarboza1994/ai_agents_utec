@@ -95,6 +95,10 @@ _ultimo_agente: dict[str, str] = {}
 # dentro del mismo hilo (ver `_escalar`).
 _escalado_de: dict[str, str] = {}
 
+# Caso escalado cuyo pedido el cliente ya retiro con CANCELAR SOLICITUD: sesion_id -> codigo. Evita anotar
+# lo mismo en la tarjeta cada vez que repite el comando; un dato nuevo del cliente vuelve a abrirlo.
+_retirado_de: dict[str, str] = {}
+
 # Paso que se le ofrecio al cliente en el turno anterior porque dependia de otro
 # ("si tienen opciones veganas, reserva"): sesion_id -> {"agente", "tarea"}. Vive un
 # solo turno: el siguiente lo usa si el cliente acepta y se descarta en cualquier caso.
@@ -125,6 +129,12 @@ NO_SE_PUDO_CANCELAR = ("Disculpa, no pude cancelar tu solicitud en este momento.
                        "minutos escribiendo CANCELAR SOLICITUD.")
 PAUSA_SIN_VIGENCIA = ("Tu solicitud anterior al equipo ya no estaba vigente, así que la cerré para que puedas "
                       "seguir. ¿Me cuentas de nuevo en qué te ayudo? 😊")
+# CANCELAR SOLICITUD cuando no hay una pausa del staff: retira el pedido de hablar con una persona, si lo hay.
+PEDIDO_AL_EQUIPO_RETIRADO = ("Listo, avisé al equipo que ya no necesitas que te atiendan por tu pedido {codigo}. "
+                             "Cuando quieras, aquí estoy 😊")
+NO_SE_PUDO_RETIRAR_EL_PEDIDO = ("Disculpa, no pude avisar al equipo que retiras tu pedido. Puedes decírselo "
+                                f"directamente al restaurante al {TELEFONO_RESTAURANTE}.")
+SIN_SOLICITUD_EN_ESPERA = "No tengo ninguna solicitud tuya en espera. Si quieres, te ayudo con una reserva."
 ARCHIVO_REVISIONES = carpeta_de_datos(Path(__file__).resolve().parent.parent / "agentes" / "datos") / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
@@ -190,6 +200,31 @@ def _cancelar_solicitud(sesion_id: str) -> str | None:
               detalle={"estaba_en_cola": retirada is not None})
     codigo = (retirada or {}).get("codigo")
     return SOLICITUD_CANCELADA_CON_CODIGO.format(codigo=codigo) if codigo else SOLICITUD_CANCELADA
+
+
+def _retirar_pedido_al_equipo(sesion_id: str) -> str:
+    """CANCELAR SOLICITUD sin pausa del staff: avisa en la tarjeta del pedido de hablar con una persona.
+
+    No cierra la tarjeta: cerrarla es del equipo (la mueve a Resuelto y el cliente recibe el aviso). Deja una
+    nota, una sola vez por pedido. Si la nota no se pudo dejar no se anuncia el retiro; si no hay ningun
+    pedido abierto lo dice, sin llamar al modelo."""
+    codigo = _escalado_de.get(sesion_id) or _escalamiento_previo(sesion_id)
+    if not codigo:
+        return SIN_SOLICITUD_EN_ESPERA
+    _escalado_de[sesion_id] = codigo
+    if _retirado_de.get(sesion_id) != codigo:
+        try:
+            anotada = servicio_incidencias().anotar(
+                codigo, "[el cliente retiró su pedido] Escribió CANCELAR SOLICITUD: ya no necesita que lo atiendan "
+                        "por este caso. Si no hay nada pendiente, se puede cerrar.")
+        except Exception as error:
+            registrar_error(sesion_id, "retirar_pedido", error)
+            anotada = False
+        if not anotada:
+            return NO_SE_PUDO_RETIRAR_EL_PEDIDO
+        _retirado_de[sesion_id] = codigo
+        registrar("pedido_retirado", sesion_id, agente="orquestador", detalle={"incidencia": codigo})
+    return PEDIDO_AL_EQUIPO_RETIRADO.format(codigo=codigo)
 
 
 def _liberar_pausa_sin_vigencia(sesion_id: str) -> str | None:
@@ -793,6 +828,7 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     abierto = _escalado_de.get(sesion) or _escalamiento_previo(sesion)
     if abierto:
         _escalado_de[sesion] = abierto
+        _retirado_de.pop(sesion, None)
         if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
             raise RuntimeError("No se pudo actualizar el caso existente")
         contexto.datos["incidencia"] = {"id": abierto, "actualizada": True}
@@ -1068,9 +1104,11 @@ def _responder_turno(
             final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": "confirmacion validada por el servidor", "plan": ["reservas"]}
             registrar("plan", entrante.sesion_id, agente="reservas", detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
             registrar("operacion", entrante.sesion_id, agente="reservas", detalle={"salida": texto, **datos})
-        elif (_es_cancelar_solicitud(entrante.texto)
-              and (cancelacion := _cancelar_solicitud(entrante.sesion_id)) is not None):
-            # Como CONFIRMO: un comando exacto que el codigo resuelve sin modelo.
+        elif _es_cancelar_solicitud(entrante.texto):
+            # Como CONFIRMO: un comando exacto que el codigo resuelve sin modelo, haya o no algo que retirar.
+            cancelacion = _cancelar_solicitud(entrante.sesion_id)
+            if cancelacion is None:
+                cancelacion = _retirar_pedido_al_equipo(entrante.sesion_id)
             final = {"respuesta": cancelacion, "ruta": "reservas",
                      "motivo_ruta": "solicitud al staff retirada por el cliente", "plan": ["reservas"]}
             registrar("plan", entrante.sesion_id, agente="reservas",
@@ -1166,6 +1204,7 @@ def olvidar_sesion(sesion_id: str) -> None:
 
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
+    _retirado_de.pop(sesion_id, None)
     _pendiente_de.pop(sesion_id, None)
     with _lock_revisiones:
         _cargar_revisiones()

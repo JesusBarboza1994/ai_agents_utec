@@ -7,6 +7,8 @@ from app.agentes import fecha
 from app.agentes import reservas as agente_reservas
 from app.agentes.base import AVISO_REVISION_PENDIENTE
 from app.agentes.contexto import ContextoConversacion
+from app.agentes.prompts import TELEFONO_RESTAURANTE
+from app.incidencias import obtener_servicio
 from app.contratos import MensajeEntrante
 from app.orquestador import grafo
 
@@ -211,20 +213,83 @@ def test_cancelar_solicitud_libera_una_pausa_huerfana(hilos):
     assert SESION not in hilos["pausados"]
 
 
-def test_cancelar_sin_nada_pendiente_sigue_el_flujo_normal(hilos, monkeypatch):
-    """Sin solicitud ni pausa, el comando no hace nada especial y responde el grafo."""
-    llamado = {}
-
+def sin_modelo(monkeypatch):
+    """Un grafo que falla si se invoca: el comando se resuelve en el servidor, nunca con el modelo."""
     class Grafo:
-        """Grafo minimo que anota que fue invocado."""
+        """Grafo que no debe llegar a ejecutarse."""
 
         def invoke(self, estado):
-            """Responde algo fijo."""
-            llamado["si"] = True
-            return {**estado, "respuesta": "flujo normal", "ruta": "informacion", "motivo_ruta": "x"}
+            """Falla: el comando no pasa por el planificador."""
+            raise AssertionError("CANCELAR SOLICITUD no debe llegar al modelo")
 
     monkeypatch.setattr(grafo, "obtener_grafo", lambda: Grafo())
-    assert turno("CANCELAR SOLICITUD").texto == "flujo normal" and llamado
+
+
+def pedir_hablar_con_una_persona(sesion=SESION):
+    """Deja abierto el caso que crea el orquestador cuando el cliente pide hablar con alguien del equipo."""
+    caso = obtener_servicio().crear_incidencia(
+        sesion_id=sesion, tipo="otro",
+        descripcion="[escalado desde orquestador] pide hablar con alguien del staff\nMensaje del cliente: quiero hablar con alguien del staff")
+    grafo._escalado_de[sesion] = caso.id
+    return caso.id
+
+
+def test_cancelar_sin_nada_que_retirar_lo_dice_sin_llamar_al_modelo(hilos, monkeypatch):
+    """Sin pausa ni pedido abierto, el comando responde un texto fijo y no llega al planificador."""
+    sin_modelo(monkeypatch)
+    assert turno("CANCELAR SOLICITUD").texto == grafo.SIN_SOLICITUD_EN_ESPERA
+
+
+def test_cancelar_retira_el_pedido_de_hablar_con_una_persona(hilos, monkeypatch):
+    """El aviso queda como nota en la tarjeta, que sigue abierta: cerrarla es del equipo."""
+    sin_modelo(monkeypatch)
+    codigo = pedir_hablar_con_una_persona()
+    respuesta = turno("CANCELAR SOLICITUD")
+    assert respuesta.texto == grafo.PEDIDO_AL_EQUIPO_RETIRADO.format(codigo=codigo)
+    caso = next(c for c in obtener_servicio().listar_incidencias() if c.id == codigo)
+    assert caso.estado == "abierta" and "[el cliente retiró su pedido]" in caso.descripcion
+
+
+def test_repetir_el_comando_no_repite_la_nota(hilos, monkeypatch):
+    """Dos veces el mismo comando: la misma respuesta y una sola nota para el equipo."""
+    sin_modelo(monkeypatch)
+    codigo = pedir_hablar_con_una_persona()
+    primera, segunda = turno("CANCELAR SOLICITUD").texto, turno("cancelar solicitud").texto
+    caso = next(c for c in obtener_servicio().listar_incidencias() if c.id == codigo)
+    assert primera == segunda and caso.descripcion.count("[el cliente retiró su pedido]") == 1
+
+
+def test_un_dato_nuevo_del_cliente_reabre_el_pedido_retirado(hilos, monkeypatch):
+    """Si despues de retirar vuelve a pedir una persona, la nota del retiro ya no vale y el comando avisa de nuevo."""
+    sin_modelo(monkeypatch)
+    codigo = pedir_hablar_con_una_persona()
+    turno("CANCELAR SOLICITUD")
+    contexto = ContextoConversacion(sesion_id=SESION)
+    assert grafo._escalar(SESION, {"origen": "orquestador", "motivo": "x", "detalle": "y"}, "quiero hablar de nuevo", contexto) == codigo
+    turno("CANCELAR SOLICITUD")
+    caso = next(c for c in obtener_servicio().listar_incidencias() if c.id == codigo)
+    assert caso.descripcion.count("[el cliente retiró su pedido]") == 2
+
+
+def test_si_no_se_pudo_dejar_la_nota_no_se_anuncia_el_retiro(hilos, monkeypatch):
+    """Sin nota en la tarjeta el equipo no se entera: el cliente lo sabe y recibe el telefono del restaurante."""
+    sin_modelo(monkeypatch)
+    codigo = pedir_hablar_con_una_persona()
+    monkeypatch.setattr(obtener_servicio(), "anotar", lambda incidencia_id, texto: False)
+    respuesta = turno("CANCELAR SOLICITUD")
+    assert respuesta.texto == grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO and TELEFONO_RESTAURANTE in respuesta.texto
+    assert grafo._retirado_de.get(SESION) != codigo
+
+
+def test_si_la_cola_tiene_una_solicitud_manda_la_pausa_y_no_el_pedido(hilos, monkeypatch):
+    """Con una pausa del staff el comando sigue siendo el de siempre; el pedido I- no se toca."""
+    sin_modelo(monkeypatch)
+    codigo = pedir_hablar_con_una_persona()
+    hilos["pausados"].add(SESION)
+    encolar(creada=0)
+    assert turno("CANCELAR SOLICITUD").texto == grafo.SOLICITUD_CANCELADA
+    caso = next(c for c in obtener_servicio().listar_incidencias() if c.id == codigo)
+    assert "[el cliente retiró su pedido]" not in caso.descripcion
 
 
 def test_cancelar_mientras_el_staff_resuelve_no_toca_nada(hilos):

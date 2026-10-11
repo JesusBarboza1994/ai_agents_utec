@@ -120,6 +120,7 @@ def test_los_textos_fijos_del_servidor_solo_llevan_emoji_donde_se_permite():
     con_emoji_permitido = {
         "SOLICITUD_CANCELADA", "SOLICITUD_CANCELADA_CON_CODIGO", "SOLICITUD_EN_RESOLUCION", "PAUSA_SIN_VIGENCIA",
         "SIN_MENSAJE", "ESCALAMIENTO_HUMANO", "ESCALAMIENTO_RESERVA", "ESCALAMIENTO_RESERVA_APROBADA",
+        "PEDIDO_AL_EQUIPO_RETIRADO",
         "AVISO_REVISION_PENDIENTE", "AVISO_REVISION_PENDIENTE_CON_CODIGO", "SOLICITUD_EN_REVISION",
         "EMOJI_DEL_RESUMEN", "CIERRE_DE_LA_OPERACION", "TEXTO_CIERRE",
     }
@@ -171,6 +172,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         autorizacion.CODIGO_NO_COINCIDE, autorizacion.RESUMEN_VENCIDO, autorizacion.DEMASIADOS_INTENTOS,
         grafo.NO_SE_PUDO_CANCELAR, grafo.ESCALAMIENTO_HUMANO_FALLIDO, grafo.ESCALAMIENTO_RESERVA_FALLIDO,
         grafo.OFERTA_DIFERIDO, base.RESPALDO_TRAS_LA_REVISION, aviso_staff_service.TEXTO_SALIDA_BLOQUEADA,
+        grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)
