@@ -39,9 +39,20 @@ jobs:
       - name: Construir la imagen (solo valida que el Dockerfile compila)
         run: docker build -t clemente:pr-${{ github.event.pull_request.number }} .
 
+  evals:
+    name: Evals previos al deploy
+    # Paso previo obligatorio: corre todas las suites de LangSmith sobre el codigo del
+    # tag que se va a desplegar. Si el workflow de evals falla, build-and-deploy no corre.
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/evals.yml
+    with:
+      tag: ${{ github.event.inputs.tag }}
+    secrets: inherit
+
   build-and-deploy:
     name: Build y despliegue a Azure
     if: github.event_name == 'workflow_dispatch'
+    needs: evals
     runs-on: ubuntu-latest
     environment: production
     steps:

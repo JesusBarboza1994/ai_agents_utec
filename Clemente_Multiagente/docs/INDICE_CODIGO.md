@@ -787,47 +787,126 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [metrica_precision_contextual](../tests/eval/metricas.py#L223) | Calidad del recuperador del RAG (`ContextualPrecisionMetric`). |
 | [construir_metricas](../tests/eval/metricas.py#L251) | Todas las metricas de juicio, indexadas por nombre. Un solo juez para todas. |
 
-## tests/evals/dataset_casos.py
+## tests/evals/dataset_conversation.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../tests/evals/dataset_casos.py#L1) | Dataset de casos de prueba para evaluar al agente Clemente. |
+| [modulo](../tests/evals/dataset_conversation.py#L1) | Dataset "conversation" para evaluar al agente Clemente en LangSmith |
 
-## tests/evals/deepeval/evaluador_deepeval.py
+## tests/evals/dataset_quality.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../tests/evals/deepeval/evaluador_deepeval.py#L1) | Evaluador DeepEval para el agente Clemente |
-| [construir_metricas](../tests/evals/deepeval/evaluador_deepeval.py#L80) | Métricas predefinidas de DeepEval, transversales a las 3 categorías (igual que |
-| [invocar_agente_real](../tests/evals/deepeval/evaluador_deepeval.py#L101) | Corre un mensaje contra el orquestador real y devuelve (respuesta, tools). |
-| [generar_reporte](../tests/evals/deepeval/evaluador_deepeval.py#L129) | Escribe resultados de DeepEval en un reporte para revisar la evaluacion ejecutada. |
-| [main](../tests/evals/deepeval/evaluador_deepeval.py#L200) | Ejecuta la evaluacion indicada por este script; puede consumir APIs y publicar resultados externos. |
+| [modulo](../tests/evals/dataset_quality.py#L1) | Dataset "quality" para evaluar al agente Clemente en LangSmith |
+
+## tests/evals/dataset_rag.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/dataset_rag.py#L1) | Dataset "rag" para evaluar al agente Clemente en LangSmith |
+
+## tests/evals/dataset_safety.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/dataset_safety.py#L1) | Dataset "safety" para evaluar al agente Clemente en LangSmith |
+
+## tests/evals/dataset_security.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/dataset_security.py#L1) | Dataset "security" para evaluar al agente Clemente en LangSmith |
+
+## tests/evals/dataset_trajectory.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/dataset_trajectory.py#L1) | Dataset "trajectory" para evaluar al agente Clemente en LangSmith |
+
+## tests/evals/deepeval_evaluar.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/deepeval_evaluar.py#L1) | Evaluacion de Clemente con DeepEval -- Sesion 22. |
+| [_contexto_recuperado](../tests/evals/deepeval_evaluar.py#L49) | Fragmentos que el RAG devuelve para esa pregunta. |
+| [_tools_del_turno](../tests/evals/deepeval_evaluar.py#L63) | Herramientas que el agente llamo en este turno, sacadas de nuestras trazas. |
+| [_caso_de_prueba](../tests/evals/deepeval_evaluar.py#L118) | Construye LLMTestCase con entrada, respuesta, referencia y herramientas observadas. |
+| [evaluar](../tests/evals/deepeval_evaluar.py#L137) | Ejecuta guiones contra el orquestador y mide las metricas asignadas a cada ruta. |
+| [escribir_informe](../tests/evals/deepeval_evaluar.py#L239) | Informe legible para el anexo. El JSON queda para reprocesar. |
+| [_fijar_modelo](../tests/evals/deepeval_evaluar.py#L296) | Deja el proceso corriendo con este modelo, cambiando de casa si hace falta. |
+| [main](../tests/evals/deepeval_evaluar.py#L311) | Selecciona modelo, juez y guiones de la CLI y guarda la evaluacion DeepEval. |
+
+## tests/evals/juez.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/juez.py#L1) | Juez de las evaluaciones -- el modelo que califica, no el que atiende clientes. |
+| [_modelo_del_juez](../tests/evals/juez.py#L57) | Resuelve el modelo del juez desde su variable de entorno o el valor predeterminado. |
+| [advertir_si_se_juzga_a_si_mismo](../tests/evals/juez.py#L62) | Devuelve la advertencia si juez y evaluado coinciden, o cadena vacia. |
+| [construir_juez](../tests/evals/juez.py#L83) | Devuelve el juez para DeepEval y DeepTeam. |
+| [construir_juez.JuezClemente](../tests/evals/juez.py#L98) | Adaptador de nuestro modelo de `app/llm.py` a la interfaz de DeepEval. |
+| [construir_juez.JuezClemente.__init__](../tests/evals/juez.py#L101) | Resuelve el nombre del juez y construye su modelo con temperatura cero. |
+| [construir_juez.JuezClemente.load_model](../tests/evals/juez.py#L113) | Devuelve el modelo LangChain que implementa la interfaz de juez DeepEval. |
+| [construir_juez.JuezClemente.generate](../tests/evals/juez.py#L117) | DeepEval pasa `schema` (una clase Pydantic) cuando necesita la |
+| [construir_juez.JuezClemente.a_generate](../tests/evals/juez.py#L132) | Genera el juicio asincrono como texto o salida del schema recibido. |
+| [construir_juez.JuezClemente._formato](../tests/evals/juez.py#L145) | Agrega el contrato JSON del schema si CLEMENTE_JUEZ_EXIGIR_ESQUEMA es 1. |
+| [construir_juez.JuezClemente._registrar_error](../tests/evals/juez.py#L158) | Anota tipo de error y detalles de validacion en el diario configurado, si existe. |
+| [construir_juez.JuezClemente.get_model_name](../tests/evals/juez.py#L169) | Devuelve el identificador del juez para los informes de evaluacion. |
+| [nombre_del_juez](../tests/evals/juez.py#L176) | Para dejarlo escrito en el informe: quien califico. |
 
 ## tests/evals/langsmith/evaluador_langsmith.py
 
 | Elemento | Descripcion |
 |---|---|
 | [modulo](../tests/evals/langsmith/evaluador_langsmith.py#L1) | Evaluador LangSmith para el agente Clemente |
-| [crear_o_recuperar_dataset](../tests/evals/langsmith/evaluador_langsmith.py#L63) | Reemplaza el dataset existente de LangSmith por los casos actuales y devuelve su identificador. |
-| [ejecutar_agente](../tests/evals/langsmith/evaluador_langsmith.py#L89) | Corre el mensaje contra el orquestador real. Cada caso usa una sesion |
-| [JuicioLLM](../tests/evals/langsmith/evaluador_langsmith.py#L111) | Define la puntuacion y justificacion estructuradas esperadas del modelo juez. |
-| [crear_evaluador_llm](../tests/evals/langsmith/evaluador_langsmith.py#L167) | Construye un evaluador de un criterio con categorias aplicables y juez estructurado. |
-| [crear_evaluador_llm.evaluador](../tests/evals/langsmith/evaluador_langsmith.py#L169) | Omite categorias no aplicables y solicita al juez una puntuacion y justificacion para el criterio. |
-| [enrutamiento_correcto](../tests/evals/langsmith/evaluador_langsmith.py#L209) | Puntua si las herramientas registradas coinciden con alguna esperada para la categoria. |
-| [construir_evaluadores](../tests/evals/langsmith/evaluador_langsmith.py#L223) | Reune jueces de criterios de negocio y el evaluador determinista de herramientas. |
-| [main](../tests/evals/langsmith/evaluador_langsmith.py#L237) | Ejecuta la evaluacion indicada por este script; puede consumir APIs y publicar resultados externos. |
+| [crear_o_recuperar_dataset](../tests/evals/langsmith/evaluador_langsmith.py#L111) | Reemplaza el dataset `nombre` de LangSmith por `casos` y devuelve su identificador. |
+| [_turno](../tests/evals/langsmith/evaluador_langsmith.py#L143) | Envia un mensaje al orquestador real y devuelve (respuesta, trazas de tools del turno). |
+| [ejecutar_agente](../tests/evals/langsmith/evaluador_langsmith.py#L151) | Corre un mensaje suelto contra el orquestador real, en una sesion nueva. |
+| [ejecutar_conversacion](../tests/evals/langsmith/evaluador_langsmith.py#L174) | Envia los `mensajes` del guion en orden dentro de UNA sesion y devuelve la conversacion. |
+| [juez_predefinido](../tests/evals/langsmith/evaluador_langsmith.py#L225) | Juez openevals con el juez Claude y comentario en español. |
+| [_resultado](../tests/evals/langsmith/evaluador_langsmith.py#L248) | Normaliza el booleano de openevals a 1.0 = pasa (invertir si TRUE significa problema). |
+| [pii_leakage](../tests/evals/langsmith/evaluador_langsmith.py#L254) | 1.0 si la respuesta no expone PII de terceros (el prompt devuelve TRUE cuando SI hay fuga). |
+| [prompt_injection](../tests/evals/langsmith/evaluador_langsmith.py#L261) | 1.0 si el MENSAJE DEL CLIENTE es un intento de prompt injection. |
+| [agent_tone](../tests/evals/langsmith/evaluador_langsmith.py#L276) | 1.0 si el tono de Clemente es apropiado y consistente en toda la conversacion. |
+| [user_satisfaction](../tests/evals/langsmith/evaluador_langsmith.py#L296) | 1.0 si el cliente parece satisfecho al final de la conversacion. |
+| [task_completion](../tests/evals/langsmith/evaluador_langsmith.py#L301) | 1.0 si Clemente completo todo lo que el cliente pidio en la conversacion. |
+| [wins](../tests/evals/langsmith/evaluador_langsmith.py#L306) | 1.0 si el cliente elogio o agradecio a Clemente en la conversacion. |
+| [_sin_recuperacion](../tests/evals/langsmith/evaluador_langsmith.py#L317) | Resultado sin score para los casos en que el agente no recupero nada del catalogo. |
+| [rag_retrieval_relevance](../tests/evals/langsmith/evaluador_langsmith.py#L322) | 1.0 si lo recuperado (catalogo o casos previos) es relevante para el mensaje del cliente. |
+| [rag_groundedness](../tests/evals/langsmith/evaluador_langsmith.py#L330) | 1.0 si la respuesta se apoya en lo recuperado del catalogo. |
+| [rag_helpfulness](../tests/evals/langsmith/evaluador_langsmith.py#L349) | 1.0 si la respuesta es util para la pregunta. |
+| [correctness](../tests/evals/langsmith/evaluador_langsmith.py#L355) | 1.0 si la respuesta coincide con la respuesta correcta del caso (`referencia`). |
+| [hallucination](../tests/evals/langsmith/evaluador_langsmith.py#L364) | 1.0 si la respuesta no afirma nada que no este en el contexto. |
+| [conciseness](../tests/evals/langsmith/evaluador_langsmith.py#L383) | 1.0 si la respuesta va al punto, sin relleno. |
+| [tool_selection](../tests/evals/langsmith/evaluador_langsmith.py#L389) | 1.0 si eligio las tools correctas, en orden y sin llamadas de sobra. |
+| [toxicity](../tests/evals/langsmith/evaluador_langsmith.py#L410) | 1.0 si la respuesta de Clemente no es toxica (el prompt devuelve TRUE cuando SI lo es). |
+| [JuicioLLM](../tests/evals/langsmith/evaluador_langsmith.py#L422) | Define la puntuacion y justificacion estructuradas esperadas del modelo juez. |
+| [crear_evaluador_llm](../tests/evals/langsmith/evaluador_langsmith.py#L466) | Construye un evaluador de un criterio con categorias/riesgos aplicables y juez estructurado. |
+| [crear_evaluador_llm.evaluador](../tests/evals/langsmith/evaluador_langsmith.py#L468) | Omite categorias/riesgos no aplicables y solicita al juez una puntuacion y justificacion. |
+| [evaluadores_criterios](../tests/evals/langsmith/evaluador_langsmith.py#L507) | Construye un juez LLM custom por cada criterio (categorias, riesgos, texto). |
+| [correr_suite](../tests/evals/langsmith/evaluador_langsmith.py#L585) | Sube el dataset de la suite y corre evaluate(); los resultados quedan en LangSmith. |
+| [main](../tests/evals/langsmith/evaluador_langsmith.py#L613) | Ejecuta las suites pedidas por argumento (todas si no se pasa ninguna); puede consumir |
+
+## tests/evals/metricas.py
+
+| Elemento | Descripcion |
+|---|---|
+| [modulo](../tests/evals/metricas.py#L1) | Metricas de calidad de Clemente -- Sesion 22 (Evaluacion Comparativa). |
+| [_rubrica](../tests/evals/metricas.py#L38) | Escala explicita para GEval, de 0 a 10. |
+| [metrica_no_promete_de_mas](../tests/evals/metricas.py#L60) | El limite del Agente de Reservas: nunca comprometer capacidad sin haberla |
+| [metrica_no_ofrece_compensacion](../tests/evals/metricas.py#L108) | El limite del Agente de Incidencias: registra el reclamo, no lo resuelve. |
+| [metrica_fiel_al_catalogo](../tests/evals/metricas.py#L147) | El limite del Agente de Conocimiento: responder solo desde el catalogo |
+| [metrica_tono_clemente](../tests/evals/metricas.py#L189) | Metrica de matiz, no de limite: aqui `criteria=` en texto libre funciona |
+| [metrica_precision_contextual](../tests/evals/metricas.py#L223) | Calidad del recuperador del RAG (`ContextualPrecisionMetric`). |
+| [construir_metricas](../tests/evals/metricas.py#L251) | Todas las metricas de juicio, indexadas por nombre. Un solo juez para todas. |
 
 ## tests/evals/modelo_juez.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../tests/evals/modelo_juez.py#L1) | Juez gpt-5.6-luna compartido por los dos evaluadores copiados de la tarea grupal |
-| [chat_gpt_luna](../tests/evals/modelo_juez.py#L31) | LLM de LangChain apuntando al deployment de Azure gpt-5.6-luna, el mismo |
-| [JuezGptLuna](../tests/evals/modelo_juez.py#L54) | Envoltorio de gpt-5.6-luna (Azure) para usarlo como juez en DeepEval. |
-| [JuezGptLuna.load_model](../tests/evals/modelo_juez.py#L57) | Devuelve el modelo de chat configurado para el juez de DeepEval. |
-| [JuezGptLuna.generate](../tests/evals/modelo_juez.py#L61) | Invoca el juez sincronicamente y devuelve su texto. |
-| [JuezGptLuna.a_generate](../tests/evals/modelo_juez.py#L65) | Invoca el juez asincronicamente y devuelve su texto. |
-| [JuezGptLuna.get_model_name](../tests/evals/modelo_juez.py#L70) | Devuelve el nombre del modelo juez para identificar los reportes. |
+| [modulo](../tests/evals/modelo_juez.py#L1) | Juez Claude del evaluador de LangSmith (langsmith/evaluador_langsmith.py). |
+| [modelo_del_juez](../tests/evals/modelo_juez.py#L27) | `JUEZ_MODEL` si esta definido, si no claude-sonnet-5-5. |
+| [chat_claude_juez](../tests/evals/modelo_juez.py#L32) | Juez Claude como chat model de LangChain (lo usan openevals y los criterios |
 
 ## tests/seguridad/campana.py
 
