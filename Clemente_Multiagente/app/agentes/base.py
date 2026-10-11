@@ -205,6 +205,26 @@ AVISO_REVISION_PENDIENTE = (
     "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
+# Si tras la decision del staff el modelo no escribe nada, el cliente igual recibe algo verdadero:
+# ni aprueba ni rechaza por su cuenta, y no promete una mesa.
+RESPALDO_TRAS_LA_REVISION = (
+    "El equipo del restaurante revisó tu solicitud. Todavía no hay una mesa confirmada; "
+    "escríbenos si quieres que la revisemos de nuevo."
+)
+
+
+def _con_respaldo_si_viene_vacia(respuesta: str, sesion_id: str, respaldo: str, momento: str) -> str:
+    """Devuelve `respuesta`, o `respaldo` si el modelo no escribio nada.
+
+    Un modelo puede cerrar el turno con texto vacio despues de una herramienta. Por WhatsApp eso es un
+    mensaje que Twilio rechaza y un cliente sin respuesta, asi que se sustituye y queda una traza para medir
+    cuantas veces ocurre."""
+    if respuesta.strip():
+        return respuesta
+    registrar("guardrail", sesion_id,
+              detalle={"motivo": "el modelo devolvio una respuesta vacia", "momento": momento})
+    return respaldo
+
 
 def _hilo_en_pausa(agente, config: dict) -> bool:
     """True solo si el hilo tiene una interrupcion real: la revision humana del staff pendiente.
@@ -350,7 +370,7 @@ def ejecutar(
         )
         return fallback
 
-    return respuesta
+    return _con_respaldo_si_viene_vacia(respuesta, sesion_id, fallback, "turno")
 
 
 def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: ContextoConversacion,
@@ -373,4 +393,6 @@ def reanudar_revision(agente, sesion_id: str, decision: dict, contexto: Contexto
     if resultado.get("__interrupt__"):
         raise RuntimeError("La revisión produjo una segunda interrupción inesperada")
     _olvidar_hilo(agente, config)
-    return extraer_texto(resultado["messages"][-1])
+    return _con_respaldo_si_viene_vacia(
+        extraer_texto(resultado["messages"][-1]), sesion_id, RESPALDO_TRAS_LA_REVISION, "tras_la_revision",
+    )
