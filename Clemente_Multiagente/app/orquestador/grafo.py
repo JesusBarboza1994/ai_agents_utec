@@ -336,7 +336,9 @@ Componentes:
      esta restriccion.
    - grupo_grande: mas de 8 personas.
    - pide_humano: pide hablar con una persona, o acepta una oferta de Clemente de dejar su
-     pedido al equipo.
+     pedido al equipo. NO es pide_humano el pedido de mesa de un grupo de mas de 8 personas,
+     aunque diga "envialo al equipo" o "que lo vea el equipo": ese pedido es de 'reservas', que
+     lo lleva al equipo con su propia herramienta (accion delegar).
    - reclamo: se queja de algo que ya ocurrio.
    - condicional: un pedido depende de la respuesta a otro ("si si", "si se puede").
    - fuera_de_alcance: algo que no es del restaurante.

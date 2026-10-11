@@ -52,6 +52,16 @@ def test_reservas_no_pregunta_la_zona():
     assert "No preguntes la zona" in _plano(PROMPT_RESERVAS)
 
 
+def test_el_planificador_no_confunde_un_grupo_grande_con_pedir_una_persona():
+    """'Envialo al equipo' de un grupo de mas de 8 va a reservas (pausa para el personal), no a un reclamo."""
+    from app.orquestador.grafo import PROMPT_PLANIFICADOR
+
+    plano = _plano(PROMPT_PLANIFICADOR)
+
+    assert "NO es pide_humano el pedido de mesa de un grupo de mas de 8 personas" in plano
+    assert "ese pedido es de 'reservas'" in plano
+
+
 def test_la_excepcion_de_grupo_se_pide_una_sola_vez():
     """Tras la decision del personal el agente no repite la excepcion (eso producia una segunda interrupcion)."""
     plano = _plano(PROMPT_RESERVAS)
