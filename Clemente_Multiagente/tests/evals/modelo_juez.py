@@ -21,12 +21,30 @@ if not os.getenv("ANTHROPIC_API_KEY"):
     from dotenv import load_dotenv
     load_dotenv(RAIZ / ".env")
 
+from langchain_anthropic import ChatAnthropic
+
 MODELO_JUEZ_CLAUDE = "claude-sonnet-5-5"
 
 
 def modelo_del_juez() -> str:
     """`JUEZ_MODEL` si esta definido, si no claude-sonnet-5-5."""
     return os.getenv("JUEZ_MODEL") or MODELO_JUEZ_CLAUDE
+
+
+class ChatAnthropicJsonSchema(ChatAnthropic):
+    """
+    ChatAnthropic cuya salida estructurada usa json_schema por defecto.
+
+    openevals llama `judge.with_structured_output(schema)` sin `method`, y el default
+    de LangChain es function_calling. claude-sonnet-5-5 no acepta forzar la tool, asi
+    que LangChain la manda como opcional y, a veces, Claude responde sin llamarla: el
+    evaluador falla con OutputParserException (paso en 1 de ~40 casos en la corrida de
+    CI del 2026-10-11). Con json_schema la respuesta siempre sale con el formato pedido.
+    """
+
+    def with_structured_output(self, schema, *, method="json_schema", **kwargs):
+        """Igual que ChatAnthropic, pero con method="json_schema" por defecto."""
+        return super().with_structured_output(schema, method=method, **kwargs)
 
 
 def chat_claude_juez():
@@ -40,15 +58,14 @@ def chat_claude_juez():
     - fallbacks "default": si el clasificador de seguridad de Claude declina
       juzgar un caso adversarial, la API reintenta en otro modelo dentro de la
       misma llamada en vez de dejar el caso sin puntaje.
+    - Salida estructurada siempre por json_schema (ver ChatAnthropicJsonSchema).
     """
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise RuntimeError(
             "Falta ANTHROPIC_API_KEY: el juez de las evaluaciones es Claude "
             "(ver tests/evals/modelo_juez.py)."
         )
-    from langchain_anthropic import ChatAnthropic
-
-    return ChatAnthropic(
+    return ChatAnthropicJsonSchema(
         model=modelo_del_juez(),
         max_tokens=16000,
         output_config={"effort": "medium"},
