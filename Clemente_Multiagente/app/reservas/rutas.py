@@ -11,8 +11,9 @@ CONFIRMO <codigo> de `app/agentes/autorizacion.py`. Estas rutas llaman
 configurado por CLEMENTE_BACKEND_RESERVAS -- pero sin el agente ni la
 confirmacion en el medio.
 
-Registrado SOLO si CLEMENTE_DEBUG_ROUTES=1 (ver app/__init__.py). No tiene
-autenticacion ni el flujo de propiedad-por-sesion de autorizacion.py: no
+Registrado SOLO si CLEMENTE_DEBUG_ROUTES=1 (ver app/__init__.py), salvo el
+listado `GET /api/reservas` (`bp_lectura`), que siempre esta activo para el
+dashboard. No tiene autenticacion ni el flujo de propiedad-por-sesion de autorizacion.py: no
 debe estar prendido nunca en un entorno con trafico real.
 """
 
@@ -23,10 +24,13 @@ from .validaciones import ReservaInvalida
 
 bp = Blueprint("reservas_debug", __name__, url_prefix="/api/reservas")
 
+# Solo lectura, siempre registrado: lo consume el dashboard. Sin autenticacion.
+bp_lectura = Blueprint("reservas_lectura", __name__, url_prefix="/api/reservas")
 
-@bp.get("")
+
+@bp_lectura.get("")
 def listar():
-    """GET /api/reservas: lista todas las reservas (sin autenticacion; solo depuracion)."""
+    """GET /api/reservas: lista todas las reservas (sin autenticacion)."""
     return jsonify([r.__dict__ for r in obtener_servicio().listar_reservas()])
 
 

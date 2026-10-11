@@ -35,8 +35,14 @@ def cliente_sin_flag(monkeypatch):
 
 def test_rutas_de_depuracion_no_existen_sin_el_flag(cliente_sin_flag):
     """Verifica que sin el flag las rutas de depuracion de reservas no existen (404)."""
-    respuesta = cliente_sin_flag.post("/api/reservas", json={})
-    assert respuesta.status_code == 404
+    assert cliente_sin_flag.post("/api/reservas", json={}).status_code == 405
+    assert cliente_sin_flag.get("/api/reservas/disponibilidad").status_code == 404
+    assert cliente_sin_flag.post("/api/reservas/R-X/cancelar").status_code == 404
+
+
+def test_listar_reservas_existe_sin_el_flag(cliente_sin_flag):
+    """Verifica que el GET de lectura del dashboard no depende del flag de depuracion."""
+    assert cliente_sin_flag.get("/api/reservas").status_code == 200
 
 
 def test_crear_reserva_valida_devuelve_201(cliente):
