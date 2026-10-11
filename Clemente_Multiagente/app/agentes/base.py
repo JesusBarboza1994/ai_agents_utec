@@ -24,7 +24,7 @@ from ..observabilidad.trazas import registrar
 from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
-from .prompts import AVISO_FECHA, AVISO_FICHA
+from .prompts import AVISO_COORDINACION, AVISO_FECHA, AVISO_FICHA
 
 log = logging.getLogger("clemente")
 
@@ -175,15 +175,19 @@ def _con_imagenes_recientes(mensajes: list[dict]) -> list[dict]:
     return resultado
 
 
-def _armar_entrada(texto: str, ficha: str) -> str:
+def _armar_entrada(texto: str, ficha: str, coordinacion: str = "") -> str:
     """Antepone al mensaje los datos del sistema que el modelo no debe adivinar.
 
-    Siempre la fecha y hora de Lima de este turno; la ficha del cliente solo
-    cuando existe. Van pegados al mensaje y no al system prompt para que
-    cambien turno a turno."""
+    Siempre la fecha y hora de Lima de este turno; la ficha del cliente y la
+    coordinacion del orquestador solo cuando existen. Van pegados al mensaje y no
+    al system prompt para que cambien turno a turno. La coordinacion viaja como
+    dato con su propia advertencia, nunca como mensaje de sistema: deriva del texto
+    del cliente y no puede tener privilegio sobre las reglas."""
     bloques = [f"[{AVISO_FECHA}: {fecha.describir_ahora()}]"]
     if ficha:
         bloques.append(f"[{AVISO_FICHA}: {ficha}]")
+    if coordinacion:
+        bloques.append(f"[{AVISO_COORDINACION}:\n{coordinacion}]")
     bloques.append(texto)
     return "\n".join(bloques)
 
@@ -198,24 +202,50 @@ LIMITE_DE_PASOS = 45
 # Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
 AVISO_REVISION_PENDIENTE = (
     "Tu solicitud sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
-    "Todavía no hay una mesa confirmada."
+    "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
 
 def _hilo_en_pausa(agente, config: dict) -> bool:
-    """True si el hilo esta detenido esperando la decision del staff (revision humana pendiente).
+    """True solo si el hilo tiene una interrupcion real: la revision humana del staff pendiente.
 
     Un mensaje nuevo NO puede entrar en esa pausa: el hilo quedo con una llamada a herramienta sin
     respuesta y OpenAI rechaza la conversacion con un 400, lo que dejaba al cliente con un "no
-    puedo procesar tu mensaje" hasta que el staff decidiera. Sin checkpoint o ante cualquier fallo
-    al consultarlo devuelve False y el turno sigue su camino normal."""
+    puedo procesar tu mensaje" hasta que el staff decidiera.
+
+    Se mira `interrupts` y no `next`: un turno que se corto por un error (una herramienta que
+    fallo) tambien deja un paso pendiente en `next`, y contarlo como revision le mostraba al
+    cliente "tu solicitud sigue en revision" sin que existiera ninguna. Ese resto lo limpia
+    `_descartar_turno_inconcluso`. Sin checkpoint o ante cualquier fallo al consultarlo
+    devuelve False y el turno sigue su camino normal."""
     if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
         return False
     try:
-        return bool(agente.get_state(config).next)
+        return bool(agente.get_state(config).interrupts)
     except Exception as error:
         log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
         return False
+
+
+def _descartar_turno_inconcluso(agente, config: dict, sesion_id: str, flujo: str) -> None:
+    """Borra lo que dejo un turno cortado por un error, para que el mensaje nuevo empiece limpio.
+
+    Si una herramienta falla a mitad de turno, `_olvidar_hilo` no llega a correr y el hilo queda
+    con un paso pendiente y una llamada a herramienta sin respuesta, pero sin interrupcion. No es
+    una revision del staff y, si se dejara, OpenAI rechazaria el mensaje nuevo con un 400. Una
+    revision real (con interrupcion) nunca se toca aqui. Sin checkpoint o sin estado legible no
+    hace nada."""
+    if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
+        return
+    try:
+        estado = agente.get_state(config)
+    except Exception as error:
+        log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
+        return
+    if estado.next and not estado.interrupts:
+        _olvidar_hilo(agente, config)
+        registrar("hilo_inconcluso_descartado", sesion_id, agente=flujo,
+                  detalle={"pendiente": list(estado.next)})
 
 
 def _olvidar_hilo(agente, config: dict) -> None:
@@ -238,7 +268,7 @@ def _olvidar_hilo(agente, config: dict) -> None:
 def ejecutar(
     agente, texto: str, sesion_id: str, historial: list[dict] | None = None,
     fallback: str = "Disculpa, no te entendi bien. Me lo repites?",
-    contexto: ContextoConversacion | None = None, flujo: str = "agente",
+    contexto: ContextoConversacion | None = None, flujo: str = "agente", coordinacion: str = "",
 ) -> str:
     """
     Invoca al agente y devuelve solo su texto de respuesta.
@@ -270,7 +300,7 @@ def ejecutar(
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
     # contexto que pidio Boris en la asesoria del 2026-09-07 [08:22].
-    entrada = _armar_entrada(texto or (TEXTO_SOLO_IMAGEN if contexto.imagenes else ""), ficha)
+    entrada = _armar_entrada(texto or (TEXTO_SOLO_IMAGEN if contexto.imagenes else ""), ficha, coordinacion)
     if ficha:
         # La ficha entra por el prompt, no por una tool, asi que sin esta traza
         # el agente puede citar la reserva de un cliente y en el registro no
@@ -291,6 +321,7 @@ def ejecutar(
         # esa clave vuelve a registrar la revision en la cola del staff y con esta respuesta no hay solicitud.
         contexto.datos["hilo_en_revision"] = True
         return AVISO_REVISION_PENDIENTE
+    _descartar_turno_inconcluso(agente, config, sesion_id, flujo)
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
     interrupciones = resultado.get("__interrupt__") or []

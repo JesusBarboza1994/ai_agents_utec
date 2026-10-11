@@ -42,15 +42,16 @@ def obtener_agente():
 
 def responder(
     texto: str, sesion_id: str, historial: list[dict] | None = None,
-    contexto: ContextoConversacion | None = None,
+    contexto: ContextoConversacion | None = None, coordinacion: str = "",
 ) -> str:
-    """Ejecuta el agente de incidencias con texto, sesion, historial y contexto de negocio.
+    """Ejecuta el agente de incidencias con texto, sesion, historial, contexto y la tarea del orquestador.
 
     Devuelve texto para el cliente; ejecutar sustituye una tool escrita como
     texto por el fallback. Los errores de invocacion se propagan al orquestador."""
     return ejecutar(
         obtener_agente(), texto, sesion_id, historial, contexto=contexto,
         fallback="Perdona, se me cruzo la linea. Me cuentas otra vez que paso y cuando fue?",
+        coordinacion=coordinacion,
     )
 
 

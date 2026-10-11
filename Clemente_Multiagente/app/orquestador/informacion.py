@@ -44,18 +44,20 @@ def obtener_agente():
 
 def responder(
     texto: str, sesion_id: str, historial: list[dict] | None = None,
-    contexto: ContextoConversacion | None = None,
+    contexto: ContextoConversacion | None = None, coordinacion: str = "",
 ) -> str:
     """Responde una consulta general con el agente de lectura del orquestador.
 
-    Recibe texto, sesion, historial y contexto y devuelve el texto de ejecutar.
-    Las herramientas recuperan catalogo y politicas; este componente no crea
-    reservas ni incidencias. El fallback sustituye una tool escrita como
-    texto; los errores de invocacion se propagan al llamador.
+    Recibe texto, sesion, historial, contexto y la tarea del orquestador, y
+    devuelve el texto de ejecutar. Las herramientas recuperan catalogo y
+    politicas; este componente no crea reservas ni incidencias. El fallback
+    sustituye una tool escrita como texto; los errores de invocacion se propagan
+    al llamador.
     """
     return ejecutar(
         obtener_agente(), texto, sesion_id, historial, contexto=contexto,
         fallback="Perdona, se me cruzo la linea. Me repites tu consulta?",
+        coordinacion=coordinacion,
     )
 
 

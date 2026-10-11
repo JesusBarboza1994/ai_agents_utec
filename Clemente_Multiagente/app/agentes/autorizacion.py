@@ -16,7 +16,7 @@ from threading import RLock
 
 from . import fecha as reloj
 from ..datos import carpeta_de_datos
-from ..reservas.validaciones import ReservaInvalida, validar_cambio_turno, validar_datos_reserva
+from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
 ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
@@ -153,6 +153,11 @@ def proponer(contexto, accion, datos, servicio):
                 validar_cambio_turno(fecha=fecha, hora=hora, personas=personas)
         except ReservaInvalida as err:
             return f"No se preparó la operación: {err}"
+        # El destino de crear o modificar debe caer en el horario de atencion. La hora solo se
+        # revisa si es un turno valido: si no lo es, ya lo rechazo la validacion de arriba.
+        fuera = reloj.fuera_de_horario(fecha, hora if hora in TURNOS_VALIDOS else None)
+        if fuera:
+            return fuera
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Crear reserva' if accion == 'crear' else 'Modificar reserva ' + datos['reserva_id']}: "
