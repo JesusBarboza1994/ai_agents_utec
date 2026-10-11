@@ -26,7 +26,7 @@ from . import aviso_staff_service
 
 LISTA_RESUELTO = "resuelto"
 ARCHIVO_AVISOS = carpeta_de_datos(Path(__file__).resolve().parents[2] / "incidencias" / "datos") / "avisos_cierre.json"
-TEXTO_CIERRE = ("¡Listo! Tu caso {codigo} ya fue resuelto por el equipo del restaurante. "
+TEXTO_CIERRE = ("¡Listo! Tu caso {codigo} ya fue resuelto por el equipo del restaurante ✅ "
                 "Si necesitas algo más, aquí estamos.")
 # Un solo aviso a la vez: Trello reintenta si tarda, y el segundo intento tiene que ver el primero ya registrado.
 _candado = threading.Lock()

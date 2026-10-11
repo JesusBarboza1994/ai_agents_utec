@@ -1,6 +1,6 @@
 # Cierre de un caso desde Trello hacia WhatsApp y el webchat
 
-Cuando el personal mueve una tarjeta a la lista **Resuelto** en Trello, el cliente recibe, en WhatsApp o en su webchat: *"¡Listo! Tu caso G-XXXXXX ya fue resuelto por el equipo del restaurante. Si necesitas algo más, aquí estamos."*
+Cuando el personal mueve una tarjeta a la lista **Resuelto** en Trello, el cliente recibe, en WhatsApp o en su webchat: *"¡Listo! Tu caso G-XXXXXX ya fue resuelto por el equipo del restaurante ✅ Si necesitas algo más, aquí estamos."*
 
 La misma entrega se usa cuando el personal **aprueba o rechaza** una solicitud de grupo desde el panel: el cliente se entera sin tener que escribir de nuevo.
 

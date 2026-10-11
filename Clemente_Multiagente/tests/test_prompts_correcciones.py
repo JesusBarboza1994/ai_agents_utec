@@ -95,45 +95,81 @@ def test_las_respuestas_directas_del_orquestador_cierran_con_un_emoji():
     assert "Un saludo junto a un pedido NO es respuesta directa" in plano
 
 
-def test_los_textos_fijos_del_servidor_no_llevan_emojis():
-    """Resumenes con CONFIRMO, confirmaciones, codigos, avisos y errores los escribe el codigo y se leen sobrios.
+def test_los_textos_fijos_del_servidor_solo_llevan_emoji_donde_se_permite():
+    """Los textos que escribe el codigo llevan emoji solo en una lista explicita y nunca mas de uno por texto.
 
-    Revisa cada cadena del codigo de agentes y orquestador; solo se exceptuan los prompts
-    (instrucciones al modelo), que si nombran los emojis permitidos."""
+    Resumenes con CONFIRMO, confirmaciones, avisos de pausa y cierre, codigos y errores los escribe el codigo, no el
+    modelo. La voz de Clemente pide un emoji en lo positivo o neutro y ninguno en un rechazo, un error o un aviso de
+    seguridad: por eso la lista es de nombres de constantes y cualquier otra cadena de agentes, orquestador y servicios
+    de comunicacion (salvo los prompts, que nombran los emojis permitidos) falla si lleva uno. La lista no puede quedar
+    desactualizada: cada nombre permitido tiene que existir y llevar un emoji."""
     import ast
     import re
     from pathlib import Path
 
-    emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿⭐⭕️]")
+    emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿⭐⭕]")
     raiz = Path(__file__).resolve().parent.parent / "app"
     archivos = [p for p in (raiz / "agentes").rglob("*.py") if p.name != "prompts.py"]
     archivos += list((raiz / "orquestador").rglob("*.py"))
+    archivos += list((raiz / "communication" / "services").glob("*.py"))
     prompts_permitidos = {"PROMPT_PLANIFICADOR"}
+    con_emoji_permitido = {
+        "SOLICITUD_CANCELADA", "SOLICITUD_CANCELADA_CON_CODIGO", "SOLICITUD_EN_RESOLUCION", "PAUSA_SIN_VIGENCIA",
+        "SIN_MENSAJE", "ESCALAMIENTO_HUMANO", "ESCALAMIENTO_RESERVA", "ESCALAMIENTO_RESERVA_APROBADA",
+        "AVISO_REVISION_PENDIENTE", "AVISO_REVISION_PENDIENTE_CON_CODIGO", "SOLICITUD_EN_REVISION",
+        "EMOJI_DEL_RESUMEN", "CIERRE_DE_LA_OPERACION", "TEXTO_CIERRE",
+    }
 
-    class _Cadenas(ast.NodeVisitor):
-        """Junta las cadenas literales de un modulo, sin entrar en las asignaciones de prompts."""
+    def cadenas(nodo):
+        """Cada cadena literal dentro de un nodo, con su linea."""
+        return [(n.lineno, n.value) for n in ast.walk(nodo) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
 
-        def __init__(self):
-            """Empieza sin cadenas."""
-            self.cadenas = []
-
-        def visit_Assign(self, nodo):
-            """Salta el valor de un prompt permitido; el resto se revisa como siempre."""
-            if any(isinstance(t, ast.Name) and t.id in prompts_permitidos for t in nodo.targets):
-                return
-            self.generic_visit(nodo)
-
-        def visit_Constant(self, nodo):
-            """Guarda cada cadena literal con su linea."""
-            if isinstance(nodo.value, str):
-                self.cadenas.append((nodo.lineno, nodo.value))
-
-    con_emoji = []
+    prohibidos, encontrados, de_mas = [], {}, []
     for archivo in archivos:
-        visitante = _Cadenas()
-        visitante.visit(ast.parse(archivo.read_text(encoding="utf-8")))
-        con_emoji += [f"{archivo.relative_to(raiz)}:{linea}" for linea, texto in visitante.cadenas if emoji.search(texto)]
-    assert archivos and not con_emoji, con_emoji
+        arbol = ast.parse(archivo.read_text(encoding="utf-8"))
+        permitidas = []
+        for nodo in arbol.body:
+            if not isinstance(nodo, ast.Assign):
+                continue
+            nombres = {t.id for t in nodo.targets if isinstance(t, ast.Name)}
+            if nombres & prompts_permitidos:
+                permitidas += [id(n) for n in ast.walk(nodo)]
+            elif nombres & con_emoji_permitido:
+                permitidas += [id(n) for n in ast.walk(nodo)]
+                for linea, texto in cadenas(nodo):
+                    if emoji.search(texto):
+                        encontrados[(nombres & con_emoji_permitido).pop()] = True
+                    if len(emoji.findall(texto)) > 1:
+                        de_mas.append(f"{archivo.relative_to(raiz)}:{linea}")
+        for nodo in ast.walk(arbol):
+            if id(nodo) in permitidas:
+                continue
+            if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str) and emoji.search(nodo.value):
+                prohibidos.append(f"{archivo.relative_to(raiz)}:{nodo.lineno}")
+
+    assert archivos
+    assert not prohibidos, f"emoji fuera de la lista permitida: {prohibidos}"
+    assert not de_mas, f"mas de un emoji en un mismo texto: {de_mas}"
+    assert set(encontrados) == con_emoji_permitido, f"la lista permitida esta desactualizada: {con_emoji_permitido - set(encontrados)}"
+
+
+def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
+    """Un rechazo, un error o un aviso de seguridad se leen sobrios: ninguno de estos textos lleva emoji."""
+    import re
+
+    from app.agentes import autorizacion, base
+    from app.communication.services import aviso_staff_service
+    from app.orquestador import grafo
+
+    emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿⭐⭕]")
+    sobrios = [
+        autorizacion.DENEGADO, autorizacion.RESERVA_REPETIDA_DE_OTRA_CONVERSACION, autorizacion.SIN_RESUMEN_PENDIENTE,
+        autorizacion.CODIGO_NO_COINCIDE, autorizacion.RESUMEN_VENCIDO, autorizacion.DEMASIADOS_INTENTOS,
+        grafo.NO_SE_PUDO_CANCELAR, grafo.ESCALAMIENTO_HUMANO_FALLIDO, grafo.ESCALAMIENTO_RESERVA_FALLIDO,
+        grafo.OFERTA_DIFERIDO, base.RESPALDO_TRAS_LA_REVISION, aviso_staff_service.TEXTO_SALIDA_BLOQUEADA,
+    ]
+
+    assert all(not emoji.search(texto) for texto in sobrios)
 
 
 def test_el_planificador_conoce_el_horario_y_marca_el_dia_cerrado():

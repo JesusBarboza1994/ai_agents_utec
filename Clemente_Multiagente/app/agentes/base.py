@@ -203,18 +203,18 @@ LIMITE_DE_PASOS = 45
 # Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
 AVISO_REVISION_PENDIENTE = (
     "Gracias por tu paciencia: tu solicitud sigue en revisión del equipo del restaurante y apenas decidan "
-    "te avisamos por aquí. Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
+    "te avisamos por aquí 🧠 Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
 # Con el codigo G- de la solicitud: es lo que el cliente cita al preguntar por ella y lo que ve el personal.
 AVISO_REVISION_PENDIENTE_CON_CODIGO = (
     "Gracias por tu paciencia: tu solicitud {codigo} sigue en revisión del equipo del restaurante y apenas "
-    "decidan te avisamos por aquí. Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe "
+    "decidan te avisamos por aquí 🧠 Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe "
     "CANCELAR SOLICITUD."
 )
 SOLICITUD_EN_REVISION = (
     "Gracias por tu solicitud. Por ser un grupo grande, la solicitud {codigo} necesita revisión del equipo del "
-    "restaurante. Todavía no hay una mesa confirmada; apenas decidan te avisamos por aquí."
+    "restaurante 🧠 Todavía no hay una mesa confirmada; apenas decidan te avisamos por aquí."
 )
 
 

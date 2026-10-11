@@ -32,6 +32,14 @@ RESERVA_REPETIDA_DE_OTRA_CONVERSACION = (
     "el restaurante puede verificar tu identidad y ayudarte a recuperarla; si no, prueba con otro horario y "
     "con gusto lo intento de nuevo."
 )
+# Un emoji por texto, al final de una frase, como pide la voz de Clemente (VOZ_CLEMENTE). Solo en lo positivo o neutro:
+# nunca en un rechazo, un error ni un aviso de seguridad.
+EMOJI_DEL_RESUMEN = {"crear": "🍽️", "modificar": "📅", "cancelar": "📅"}
+CIERRE_DE_LA_OPERACION = {
+    "crear": " ¡Te esperamos! ✅",
+    "modificar": " Todo quedó actualizado ✅",
+    "cancelar": " Cuando quieras, te ayudo a reservar de nuevo 😊",
+}
 # Tres motivos distintos por los que un CONFIRMO no se acepta; antes los tres decian "no es valida o vencio".
 SIN_RESUMEN_PENDIENTE = (
     "No encuentro un resumen pendiente de confirmar: si escribiste otro mensaje después del resumen, se anuló. "
@@ -193,7 +201,7 @@ def proponer(contexto, accion, datos, servicio):
     with _db() as db:
         db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
                    (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
-    texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos)."
+    texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
     contexto.datos["confirmacion_pendiente"] = texto
     return texto
 
@@ -265,8 +273,6 @@ def confirmar(sesion, texto, servicio):
         except ValueError:
             return "No pude completar la operación porque la disponibilidad o los datos cambiaron. Pídeme un nuevo resumen y lo vemos.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
-        cierre = {"crear": " ¡Te esperamos!", "modificar": "",
-                  "cancelar": " Cuando quieras, te ayudo a reservar de nuevo."}[accion]
         return (f"Listo, tu reserva {r.id} quedó {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), "
-                f"{r.personas} personas, zona {r.zona}.{cierre}",
+                f"{r.personas} personas, zona {r.zona}.{CIERRE_DE_LA_OPERACION[accion]}",
                 {"reserva": r.__dict__, "operacion": accion})
