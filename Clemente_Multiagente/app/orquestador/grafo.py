@@ -901,6 +901,9 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
     continuar_con = diferido["agente"] if diferido.get("agente") in NODOS else ruta
 
     pendiente = contexto.datos.get("confirmacion_pendiente")
+    if pendiente and contexto.datos.get("operacion_aplazada"):
+        # Pidio dos operaciones y el servidor prepara una por vez: el resumen es de una sola, y se le avisa.
+        pendiente = f"{autorizacion.AVISO_OPERACION_APLAZADA} {pendiente}"
     if accion == "responder_directo":
         texto = estado.get("respuesta_directa") or SIN_MENSAJE
     elif accion == "escalar_humano":

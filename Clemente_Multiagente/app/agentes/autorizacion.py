@@ -4,6 +4,7 @@ El telefono y los argumentos de tools NO son identidad. Las reservas antiguas
 sin vinculacion requieren recuperacion por personal; no se adjudican por codigo.
 SQLite guarda permisos/propuestas, no reemplaza el gestor de reservas de Miguel.
 """
+import hashlib
 import json
 import re
 import secrets
@@ -55,6 +56,15 @@ RESUMEN_VENCIDO = (
 DEMASIADOS_INTENTOS = (
     "Hubo demasiados intentos con un código que no coincide, así que cancelé ese resumen por seguridad. "
     "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
+)
+# El servidor guarda UNA propuesta por conversacion. Si el modelo prepara dos a la vez (llama las herramientas en
+# paralelo), la segunda ya no pisa a la primera en silencio: se rechaza, y el cliente lo lee en el resumen.
+OPERACION_YA_PREPARADA = (
+    "Ya hay otra operación preparada en este mensaje, esperando la confirmación del cliente. Se prepara una a la vez: "
+    "no prepares esta; dile que la haces cuando confirme la primera."
+)
+AVISO_OPERACION_APLAZADA = (
+    "Hago una operación a la vez: te dejo preparada esta y, cuando la confirmes, te ayudo con la otra."
 )
 
 
@@ -196,13 +206,24 @@ def proponer(contexto, accion, datos, servicio):
         r = datos["anterior"]
         resumen = f"Voy a cancelar la reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']} (hora de Lima), {r['personas']} personas"
 
-    _intentos_fallidos.pop(sesion, None)
-    codigo = _codigo_de_confirmacion()
-    with _db() as db:
-        db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
-                   (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
-    texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
-    contexto.datos["confirmacion_pendiente"] = texto
+    # Huella del pedido, no el pedido: asi un reintento identico se reconoce sin dejar nombre ni telefono en el contexto.
+    huella = hashlib.sha256(json.dumps({"accion": accion, **datos}, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    # Revisar y guardar van juntos bajo el candado: las herramientas corren en paralelo sobre el mismo contexto.
+    with _lock:
+        previa = contexto.datos.get("confirmacion_pendiente")
+        if previa:
+            if contexto.datos.get("huella_de_la_propuesta") == huella:
+                return previa            # el mismo pedido otra vez: sigue valiendo el mismo CONFIRMO
+            contexto.datos["operacion_aplazada"] = True
+            return OPERACION_YA_PREPARADA
+        _intentos_fallidos.pop(sesion, None)
+        codigo = _codigo_de_confirmacion()
+        with _db() as db:
+            db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
+                       (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
+        texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
+        contexto.datos["confirmacion_pendiente"] = texto
+        contexto.datos["huella_de_la_propuesta"] = huella
     return texto
 
 

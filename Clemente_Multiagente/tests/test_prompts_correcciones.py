@@ -184,6 +184,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         grafo.NO_SE_PUDO_CANCELAR, grafo.ESCALAMIENTO_HUMANO_FALLIDO, grafo.ESCALAMIENTO_RESERVA_FALLIDO,
         grafo.OFERTA_DIFERIDO, base.RESPALDO_TRAS_LA_REVISION, aviso_staff_service.TEXTO_SALIDA_BLOQUEADA,
         grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
+        autorizacion.OPERACION_YA_PREPARADA, autorizacion.AVISO_OPERACION_APLAZADA,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)
@@ -194,3 +195,10 @@ def test_el_planificador_conoce_el_horario_y_marca_el_dia_cerrado():
     plano = _plano(PROMPT_PLANIFICADOR)
     assert HORARIO_DE_ATENCION in PROMPT_PLANIFICADOR
     assert "dia_cerrado o fuera_de_horario" in plano and "SIEMPRE lleva el paso 'reservas'" in plano
+
+
+def test_reservas_prepara_una_sola_operacion_por_mensaje():
+    """Revision de Jean: el prompt pide una operacion por mensaje; el servidor lo hace cumplir aunque el modelo no obedezca."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "Una sola operacion por mensaje: no prepares dos a la vez (crear, modificar o cancelar)" in plano
+    assert "la otra la haces despues de que la confirme" in plano

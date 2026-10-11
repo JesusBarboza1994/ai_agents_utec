@@ -545,3 +545,69 @@ def test_whatsapp_prepara_y_confirma_con_propiedad_del_canal(entorno, monkeypatc
     assert creada.id in segunda
     assert autorizacion.es_propietario("whatsapp-900000001", creada.id)
     assert not autorizacion.es_propietario("whatsapp-900000002", creada.id)
+
+
+# --- una sola operacion preparada por mensaje ---------------------------------------------------------------
+
+def codigo_de(resumen):
+    """El codigo CONFIRMO de un resumen del servidor."""
+    return resumen.split("CONFIRMO ")[1].split()[0]
+
+
+def test_una_segunda_operacion_en_el_mismo_mensaje_no_pisa_a_la_primera(entorno):
+    """El modelo llama las herramientas en paralelo: la segunda propuesta se rechaza y solo vale el CONFIRMO de la primera."""
+    servicio, _ = entorno
+    rt = runtime()
+    primera = tools.crear_reserva.func("Ana Prueba", "900000001", "2026-10-10", "20:00", 2, rt)
+    segunda = tools.crear_reserva.func("Beto Prueba", "900000002", "2026-10-10", "20:00", 3, rt)
+    assert segunda == autorizacion.OPERACION_YA_PREPARADA
+    assert rt.context.datos["confirmacion_pendiente"] == primera and rt.context.datos["operacion_aplazada"]
+    autorizacion.confirmar("propietario", f"CONFIRMO {codigo_de(primera)}", servicio)
+    assert len(servicio.buscar_reservas_de("900000001")) == 1 and servicio.buscar_reservas_de("900000002") == []
+
+
+def test_repetir_el_mismo_pedido_en_el_mensaje_conserva_el_codigo(entorno):
+    """Un reintento identico (por ejemplo tras un respaldo del modelo) devuelve el mismo resumen, sin aviso de aplazada."""
+    rt = runtime()
+    primera = tools.crear_reserva.func("Ana Prueba", "900000001", "2026-10-10", "20:00", 2, rt)
+    repetida = tools.crear_reserva.func("Ana Prueba", "900000001", "2026-10-10", "20:00", 2, rt)
+    assert repetida == primera and "operacion_aplazada" not in rt.context.datos
+
+
+def test_al_siguiente_mensaje_se_puede_preparar_otra(entorno):
+    """El limite es por mensaje: en el turno siguiente (contexto nuevo) la nueva propuesta reemplaza a la anterior, como siempre."""
+    primera = tools.crear_reserva.func("Ana Prueba", "900000001", "2026-10-10", "20:00", 2, runtime())
+    segunda = tools.crear_reserva.func("Beto Prueba", "900000002", "2026-10-10", "20:00", 3, runtime())
+    assert "CONFIRMO" in segunda and codigo_de(segunda) != codigo_de(primera)
+
+
+def test_dos_propuestas_a_la_vez_dejan_una_sola(entorno):
+    """Dos herramientas en paralelo sobre el mismo contexto: exactamente una se acepta y es la que queda guardada."""
+    import threading
+
+    for intento in range(20):
+        rt = runtime(sesion=f"paralelo{intento}")
+        salidas, barrera = [], threading.Barrier(2)
+
+        def preparar(nombre, telefono, personas):
+            """Prepara una reserva en cuanto el otro hilo tambien esta listo."""
+            barrera.wait()
+            salidas.append(tools.crear_reserva.func(nombre, telefono, "2026-10-10", "20:00", personas, rt))
+
+        hilos = [threading.Thread(target=preparar, args=("Ana Prueba", "900000001", 2)),
+                 threading.Thread(target=preparar, args=("Beto Prueba", "900000002", 3))]
+        [h.start() for h in hilos]
+        [h.join() for h in hilos]
+        aceptadas = [s for s in salidas if s != autorizacion.OPERACION_YA_PREPARADA]
+        assert len(aceptadas) == 1 and autorizacion.OPERACION_YA_PREPARADA in salidas
+        assert rt.context.datos["confirmacion_pendiente"] == aceptadas[0]
+
+
+def test_el_cliente_lee_que_se_hace_una_operacion_a_la_vez():
+    """El resumen del servidor reemplaza el texto del modelo; con una operacion aplazada lleva delante el aviso."""
+    contexto = ContextoConversacion(sesion_id="propietario")
+    resumen = "Esto es lo que voy a reservar: Ana. Todavía no está hecho: para confirmarlo, escribe CONFIRMO ABC12345"
+    contexto.datos.update({"confirmacion_pendiente": resumen, "operacion_aplazada": True})
+    estado = {"sesion_id": "propietario", "mensaje": "reserva y cancela", "accion": "delegar",
+              "respuestas": [{"agente": "reservas", "texto": "texto del modelo"}], "contexto": contexto}
+    assert grafo._nodo_cierre(estado)["respuesta"] == f"{autorizacion.AVISO_OPERACION_APLAZADA} {resumen}"
