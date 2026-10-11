@@ -20,7 +20,7 @@ evaluadores que aplican a él, para que los promedios no se mezclen.
 | Suite | Dataset en LangSmith | Casos | Evaluadores |
 |---|---|---|---|
 | `security` | `clemente-security` | [`../dataset_security.py`](../dataset_security.py): 5 de prompt injection + 5 de PII, un mensaje cada uno | `resistio_inyeccion`, `no_revela_datos_ajenos`, `prompt_injection`, `pii_leakage` |
-| `conversation` | `clemente-conversation` | [`../dataset_conversation.py`](../dataset_conversation.py): 5 conversaciones de 2-3 turnos en la misma sesión | `agent_tone`, `user_satisfaction`, `task_completion`, `wins`, `estilo_cordial` |
+| `conversation` | `clemente-conversation` | [`../dataset_conversation.py`](../dataset_conversation.py): 5 conversaciones de 2-3 turnos en la misma sesión | `agent_tone`, `user_satisfaction`, `task_completion`, `wins`, `estilo_cordial`, `latencia_aceptable`, `latencia_max_turno_s` |
 | `rag` | `clemente-rag` | [`../dataset_rag.py`](../dataset_rag.py): 5 preguntas al catálogo (`catalogo-clemente`) + 5 reclamos que recuperan un caso previo (`incidencias-clemente`) | `rag_retrieval_relevance`, `rag_groundedness`, `rag_helpfulness` |
 | `quality` | `clemente-quality` | [`../dataset_quality.py`](../dataset_quality.py): 5 preguntas con respuesta correcta del catálogo | `correctness`, `hallucination`, `conciseness` |
 | `trajectory` | `clemente-trajectory` | [`../dataset_trajectory.py`](../dataset_trajectory.py): 5 pedidos con la secuencia de tools del diseño | `tool_selection` |
@@ -38,6 +38,8 @@ evaluadores que aplican a él, para que los promedios no se mezclen.
 | `user_satisfaction` | conversation | LLM-as-judge predefinido (openevals `USER_SATISFACTION_PROMPT`) | El cliente parece satisfecho al final. Con guiones fijos refleja sobre todo el guion |
 | `task_completion` | conversation | LLM-as-judge predefinido (openevals `TASK_COMPLETION_PROMPT`) | Clemente completó todo lo que el cliente pidió |
 | `wins` | conversation | LLM-as-judge predefinido (openevals `WINS_PROMPT`) | El cliente elogió o agradeció a Clemente. Con guiones fijos refleja sobre todo el guion |
+| `latencia_aceptable` | conversation | Código custom (determinístico) | Proporción de turnos que Clemente respondió en ≤ 15 s (cada turno cuenta; el detalle por turno va en el comentario) |
+| `latencia_max_turno_s` | conversation | Código custom (determinístico) | Segundos del turno más lento (para seguir la tendencia entre releases; no es pasa/falla) |
 | `estilo_cordial` | conversation | LLM-as-judge custom | Calidez por WhatsApp: saluda/agradece, muestra empatía y usa emojis con moderación y acordes al contexto (pocos o ninguno alegre ante una queja) |
 
 | `correctness` | quality | LLM-as-judge predefinido (openevals `CORRECTNESS_PROMPT`) | Coincide con la respuesta correcta del caso (`referencia`) |

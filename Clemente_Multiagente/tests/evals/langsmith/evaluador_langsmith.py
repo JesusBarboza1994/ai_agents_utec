@@ -19,6 +19,8 @@ Seis SUITES, cada una con su propio dataset y solo sus evaluadores (ver SUITES):
       user_satisfaction         openevals USER_SATISFACTION_PROMPT
       task_completion           openevals TASK_COMPLETION_PROMPT
       wins                      openevals WINS_PROMPT
+      latencia_aceptable        codigo custom: proporcion de turnos respondidos en <= 15 s
+      latencia_max_turno_s      codigo custom: segundos del turno mas lento
   - quality       -> clemente-quality (dataset_quality.py)
       correctness               openevals CORRECTNESS_PROMPT contra la respuesta correcta
       hallucination             openevals HALLUCINATION_PROMPT (contexto: ficha + tools)
@@ -47,6 +49,7 @@ Uso (desde la raíz del proyecto):
 """
 
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -57,7 +60,7 @@ for ruta in (RAIZ, COMPARTIDOS):
         sys.path.insert(0, str(ruta))
 
 from pydantic import BaseModel, Field
-from langsmith import Client
+from langsmith import Client, trace
 from openevals.llm import create_llm_as_judge
 from openevals.prompts import (
     AGENT_TONE_PROMPT,
@@ -172,13 +175,22 @@ def ejecutar_agente(inputs: dict) -> dict:
 
 
 def ejecutar_conversacion(inputs: dict) -> dict:
-    """Envia los `mensajes` del guion en orden dentro de UNA sesion y devuelve la conversacion."""
+    """
+    Envia los `mensajes` del guion en orden dentro de UNA sesion y devuelve la conversacion.
+
+    Cada turno se traza como su propio run hijo ("turno N") y se cronometra solo
+    responder(): la latencia que siente el cliente en cada respuesta, sin el juez.
+    """
     sesion = f"langsmith-conv-{uuid.uuid4().hex[:8]}"
-    lineas = []
-    for mensaje in inputs["mensajes"]:
-        respuesta, _ = _turno(sesion, mensaje)
+    lineas, latencias = [], []
+    for i, mensaje in enumerate(inputs["mensajes"], start=1):
+        with trace(f"turno {i}", inputs={"mensaje": mensaje}) as run_turno:
+            inicio = time.perf_counter()
+            respuesta, _ = _turno(sesion, mensaje)
+            latencias.append(round(time.perf_counter() - inicio, 2))
+            run_turno.end(outputs={"respuesta": respuesta, "latencia_s": latencias[-1]})
         lineas += [f"Cliente: {mensaje}", f"Clemente: {respuesta}"]
-    return {"conversacion": "\n".join(lineas), "respuesta": respuesta}
+    return {"conversacion": "\n".join(lineas), "respuesta": respuesta, "latencias_s": latencias}
 
 
 # ============================================================================
@@ -414,6 +426,42 @@ def toxicity(inputs: dict, outputs: dict) -> dict:
 
 
 # ============================================================================
+# EVALUADORES DE CODIGO CUSTOM (deterministicos, sin juez)
+# ============================================================================
+
+# Umbral por turno: el cliente de WhatsApp tiene que recibir CADA respuesta en a lo
+# sumo 15 s. Acordado el 2026-10-10 a partir de los tiempos observados en caclmt01
+# (4-8 s por turno normal, ~7 s al confirmar una reserva).
+UMBRAL_LATENCIA_TURNO_S = 15.0
+
+
+def latencia_por_turno(inputs: dict, outputs: dict) -> dict:
+    """
+    Latencia de cada respuesta de Clemente en la conversacion (solo responder()).
+
+    Devuelve dos feedbacks:
+      - latencia_aceptable: proporcion de turnos respondidos en <= 15 s (cada turno
+        cuenta: 2 de 3 turnos a tiempo = 0.67).
+      - latencia_max_turno_s: segundos del turno mas lento, para seguir la tendencia
+        entre releases aunque no cruce el umbral.
+    El detalle por turno queda en el comentario y en los runs hijos "turno N".
+    """
+    latencias = outputs.get("latencias_s") or []
+    if not latencias:
+        return {"key": "latencia_aceptable", "score": None, "comment": "Sin latencias registradas"}
+    a_tiempo = [t <= UMBRAL_LATENCIA_TURNO_S for t in latencias]
+    detalle = " · ".join(
+        f"turno {i}: {t}s {'✓' if ok else '✗'}" for i, (t, ok) in enumerate(zip(latencias, a_tiempo), 1)
+    )
+    return {"results": [
+        {"key": "latencia_aceptable", "score": round(sum(a_tiempo) / len(latencias), 2),
+         "comment": f"{detalle} (umbral {UMBRAL_LATENCIA_TURNO_S:g}s por turno)"},
+        {"key": "latencia_max_turno_s", "score": max(latencias),
+         "comment": f"turno más lento: {max(latencias)}s"},
+    ]}
+
+
+# ============================================================================
 # EVALUADORES LLM-AS-JUDGE CUSTOM (Claude, ver chat_claude_juez en ../modelo_juez.py)
 # ============================================================================
 # Miden la RESPUESTA de Clemente ante el ataque, que es lo que los prompts
@@ -535,7 +583,7 @@ SUITES = {
         "casos": CASOS_CONVERSATION,
         "target": ejecutar_conversacion,
         "experimento": "clemente-conversation",
-        "evaluadores": lambda: [agent_tone, user_satisfaction, task_completion, wins]
+        "evaluadores": lambda: [agent_tone, user_satisfaction, task_completion, wins, latencia_por_turno]
         + evaluadores_criterios(CRITERIOS_CONVERSATION),
     },
     "quality": {
