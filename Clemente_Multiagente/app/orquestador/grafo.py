@@ -117,14 +117,14 @@ VENCIMIENTO_REVISION_SEGUNDOS = 24 * 60 * 60
 # Comando exacto, como CONFIRMO, para que el cliente retire una solicitud que espera al staff.
 # Es un comando y no una frase libre para no confundirlo con "cancelar mi reserva".
 COMANDO_CANCELAR = re.compile(r"\s*CANCELAR\s+SOLICITUD\s*[.!]?\s*", re.IGNORECASE)
-SOLICITUD_CANCELADA = "Listo, cancelé tu solicitud. ¿Te ayudo con otra reserva?"
-SOLICITUD_CANCELADA_CON_CODIGO = "Listo, cancelé tu solicitud {codigo}. ¿Te ayudo con otra reserva?"
-SOLICITUD_EN_RESOLUCION = ("Tu solicitud ya la está resolviendo el equipo del restaurante; "
-                           "en un momento tendrás la respuesta.")
-NO_SE_PUDO_CANCELAR = ("No pude cancelar tu solicitud en este momento. Escríbeme de nuevo "
-                       "CANCELAR SOLICITUD en unos minutos.")
-PAUSA_SIN_VIGENCIA = ("Tu solicitud anterior al equipo ya no estaba vigente, así que la cerré. "
-                      "¿Me cuentas de nuevo qué necesitas?")
+SOLICITUD_CANCELADA = "Listo, ya cancelé tu solicitud. Cuando quieras, te ayudo con otra reserva."
+SOLICITUD_CANCELADA_CON_CODIGO = "Listo, ya cancelé tu solicitud {codigo}. Cuando quieras, te ayudo con otra reserva."
+SOLICITUD_EN_RESOLUCION = ("Tu solicitud ya está en manos del equipo del restaurante, que la está resolviendo "
+                           "ahora mismo. En un momento te cuento qué decidieron.")
+NO_SE_PUDO_CANCELAR = ("Disculpa, no pude cancelar tu solicitud en este momento. Inténtalo de nuevo en unos "
+                       "minutos escribiendo CANCELAR SOLICITUD.")
+PAUSA_SIN_VIGENCIA = ("Tu solicitud anterior al equipo ya no estaba vigente, así que la cerré para que puedas "
+                      "seguir. ¿Me cuentas de nuevo en qué te ayudo?")
 ARCHIVO_REVISIONES = carpeta_de_datos(Path(__file__).resolve().parent.parent / "agentes" / "datos") / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
@@ -415,7 +415,7 @@ _grafo = None
 # sin ellas al lado de una suya delata que hay dos autores. Se noto en el
 # experimento del 2026-09-08: "Tu codigo de caso es..." pegado despues de
 # "La mesa todavia no esta confirmada" escrito por el agente.
-SIN_MENSAJE = "No me llegó ningún mensaje. Escríbeme qué necesitas y te ayudo."
+SIN_MENSAJE = "Parece que tu mensaje llegó vacío. Cuéntame qué necesitas y con gusto te ayudo."
 
 
 def _sesion_de(estado: EstadoConversacion) -> str:
@@ -816,15 +816,19 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
 
 
 # Textos fijos del cierre. Tutean, como el resto de textos que escribe el codigo.
-ESCALAMIENTO_HUMANO = ("Tu pedido para hablar con una persona del restaurante quedó registrado con "
-                       "el código {codigo}. El equipo lo va a revisar.")
-ESCALAMIENTO_HUMANO_FALLIDO = ("No pude registrar tu pedido. Puedes comunicarte con el restaurante "
-                               f"al {TELEFONO_RESTAURANTE}.")
-ESCALAMIENTO_RESERVA = ("Tu solicitud quedó registrada con el código {codigo}. La mesa todavía no está "
-                        "confirmada. Puedes consultar el estado de tu caso al restaurante.")
-ESCALAMIENTO_RESERVA_FALLIDO = ("No pude registrar el caso para el restaurante. No hay una mesa confirmada "
-                                "por este escalamiento. Contacta directamente al local.")
-OFERTA_DIFERIDO = "Si con esa información quieres continuar con {tema}, avísame y lo vemos."
+ESCALAMIENTO_HUMANO = ("Gracias por escribirnos. Dejé tu pedido para hablar con una persona del restaurante con "
+                       "el código {codigo}; el equipo lo va a revisar.")
+ESCALAMIENTO_HUMANO_FALLIDO = ("Disculpa, no pude registrar tu pedido. Puedes comunicarte directamente con el "
+                               f"restaurante al {TELEFONO_RESTAURANTE}.")
+ESCALAMIENTO_RESERVA = ("Dejé tu solicitud registrada con el código {codigo} para que el equipo del restaurante "
+                        "la revise. La mesa todavía no está confirmada; apenas haya novedades te avisamos por aquí.")
+# Solo cuando el personal APROBO la solicitud de un grupo grande (origen reservas_hitl): ahi si es cierto que la aceptó.
+ESCALAMIENTO_RESERVA_APROBADA = ("¡Buenas noticias! El equipo aceptó tu solicitud {codigo} y ya la está coordinando. "
+                                 "La mesa todavía no está confirmada; apenas esté lista te avisamos por aquí.")
+ESCALAMIENTO_RESERVA_FALLIDO = ("Disculpa, no pude dejar tu caso registrado para el restaurante, y todavía no hay "
+                                "una mesa confirmada. Por favor comunícate directamente con el restaurante al "
+                                f"{TELEFONO_RESTAURANTE}.")
+OFERTA_DIFERIDO = "Si con esa información quieres seguir con {tema}, avísame y lo vemos juntos."
 
 
 def _nodo_cierre(estado: EstadoConversacion) -> dict:
@@ -888,7 +892,8 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
             texto = ESCALAMIENTO_HUMANO.format(codigo=codigo)
             otros = [r["texto"] for r in respuestas]
         else:
-            texto = ESCALAMIENTO_RESERVA.format(codigo=codigo)
+            aprobada = escalamiento.get("origen") == "reservas_hitl"
+            texto = (ESCALAMIENTO_RESERVA_APROBADA if aprobada else ESCALAMIENTO_RESERVA).format(codigo=codigo)
             otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
         if otros:
             texto = " ".join(otros + [texto])

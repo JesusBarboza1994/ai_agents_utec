@@ -280,7 +280,7 @@ def test_repetir_una_reserva_desde_otra_conversacion_no_revela_su_codigo(entorno
     _, intruso = propuesta_crear("intruso")
     texto, datos = autorizacion.confirmar("intruso", intruso, servicio)
     assert datos == {}
-    assert codigo not in texto and "verifique tu identidad" in texto
+    assert codigo not in texto and "verificar tu identidad" in texto
     assert not autorizacion.es_propietario("intruso", codigo)
     assert len(servicio.buscar_reservas_de("900000001")) == 1
 
@@ -349,7 +349,7 @@ def test_cierre_muestra_propuesta_aunque_modelo_afirme_confirmada(entorno):
     final = grafo._nodo_cierre({"sesion_id": "propietario", "contexto": contexto.context,
         "respuestas": [{"agente": "reservas", "texto": "Tu mesa está confirmada R-FALSO"}]})
     assert "R-FALSO" not in final["respuesta"]
-    assert "Todavía no se realizó" in final["respuesta"]
+    assert "Todavía no está hecho" in final["respuesta"]
 
 
 def test_incidencias_no_es_un_camino_alterno_para_leer_reservas(entorno):
@@ -400,7 +400,7 @@ def test_fallo_al_crear_ticket_no_finge_escalamiento(entorno, monkeypatch):
     final = grafo._nodo_cierre({"sesion_id": "propietario", "contexto": ctx,
         "respuestas": [{"agente": "reservas", "texto": "te llamaremos"}]})
     assert not ctx.escalado
-    assert "No pude registrar" in final["respuesta"]
+    assert final["respuesta"] == grafo.ESCALAMIENTO_RESERVA_FALLIDO
 
 
 def test_el_juez_recibe_el_codigo_creado_por_el_cierre(entorno):

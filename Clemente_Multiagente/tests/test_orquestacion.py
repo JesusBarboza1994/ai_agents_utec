@@ -253,7 +253,7 @@ def test_el_paso_diferido_se_ofrece_y_queda_como_continuidad():
         "respuestas": [{"agente": "informacion", "texto": "Si, tenemos opciones veganas."}],
         "diferido": {"agente": "reservas", "tarea": "mesa para 2 el jueves"},
     })
-    assert "continuar con la reserva" in salida["respuesta"]
+    assert "seguir con la reserva" in salida["respuesta"]
     assert salida["ruta"] == "informacion" and salida["continuar_con"] == "reservas"
 
 
@@ -316,7 +316,7 @@ def test_turno_condicional_ofrece_y_el_si_retoma_la_tarea(monkeypatch):
     ], llamados)
     primera = turno("tienen opciones veganas? si si, mesa para 2 el jueves")
     assert [n for n, _ in llamados] == ["informacion"]
-    assert "continuar con la reserva" in primera.texto
+    assert "seguir con la reserva" in primera.texto
     assert grafo._ultimo_agente[SESION] == "reservas"
     turno("si")
     assert llamados[-1][0] == "reservas" and "mesa para 2 el jueves" in llamados[-1][1]

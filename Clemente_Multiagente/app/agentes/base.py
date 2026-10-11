@@ -202,18 +202,19 @@ LIMITE_DE_PASOS = 45
 
 # Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
 AVISO_REVISION_PENDIENTE = (
-    "Tu solicitud sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
-    "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
+    "Gracias por tu paciencia: tu solicitud sigue en revisión del equipo del restaurante y apenas decidan "
+    "te avisamos por aquí. Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
 # Con el codigo G- de la solicitud: es lo que el cliente cita al preguntar por ella y lo que ve el personal.
 AVISO_REVISION_PENDIENTE_CON_CODIGO = (
-    "Tu solicitud {codigo} sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
-    "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
+    "Gracias por tu paciencia: tu solicitud {codigo} sigue en revisión del equipo del restaurante y apenas "
+    "decidan te avisamos por aquí. Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe "
+    "CANCELAR SOLICITUD."
 )
 SOLICITUD_EN_REVISION = (
-    "Tu solicitud {codigo} necesita revisión del equipo del restaurante. "
-    "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
+    "Gracias por tu solicitud. Por ser un grupo grande, la solicitud {codigo} necesita revisión del equipo del "
+    "restaurante. Todavía no hay una mesa confirmada; apenas decidan te avisamos por aquí."
 )
 
 
@@ -231,8 +232,8 @@ def _codigo_de_la_solicitud(sesion_id: str) -> str | None:
 # Si tras la decision del staff el modelo no escribe nada, el cliente igual recibe algo verdadero:
 # ni aprueba ni rechaza por su cuenta, y no promete una mesa.
 RESPALDO_TRAS_LA_REVISION = (
-    "El equipo del restaurante revisó tu solicitud. Todavía no hay una mesa confirmada; "
-    "escríbenos si quieres que la revisemos de nuevo."
+    "El equipo del restaurante ya revisó tu solicitud. Todavía no hay una mesa confirmada; "
+    "si quieres, escríbenos y la vemos de nuevo."
 )
 
 

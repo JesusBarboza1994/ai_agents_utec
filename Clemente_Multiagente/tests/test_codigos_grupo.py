@@ -225,4 +225,21 @@ def test_aprobar_un_grupo_deja_la_tarjeta_con_su_codigo_g(monkeypatch):
     respuesta = grafo.resolver_revision(SESION, "approve")
 
     assert CODIGO in respuesta.texto
+    assert "aceptó tu solicitud" in respuesta.texto and "todavía no está confirmada" in respuesta.texto
     assert [caso.id for caso in obtener_servicio().listar_incidencias()] == [CODIGO]
+
+
+def test_un_escalamiento_que_no_es_una_aprobacion_no_dice_que_el_equipo_acepto(monkeypatch):
+    """Si el agente escala por otro motivo (verificar identidad, pedir una persona), el texto no afirma una aceptacion."""
+    monkeypatch.setattr(grafo, "servicio_incidencias", lambda: _ServicioQueAnota())
+    monkeypatch.setattr(grafo, "_escalamiento_previo", lambda sesion: None)
+    monkeypatch.setattr(grafo, "_escalado_de", {})
+    contexto = ContextoConversacion(sesion_id=SESION)
+    contexto.escalado = True
+    contexto.datos["escalamiento"] = {"origen": "reservas", "motivo": "m", "detalle": "d"}
+
+    final = grafo._nodo_cierre({"sesion_id": SESION, "contexto": contexto, "mensaje": "quiero hablar con alguien",
+                                "respuestas": [{"agente": "reservas", "texto": "Listo."}]})
+
+    assert "aceptó" not in final["respuesta"]
+    assert "todavía no está confirmada" in final["respuesta"]
