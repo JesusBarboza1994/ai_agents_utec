@@ -14,6 +14,7 @@ from app.agentes.base import (
     AVISO_REVISION_PENDIENTE, AVISO_REVISION_PENDIENTE_CON_CODIGO, SOLICITUD_EN_REVISION, ejecutar,
 )
 from app.agentes.contexto import ContextoConversacion
+from app.agentes.prompts import TELEFONO_RESTAURANTE
 from app.incidencias import codigos, obtener_servicio
 from app.incidencias.servicio_json import ServicioIncidenciasJSON
 from app.orquestador import grafo
@@ -56,6 +57,32 @@ def _poner_en_cola(monkeypatch, sesion=SESION, **extra):
                "creada": time.time(), **extra}
     monkeypatch.setitem(grafo._revisiones, sesion, entrada)
     return entrada
+
+
+# --- el aviso de "quiero hablar con una persona" --------------------------------------------
+
+def _cierre_de_un_pedido_de_hablar_con_una_persona(canal):
+    """Cierre del turno en el que el planificador pidio escalar: abre el caso y arma el texto para el cliente."""
+    contexto = ContextoConversacion(sesion_id=SESION, canal=canal)
+    contexto.escalado = True
+    contexto.datos["escalamiento"] = {"origen": "orquestador", "motivo": "pide una persona", "detalle": "staff"}
+    estado = {"sesion_id": SESION, "mensaje": "quiero hablar con alguien del staff", "accion": "escalar_humano",
+              "respuestas": [], "contexto": contexto}
+    return grafo._nodo_cierre(estado)["respuesta"], contexto.datos["incidencia"]["id"]
+
+
+def test_en_el_webchat_el_aviso_da_el_telefono_del_restaurante():
+    """El caso del webchat no lleva el telefono del cliente: el aviso le da el del restaurante por si es urgente."""
+    texto, codigo = _cierre_de_un_pedido_de_hablar_con_una_persona("webchat")
+    assert texto == grafo.ESCALAMIENTO_HUMANO_WEBCHAT.format(codigo=codigo)
+    assert codigo in texto and TELEFONO_RESTAURANTE in texto
+
+
+def test_en_whatsapp_el_aviso_no_repite_el_telefono():
+    """En WhatsApp el equipo ya tiene el numero del cliente: el aviso es el de siempre."""
+    texto, codigo = _cierre_de_un_pedido_de_hablar_con_una_persona("whatsapp")
+    assert texto == grafo.ESCALAMIENTO_HUMANO.format(codigo=codigo)
+    assert TELEFONO_RESTAURANTE not in texto
 
 
 # --- el codigo -------------------------------------------------------------------------

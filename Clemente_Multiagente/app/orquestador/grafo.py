@@ -854,6 +854,11 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
 # Textos fijos del cierre. Tutean, como el resto de textos que escribe el codigo.
 ESCALAMIENTO_HUMANO = ("Gracias por escribirnos. Dejé tu pedido para hablar con una persona del restaurante con "
                        "el código {codigo}; el equipo lo va a revisar 😊")
+# En el webchat el caso no lleva el telefono del cliente (en WhatsApp si, es su numero): el equipo no puede
+# escribirle, asi que se le da el del restaurante por si es urgente.
+ESCALAMIENTO_HUMANO_WEBCHAT = ("Gracias por escribirnos. Dejé tu pedido para hablar con una persona del restaurante con "
+                               "el código {codigo}; el equipo lo va a revisar. "
+                               f"Si es urgente, también puedes llamar al {TELEFONO_RESTAURANTE} 😊")
 ESCALAMIENTO_HUMANO_FALLIDO = ("Disculpa, no pude registrar tu pedido. Puedes comunicarte directamente con el "
                                f"restaurante al {TELEFONO_RESTAURANTE}.")
 ESCALAMIENTO_RESERVA = ("Dejé tu solicitud registrada con el código {codigo} para que el equipo del restaurante "
@@ -925,7 +930,7 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
                   detalle={"incidencia": codigo, **escalamiento})
         # Sustituye la promesa del modelo: el codigo real existe recien aqui.
         if del_orquestador:
-            texto = ESCALAMIENTO_HUMANO.format(codigo=codigo)
+            texto = (ESCALAMIENTO_HUMANO if contexto.canal == "whatsapp" else ESCALAMIENTO_HUMANO_WEBCHAT).format(codigo=codigo)
             otros = [r["texto"] for r in respuestas]
         else:
             aprobada = escalamiento.get("origen") == "reservas_hitl"
