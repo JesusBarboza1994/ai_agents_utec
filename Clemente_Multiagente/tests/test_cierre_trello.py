@@ -246,3 +246,176 @@ def test_un_error_inesperado_no_tumba_el_webhook(trello, monkeypatch):
 
     assert respuesta.status_code == 200
     assert respuesta.get_json() == {"estado": "error"}
+
+
+# --- lo que hizo el equipo, escrito para el cliente ------------------------------------------------------------
+
+class _RespuestaTrello:
+    """Respuesta simulada de la API de Trello con los comentarios de la tarjeta."""
+
+    def __init__(self, comentarios):
+        """Guarda los comentarios, del mas reciente al mas antiguo, como los da Trello."""
+        self.comentarios = comentarios
+
+    def raise_for_status(self):
+        """La llamada salio bien."""
+
+    def json(self):
+        """Los comentarios con la forma de la API de Trello."""
+        return [{"type": "commentCard", "data": {"text": t}} for t in self.comentarios]
+
+
+@pytest.fixture
+def comentarios(monkeypatch):
+    """Credenciales de Trello y comentarios simulados de la tarjeta; anota que tarjeta se consulto."""
+    estado = {"comentarios": [], "tarjetas": []}
+
+    def get_falso(url, params=None, timeout=None):
+        """Devuelve los comentarios configurados en vez de llamar a Trello."""
+        estado["tarjetas"].append(url.split("/cards/")[1].split("/")[0])
+        assert params["filter"] == "commentCard"
+        return _RespuestaTrello(estado["comentarios"])
+
+    monkeypatch.setenv("TRELLO_API_KEY", "clave")
+    monkeypatch.setenv("TRELLO_TOKEN", "token")
+    monkeypatch.setattr(cierre.requests, "get", get_falso)
+    return estado
+
+
+def _caso_de(tipo, descripcion):
+    """Registra un caso de ese tipo para la sesion de la prueba y devuelve su codigo."""
+    return ServicioIncidenciasJSON().crear_incidencia(SESION, descripcion, tipo).id
+
+
+def test_un_reclamo_cuenta_de_que_se_trataba_y_lo_que_hizo_el_equipo(trello, comentarios):
+    """El cliente lee su reclamo en una frase y la resolucion que el equipo escribio para el."""
+    caso = _caso_de("producto", "El plato llegó frío")
+    comentarios["comentarios"] = ["Para el cliente: te dejamos un postre de cortesía en tu próxima visita."]
+    _post(trello, _carga(caso, titulo=f"{caso} · producto · El plato llegó frío"))
+    assert trello.enviados[0]["cuerpo"] == (f"¡Listo! Revisamos tu caso {caso} (El plato llegó frío). Lo que hicimos: "
+                                            "te dejamos un postre de cortesía en tu próxima visita. Gracias por avisarnos ✅")
+    assert comentarios["tarjetas"] == ["c1"]
+
+
+def test_un_pedido_de_hablar_con_una_persona_pregunta_si_quedo_resuelto(trello, comentarios):
+    """En un pedido de atencion, despues de la resolucion se le pregunta si falta algo."""
+    caso = _caso_de("otro", "[escalado desde orquestador] pide una persona\nMensaje del cliente: hola")
+    comentarios["comentarios"] = ["para el cliente:   te llamamos al número que dejaste"]
+    _post(trello, _carga(caso, titulo=f"{caso} · otro · pide una persona"))
+    assert trello.enviados[0]["cuerpo"] == cierre.CIERRE_PEDIDO_DE_PERSONA.format(
+        codigo=caso, resolucion="te llamamos al número que dejaste")
+
+
+def test_un_grupo_con_resolucion_usa_el_texto_general(trello, comentarios):
+    """Un caso de otro tipo con resolucion escrita la incluye en el aviso general."""
+    caso = _caso_de("reserva", "[escalado desde reservas_hitl] grupo de 12")
+    comentarios["comentarios"] = ["Para el cliente: los esperamos el sábado con dos mesas juntas en el salón"]
+    _post(trello, _carga(caso))
+    assert trello.enviados[0]["cuerpo"] == cierre.CIERRE_CON_RESOLUCION.format(
+        codigo=caso, resolucion="los esperamos el sábado con dos mesas juntas en el salón")
+
+
+def test_las_notas_internas_nunca_salen(trello, comentarios):
+    """Sin un comentario "Para el cliente:" se manda el aviso generico, aunque haya otras notas."""
+    caso = _caso_de("producto", "El plato llegó frío")
+    comentarios["comentarios"] = ["El cocinero dice que fue el horno", "[dato nuevo del cliente] mesa 4"]
+    _post(trello, _carga(caso))
+    assert trello.enviados[0]["cuerpo"] == cierre.TEXTO_CIERRE.format(codigo=caso)
+
+
+def test_cuenta_el_comentario_para_el_cliente_mas_reciente(trello, comentarios):
+    """Si el equipo corrigio la resolucion, sale la ultima que escribio."""
+    caso = _caso_de("otro", "[escalado desde orquestador] pide una persona")
+    comentarios["comentarios"] = ["Para el cliente: te llamamos hoy", "nota interna", "Para el cliente: te llamamos mañana"]
+    _post(trello, _carga(caso))
+    assert "te llamamos hoy" in trello.enviados[0]["cuerpo"] and "mañana" not in trello.enviados[0]["cuerpo"]
+
+
+def test_si_trello_no_responde_se_avisa_igual_con_el_texto_generico(trello, monkeypatch):
+    """Que no se pueda leer la resolucion no impide avisar que el caso se cerro."""
+    monkeypatch.setenv("TRELLO_API_KEY", "clave")
+    monkeypatch.setenv("TRELLO_TOKEN", "token")
+
+    def falla(*args, **kwargs):
+        """Trello no responde."""
+        raise cierre.requests.ConnectionError("sin red")
+
+    monkeypatch.setattr(cierre.requests, "get", falla)
+    caso = _caso_de("producto", "El plato llegó frío")
+    _post(trello, _carga(caso))
+    assert trello.enviados[0]["cuerpo"] == cierre.TEXTO_CIERRE.format(codigo=caso)
+
+
+def test_una_resolucion_larga_se_corta_y_el_resumen_tambien():
+    """Ni la resolucion ni el resumen del reclamo convierten el aviso en un texto interminable."""
+    larga = "a " * 600
+    caso = ServicioIncidenciasJSON().crear_incidencia(SESION, "palabra " * 40, "espera")
+    texto = cierre.texto_de_cierre(caso, caso.id, larga.strip()[:cierre.LARGO_MAXIMO_RESOLUCION])
+    assert len(texto) < 600 and "…" in texto
+
+
+def test_el_aviso_del_cierre_pasa_por_la_validacion_de_salida(trello, comentarios, monkeypatch):
+    """Lo que escribe una persona pasa por los mismos controles de salida que cualquier respuesta."""
+    from app.communication.services import aviso_staff_service
+
+    revisados = []
+    original = aviso_staff_service.avisar_decision
+    monkeypatch.setattr(aviso_staff_service, "avisar_decision",
+                        lambda sesion, texto: revisados.append(texto) or original(sesion, texto))
+    caso = _caso_de("producto", "El plato llegó frío")
+    comentarios["comentarios"] = ["Para el cliente: escríbenos a gerencia@clemente.demo"]
+    _post(trello, _carga(caso))
+    assert revisados and "gerencia@clemente.demo" not in trello.enviados[0]["cuerpo"]
+
+
+# --- el aviso anula el resumen que esperaba confirmacion --------------------------------------------------------
+
+def _dejar_resumen_pendiente(sesion=SESION):
+    """Deja una propuesta de reserva esperando confirmacion, como la deja crear_reserva."""
+    import time
+
+    from app.agentes import autorizacion
+
+    with autorizacion._db() as db:
+        db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
+                   (sesion, "ABCD1234", "crear", "{}", time.time() + autorizacion.VIGENCIA_SEGUNDOS))
+
+
+def _hay_resumen_pendiente(sesion=SESION):
+    """True si la conversacion sigue con un resumen esperando confirmacion."""
+    from app.agentes import autorizacion
+
+    with autorizacion._db() as db:
+        return db.execute("SELECT 1 FROM propuestas WHERE sesion=?", (sesion,)).fetchone() is not None
+
+
+def test_un_aviso_entregado_anula_el_resumen_pendiente(trello):
+    """Un "si" a "¿quedo resuelta tu consulta?" ya no puede confirmar la reserva que estaba esperando."""
+    from app.agentes import autorizacion
+
+    caso = _caso()
+    _dejar_resumen_pendiente()
+    _post(trello, _carga(caso))
+    assert trello.enviados and not _hay_resumen_pendiente()
+    assert autorizacion.confirmar(SESION, "sí", None) is None
+
+
+def test_si_el_aviso_no_sale_el_resumen_sigue_valiendo(trello, monkeypatch):
+    """El cliente no vio el aviso: su proximo "si" todavia se refiere al resumen."""
+    def falla(*args, **kwargs):
+        """Twilio rechaza el envio."""
+        raise RuntimeError("twilio caido")
+
+    monkeypatch.setattr(saliente, "send_whatsapp_message", falla)
+    caso = _caso()
+    _dejar_resumen_pendiente()
+    _post(trello, _carga(caso))
+    assert _hay_resumen_pendiente()
+
+
+def test_el_aviso_no_toca_el_resumen_de_otra_conversacion(trello):
+    """Solo se anula el resumen de la conversacion del caso."""
+    caso = _caso()
+    _dejar_resumen_pendiente("whatsapp-51888000111")
+    _post(trello, _carga(caso))
+    assert _hay_resumen_pendiente("whatsapp-51888000111")
