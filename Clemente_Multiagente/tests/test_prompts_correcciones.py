@@ -78,10 +78,13 @@ def test_incidencias_sabe_consultar_un_caso_existente():
 
 
 def test_la_voz_es_de_atencion_al_cliente_con_emojis_acotados():
-    """Tono pedido por el equipo: calido y tuteando, con un emoji como maximo y nunca en un reclamo."""
+    """Tono pedido por el equipo: calido y tuteando, con un emoji en la mayoria de los mensajes
+    (uno como maximo), tambien junto a una alternativa, y nunca en un reclamo."""
     from app.agentes.prompts import VOZ_CLEMENTE
     plano = _plano(VOZ_CLEMENTE)
     assert "atencion al cliente" in plano and "tuteas con respeto" in plano
+    assert "Usa un emoji en la mayoria de tus mensajes" in plano
+    assert "el emoji acompana la alternativa" in plano
     assert "como maximo un emoji por mensaje" in plano and "Nunca uses emojis en un reclamo" in plano
 
 
