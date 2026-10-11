@@ -207,19 +207,45 @@ AVISO_REVISION_PENDIENTE = (
 
 
 def _hilo_en_pausa(agente, config: dict) -> bool:
-    """True si el hilo esta detenido esperando la decision del staff (revision humana pendiente).
+    """True solo si el hilo tiene una interrupcion real: la revision humana del staff pendiente.
 
     Un mensaje nuevo NO puede entrar en esa pausa: el hilo quedo con una llamada a herramienta sin
     respuesta y OpenAI rechaza la conversacion con un 400, lo que dejaba al cliente con un "no
-    puedo procesar tu mensaje" hasta que el staff decidiera. Sin checkpoint o ante cualquier fallo
-    al consultarlo devuelve False y el turno sigue su camino normal."""
+    puedo procesar tu mensaje" hasta que el staff decidiera.
+
+    Se mira `interrupts` y no `next`: un turno que se corto por un error (una herramienta que
+    fallo) tambien deja un paso pendiente en `next`, y contarlo como revision le mostraba al
+    cliente "tu solicitud sigue en revision" sin que existiera ninguna. Ese resto lo limpia
+    `_descartar_turno_inconcluso`. Sin checkpoint o ante cualquier fallo al consultarlo
+    devuelve False y el turno sigue su camino normal."""
     if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
         return False
     try:
-        return bool(agente.get_state(config).next)
+        return bool(agente.get_state(config).interrupts)
     except Exception as error:
         log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
         return False
+
+
+def _descartar_turno_inconcluso(agente, config: dict, sesion_id: str, flujo: str) -> None:
+    """Borra lo que dejo un turno cortado por un error, para que el mensaje nuevo empiece limpio.
+
+    Si una herramienta falla a mitad de turno, `_olvidar_hilo` no llega a correr y el hilo queda
+    con un paso pendiente y una llamada a herramienta sin respuesta, pero sin interrupcion. No es
+    una revision del staff y, si se dejara, OpenAI rechazaria el mensaje nuevo con un 400. Una
+    revision real (con interrupcion) nunca se toca aqui. Sin checkpoint o sin estado legible no
+    hace nada."""
+    if getattr(agente, "checkpointer", None) is None or not hasattr(agente, "get_state"):
+        return
+    try:
+        estado = agente.get_state(config)
+    except Exception as error:
+        log.warning("No se pudo leer el estado del hilo: %s", type(error).__name__)
+        return
+    if estado.next and not estado.interrupts:
+        _olvidar_hilo(agente, config)
+        registrar("hilo_inconcluso_descartado", sesion_id, agente=flujo,
+                  detalle={"pendiente": list(estado.next)})
 
 
 def _olvidar_hilo(agente, config: dict) -> None:
@@ -295,6 +321,7 @@ def ejecutar(
         # esa clave vuelve a registrar la revision en la cola del staff y con esta respuesta no hay solicitud.
         contexto.datos["hilo_en_revision"] = True
         return AVISO_REVISION_PENDIENTE
+    _descartar_turno_inconcluso(agente, config, sesion_id, flujo)
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
     interrupciones = resultado.get("__interrupt__") or []

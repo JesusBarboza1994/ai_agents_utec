@@ -103,16 +103,33 @@ def _obtener_checkpointer():
     return _checkpointer
 
 
-def tiene_hilo_guardado(sesion_id: str) -> bool:
-    """True si queda un checkpoint del hilo de reservas de la sesion.
+def _tiene_interrupcion(tupla) -> bool:
+    """True si el checkpoint guarda una interrupcion real (la revision del staff) en sus escrituras pendientes.
 
-    `ejecutar` borra el checkpoint al terminar cada turno sin pausa, asi que entre
-    turnos solo sobrevive el de un hilo que espera la decision del staff. Si no se
-    puede leer, devuelve False y no se toca nada."""
+    Se reconoce por el tipo publico `Interrupt` de LangGraph y no por el nombre del canal,
+    que es interno. Un turno cortado por un error deja otra escritura (el error), no esta."""
+    from langgraph.types import Interrupt
+
+    for _, _, valor in tupla.pending_writes or []:
+        valores = valor if isinstance(valor, (list, tuple)) else [valor]
+        if any(isinstance(v, Interrupt) for v in valores):
+            return True
+    return False
+
+
+def tiene_hilo_guardado(sesion_id: str) -> bool:
+    """True si el hilo de reservas de la sesion espera la decision del staff (interrupcion real).
+
+    `ejecutar` borra el checkpoint al terminar cada turno sin pausa. Lo que puede
+    sobrevivir entre turnos es la pausa de una revision o el resto de un turno que se
+    corto por un error; solo la primera cuenta, para no anunciarle al cliente que se
+    cancelo una solicitud que nunca existio. Si no se puede leer, devuelve False y no
+    se toca nada."""
     try:
-        return _obtener_checkpointer().get_tuple(
+        tupla = _obtener_checkpointer().get_tuple(
             {"configurable": {"thread_id": id_de_hilo(FLUJO, sesion_id)}}
-        ) is not None
+        )
+        return tupla is not None and _tiene_interrupcion(tupla)
     except Exception as error:
         log.warning("No se pudo leer el hilo de reservas: %s", type(error).__name__)
         return False
