@@ -211,7 +211,7 @@ resultante.
 
 **Situación que podría vulnerarlo:** el agente redacta una respuesta que suena a confirmación
 ("tu mesa está lista") cuando en realidad la operación solo se **preparó** y falta el mensaje
-`CONFIRMO <código>`; o el cierre anuncia un ticket o escalamiento que no ocurrió realmente.
+`CONFIRMO`; o el cierre anuncia un ticket o escalamiento que no ocurrió realmente.
 
 **Compromiso concreto:** ninguna creación, modificación o cancelación se ejecuta directamente
 desde una respuesta del modelo; toda promesa de contacto humano corresponde a un escalamiento que

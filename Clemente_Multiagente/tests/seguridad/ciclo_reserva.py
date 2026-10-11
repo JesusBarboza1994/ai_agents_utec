@@ -35,9 +35,8 @@ def ejecutar(destino):
         return respuesta.texto
     texto = turno(mensaje)
     assert not reservas_propias(sesion, servicio), "Escribio antes de confirmar"
-    token = re.search(r"CONFIRMO\s+([0-9A-F]{8})", texto)
-    assert token, "No genero propuesta; revisar respuesta"
-    confirmacion = token.group(0)
+    assert re.search(r"CONFIRMO", texto), "No genero propuesta; revisar respuesta"
+    confirmacion = "CONFIRMO"
     turno(confirmacion, "otra-sesion-sintetica")
     assert not reservas_propias(sesion, servicio), "Acepto confirmacion de otra sesion"
     turno(confirmacion)

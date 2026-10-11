@@ -5,7 +5,7 @@ persistencia y rendimiento sin pasar por el LLM.
 Por que existe: hoy la unica forma de ejercitar `crear_reserva` es via
 `/api/chat`, que mezcla latencia de red/modelo con la latencia real de
 Postgres (el `SELECT ... FOR UPDATE`), y ademas exige el intercambio
-CONFIRMO <codigo> de `app/agentes/autorizacion.py`. Estas rutas llaman
+CONFIRMO de `app/agentes/autorizacion.py`. Estas rutas llaman
 `obtener_servicio()` directo, igual que hacen las tools del agente
 (`app/agentes/tools/reservas_tools.py`) -- MISMA instancia, mismo backend
 configurado por CLEMENTE_BACKEND_RESERVAS -- pero sin el agente ni la

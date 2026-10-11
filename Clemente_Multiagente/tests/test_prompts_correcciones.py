@@ -173,7 +173,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
     """Un rechazo, un error o un aviso de seguridad se leen sobrios: ninguno de estos textos lleva emoji."""
     import re
 
-    from app.agentes import autorizacion, base
+    from app.agentes import autorizacion, base, casos_abiertos, tope_de_reservas
     from app.communication.services import aviso_staff_service
     from app.orquestador import grafo
 
@@ -184,6 +184,9 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         grafo.NO_SE_PUDO_CANCELAR, grafo.ESCALAMIENTO_HUMANO_FALLIDO, grafo.ESCALAMIENTO_RESERVA_FALLIDO,
         grafo.OFERTA_DIFERIDO, base.RESPALDO_TRAS_LA_REVISION, aviso_staff_service.TEXTO_SALIDA_BLOQUEADA,
         grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
+        autorizacion.OPERACION_YA_PREPARADA, autorizacion.AVISO_OPERACION_APLAZADA,
+        casos_abiertos.BLOQUEO_POR_CASO_ABIERTO, tope_de_reservas.TOPE_ALCANZADO, tope_de_reservas.MISMO_TURNO,
+        tope_de_reservas.NO_SE_PUEDE_CON_ESE_TELEFONO,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)
@@ -194,3 +197,18 @@ def test_el_planificador_conoce_el_horario_y_marca_el_dia_cerrado():
     plano = _plano(PROMPT_PLANIFICADOR)
     assert HORARIO_DE_ATENCION in PROMPT_PLANIFICADOR
     assert "dia_cerrado o fuera_de_horario" in plano and "SIEMPRE lleva el paso 'reservas'" in plano
+
+
+def test_reservas_prepara_una_sola_operacion_por_mensaje():
+    """Revision de Jean: el prompt pide una operacion por mensaje; el servidor lo hace cumplir aunque el modelo no obedezca."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "Una sola operacion por mensaje: no prepares dos a la vez (crear, modificar o cancelar)" in plano
+    assert "la otra la haces despues de que la confirme" in plano
+
+
+def test_reservas_pregunta_por_alergias_en_la_reserva_normal_y_no_en_el_grupo():
+    """Revision de Jean: el prompt de informacion dice que la alergia se declara al reservar, asi que reservas la pregunta."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "agrega en esa misma frase una pregunta corta (alguna alergia u ocasion especial?)" in plano
+    assert "Lo que cuente va en notas" in plano and "Se pregunta una sola vez" in plano
+    assert "En los grupos de mas de 8 no se pregunta antes de pedir la excepcion" in plano

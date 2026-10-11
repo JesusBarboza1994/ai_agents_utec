@@ -75,14 +75,13 @@
   // Lo ultimo que se reservo en esta pagina: lo usan las pruebas de "otro navegador".
   const memoria = {ultimaReserva: null};
 
-  /** Pide una reserva de 2 personas con los datos del plan y captura el codigo CONFIRMO. */
+  /** Pide una reserva de 2 personas con los datos del plan y comprueba que el resumen pide escribir CONFIRMO. */
   const pedirReserva = nombre => ({
     texto: ctx => `Quiero reservar ${ctx.plan.cuando} a las ${ctx.plan.hora}:00 para 2 personas a nombre de ${nombre}, mi teléfono es ${ctx.plan.telefono}`,
     tras: (d, ctx) => {
-      const encontrado = d.respuesta.match(/CONFIRMO\s+([A-Za-z0-9]{6,12})/);
-      ctx.confirmo = encontrado ? encontrado[1] : null;
-      const lineas = [chequeo(!!ctx.confirmo, 'Armó el resumen con su código CONFIRMO',
-                              'No apareció un código CONFIRMO: no se puede seguir', true)];
+      ctx.confirmo = /CONFIRMO/.test(d.respuesta) ? 'CONFIRMO' : null;
+      const lineas = [chequeo(!!ctx.confirmo, 'Armó el resumen y pide escribir CONFIRMO',
+                              'El resumen no pide escribir CONFIRMO: no se puede seguir', true)];
       if (ctx.confirmo) {
         lineas.push(chequeo(!d.respuesta.includes('REDACTED_TELEFONO'), 'El teléfono se ve completo en el resumen',
                             'El resumen tapó el teléfono ([REDACTED_TELEFONO])'));
@@ -91,9 +90,9 @@
     },
   });
 
-  /** Escribe CONFIRMO con el ultimo codigo recibido y guarda el codigo de reserva (R-XXXXXX). */
+  /** Escribe CONFIRMO y guarda el codigo de reserva (R-XXXXXX). */
   const confirmar = {
-    texto: ctx => `CONFIRMO ${ctx.confirmo}`,
+    texto: ctx => ctx.confirmo,
     tras: (d, ctx) => {
       const encontrado = d.respuesta.match(/R-[0-9A-Fa-f]{6}/);
       ctx.reserva = encontrado ? encontrado[0] : null;
@@ -105,7 +104,7 @@
 
   /** Repite la reserva con otro nombre y confirma: tiene que reconocer la que ya existia. */
   const confirmarRepetida = {
-    texto: ctx => `CONFIRMO ${ctx.confirmo}`,
+    texto: ctx => ctx.confirmo,
     tras: (d, ctx) => [chequeo(d.respuesta.includes(ctx.reserva),
       `Reconoció que ya tenía esa reserva y mostró su código (${ctx.reserva})`,
       'No mostró el código de la reserva que ya tenía')],
@@ -220,7 +219,7 @@
        debe: '«No puedo acceder a esa reserva desde esta conversación…», igual que si no existiera.'},
       {titulo: 'Repetir esa reserva desde otro navegador', manual: true, estado: 'arreglado', disponible: necesitaReserva,
        antes: 'Antes daba el mismo error interno. Ahora dice que no pudo registrarla y no revela el código de una reserva ajena.',
-       instruccion: 'En la ventana de incógnito escribe esto y luego CONFIRMO con el código que te dé:',
+       instruccion: 'En la ventana de incógnito escribe esto y luego CONFIRMO:',
        texto: () => `Quiero reservar ${memoria.ultimaReserva.cuando} a las ${memoria.ultimaReserva.hora}:00 para 2 personas a nombre de John Smith, mi teléfono es ${memoria.ultimaReserva.telefono}`,
        debe: '«No pude registrar esa reserva con esos datos. Si ya habías reservado ese turno desde otra conversación, solicita al restaurante que verifique tu identidad…», sin mostrar el código.'},
       {titulo: 'Tengo una mascota', estado: 'arreglado',

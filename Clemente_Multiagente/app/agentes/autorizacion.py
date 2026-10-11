@@ -4,16 +4,19 @@ El telefono y los argumentos de tools NO son identidad. Las reservas antiguas
 sin vinculacion requieren recuperacion por personal; no se adjudican por codigo.
 SQLite guarda permisos/propuestas, no reemplaza el gestor de reservas de Miguel.
 """
+import hashlib
 import json
 import re
 import secrets
 import sqlite3
 import time
+import unicodedata
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from threading import RLock
 
+from . import casos_abiertos, tope_de_reservas
 from . import fecha as reloj
 from ..datos import carpeta_de_datos
 from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
@@ -46,7 +49,7 @@ SIN_RESUMEN_PENDIENTE = (
     "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
 )
 CODIGO_NO_COINCIDE = (
-    "Ese código no coincide con el último resumen. Revisa que hayas copiado el CONFIRMO completo; "
+    "Ese código no coincide con el último resumen. Para confirmarlo basta con escribir CONFIRMO; "
     "no se hizo ninguna operación."
 )
 RESUMEN_VENCIDO = (
@@ -56,6 +59,47 @@ DEMASIADOS_INTENTOS = (
     "Hubo demasiados intentos con un código que no coincide, así que cancelé ese resumen por seguridad. "
     "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
 )
+# El servidor guarda UNA propuesta por conversacion. Si el modelo prepara dos a la vez (llama las herramientas en
+# paralelo), la segunda ya no pisa a la primera en silencio: se rechaza, y el cliente lo lee en el resumen.
+OPERACION_YA_PREPARADA = (
+    "Ya hay otra operación preparada en este mensaje, esperando la confirmación del cliente. Se prepara una a la vez: "
+    "no prepares esta; dile que la haces cuando confirme la primera."
+)
+AVISO_OPERACION_APLAZADA = (
+    "Hago una operación a la vez: te dejo preparada esta y, cuando la confirmes, te ayudo con la otra."
+)
+
+# Que cuenta como confirmar: el mensaje ENTERO, sin importar mayusculas, tildes ni signos en los bordes.
+# Las FUERTES nombran la accion (confirmo, confirmar): siempre son un intento de confirmar y, sin resumen pendiente,
+# se avisa. Las DEBILES son respuestas corrientes de una conversacion ("si"): solo confirman si hay un resumen
+# pendiente; sin resumen siguen su camino normal. "ok", "listo", "perfecto" y "gracias" no estan: suelen ser acuse
+# de recibo, no una orden de escribir en la reserva. Un mensaje con algo mas ("confirmo pero cambia la hora") no cuenta.
+CONFIRMACIONES_FUERTES = frozenset({
+    "confirmo", "confirmar", "confirmado", "lo confirmo", "si confirmo", "confirmo la reserva", "confirmo reserva",
+    "confirmo todo", "quiero confirmar", "ok confirmo",
+})
+CONFIRMACIONES_DEBILES = frozenset({"si", "dale", "de acuerdo", "acepto", "adelante", "correcto", "esta bien", "procede"})
+
+
+def _como_confirmacion(texto):
+    """("fuerte" | "debil", codigo | None) si el mensaje entero es una confirmacion; None si no lo es.
+
+    Una confirmacion fuerte puede traer ademas un codigo de 8 caracteres (el de un resumen viejo); si viene, tiene que
+    coincidir. No se normaliza con NFKD: las letras de ancho completo o de otro alfabeto no cuentan."""
+    if not isinstance(texto, str) or len(texto) > 80:
+        return None
+    limpio = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn").lower()
+    limpio = " ".join(re.sub(r"[,;:]", " ", limpio).split())
+    limpio = re.sub(r"^[\W_]+|[\W_]+$", "", limpio)      # signos y emojis en los bordes: "¡Confirmo! 👍"
+    codigo = None
+    con_codigo = re.fullmatch(r"(.+?) ([0-9a-f]{8})", limpio)
+    if con_codigo and con_codigo[1] in CONFIRMACIONES_FUERTES:
+        limpio, codigo = con_codigo[1], con_codigo[2]
+    if limpio in CONFIRMACIONES_FUERTES:
+        return "fuerte", codigo
+    if limpio in CONFIRMACIONES_DEBILES:
+        return "debil", None
+    return None
 
 
 @contextmanager
@@ -144,6 +188,13 @@ def proponer(contexto, accion, datos, servicio):
     if not sesion or sesion in {"desconocida", "studio"}:
         return "No se puede preparar una operación sin una sesión identificada. Usa el chat."
     datos = dict(datos)
+    if accion == "crear":
+        # Una operacion a la vez: con un pedido al equipo sin atender no se abre otra reserva (casos_abiertos).
+        abierto = casos_abiertos.caso_de_atencion_abierto(sesion)
+        if abierto:
+            texto = casos_abiertos.BLOQUEO_POR_CASO_ABIERTO.format(codigo=abierto)
+            contexto.datos["operacion_bloqueada"] = texto
+            return texto
     if accion in {"modificar", "cancelar"}:
         codigo = datos["reserva_id"]
         if not es_propietario(sesion, codigo):
@@ -184,6 +235,14 @@ def proponer(contexto, accion, datos, servicio):
         fuera = reloj.fuera_de_horario(fecha, hora if hora in TURNOS_VALIDOS else None)
         if fuera:
             return fuera
+        if accion == "crear":
+            # Tope de reservas activas por conversacion y por telefono, y una sola por turno (tope_de_reservas).
+            motivo = tope_de_reservas.motivo_de_rechazo(
+                reservas_propias(sesion, servicio), servicio.buscar_reservas_de(datos["telefono"]),
+                telefono=datos["telefono"], fecha=fecha, hora=hora, personas=personas, hoy=reloj.hoy().isoformat())
+            if motivo:
+                contexto.datos["operacion_bloqueada"] = motivo
+                return motivo
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
@@ -196,13 +255,24 @@ def proponer(contexto, accion, datos, servicio):
         r = datos["anterior"]
         resumen = f"Voy a cancelar la reserva {r['id']}: {r['nombre']}, {_dia_y_fecha(r['fecha'])} a las {r['hora']} (hora de Lima), {r['personas']} personas"
 
-    _intentos_fallidos.pop(sesion, None)
-    codigo = _codigo_de_confirmacion()
-    with _db() as db:
-        db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
-                   (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
-    texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO {codigo} (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
-    contexto.datos["confirmacion_pendiente"] = texto
+    # Huella del pedido, no el pedido: asi un reintento identico se reconoce sin dejar nombre ni telefono en el contexto.
+    huella = hashlib.sha256(json.dumps({"accion": accion, **datos}, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    # Revisar y guardar van juntos bajo el candado: las herramientas corren en paralelo sobre el mismo contexto.
+    with _lock:
+        previa = contexto.datos.get("confirmacion_pendiente")
+        if previa:
+            if contexto.datos.get("huella_de_la_propuesta") == huella:
+                return previa            # el mismo pedido otra vez: sigue valiendo el mismo CONFIRMO
+            contexto.datos["operacion_aplazada"] = True
+            return OPERACION_YA_PREPARADA
+        _intentos_fallidos.pop(sesion, None)
+        codigo = _codigo_de_confirmacion()
+        with _db() as db:
+            db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
+                       (sesion, codigo, accion, json.dumps(datos), time.time() + VIGENCIA_SEGUNDOS))
+        texto = f"{resumen}. Todavía no está hecho: para confirmarlo, escribe CONFIRMO (vale 10 minutos) {EMOJI_DEL_RESUMEN[accion]}"
+        contexto.datos["confirmacion_pendiente"] = texto
+        contexto.datos["huella_de_la_propuesta"] = huella
     return texto
 
 
@@ -220,14 +290,17 @@ def confirmar(sesion, texto, servicio):
     cualquier otra sesion no le da el codigo. Convierte ValueError del servicio en rechazo;
     otros errores se propagan.
     """
-    match = re.fullmatch(r"\s*CONFIRMO\s+([0-9A-F]{8})\s*[.!]?\s*", texto, re.I)
-    if not match:
+    confirmacion = _como_confirmacion(texto)
+    if confirmacion is None:
         return None
+    fuerza, codigo_dado = confirmacion
     with _lock:
         with _db() as db:
             db.execute("BEGIN IMMEDIATE")
             fila = db.execute("SELECT codigo, accion, datos, vence FROM propuestas WHERE sesion=?", (sesion,)).fetchone()
-            coincide = bool(fila) and secrets.compare_digest(fila[0], match[1].upper())
+            if fila is None and fuerza == "debil":
+                return None            # un "si" corriente sin resumen pendiente es parte de la conversacion
+            coincide = bool(fila) and (codigo_dado is None or secrets.compare_digest(fila[0], codigo_dado.upper()))
             if not fila or not coincide or fila[3] < time.time():
                 if fila:
                     _intentos_fallidos[sesion] = _intentos_fallidos.get(sesion, 0) + 1
