@@ -198,7 +198,7 @@ LIMITE_DE_PASOS = 45
 # Lo que lee el cliente cuando escribe mientras su solicitud espera al staff.
 AVISO_REVISION_PENDIENTE = (
     "Tu solicitud sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
-    "Todavía no hay una mesa confirmada."
+    "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
 

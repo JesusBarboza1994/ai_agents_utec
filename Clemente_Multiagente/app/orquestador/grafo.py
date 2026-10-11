@@ -46,6 +46,7 @@ que venia atendiendo, con una regla explicita de continuidad.
 """
 
 import json
+import re
 import sys
 import threading
 import time
@@ -98,6 +99,22 @@ _escalado_de: dict[str, str] = {}
 _revisiones: dict[str, dict] = {}
 # Una revision se resuelve una sola vez: quien la reclama la saca de la cola bajo este candado.
 _lock_revisiones = threading.Lock()
+# Sesiones cuya revision esta reanudando el staff en este momento: su hilo no se toca.
+_resolviendo: set[str] = set()
+
+# Una pausa sin decision del staff vence: el cliente no puede quedar atrapado para siempre.
+VENCIMIENTO_REVISION_SEGUNDOS = 24 * 60 * 60
+
+# Comando exacto, como CONFIRMO, para que el cliente retire una solicitud que espera al staff.
+# Es un comando y no una frase libre para no confundirlo con "cancelar mi reserva".
+COMANDO_CANCELAR = re.compile(r"\s*CANCELAR\s+SOLICITUD\s*[.!]?\s*", re.IGNORECASE)
+SOLICITUD_CANCELADA = "Listo, cancelé tu solicitud. ¿Te ayudo con otra reserva?"
+SOLICITUD_EN_RESOLUCION = ("Tu solicitud ya la está resolviendo el equipo del restaurante; "
+                           "en un momento tendrás la respuesta.")
+NO_SE_PUDO_CANCELAR = ("No pude cancelar tu solicitud en este momento. Escríbeme de nuevo "
+                       "CANCELAR SOLICITUD en unos minutos.")
+PAUSA_SIN_VIGENCIA = ("Tu solicitud anterior al equipo ya no estaba vigente, así que la cerré. "
+                      "¿Me cuentas de nuevo qué necesitas?")
 ARCHIVO_REVISIONES = carpeta_de_datos(Path(__file__).resolve().parent.parent / "agentes" / "datos") / "revisiones_hitl.json"
 _revisiones_cargadas = False
 
@@ -132,6 +149,65 @@ def _guardar_revisiones() -> None:
     temporal = ARCHIVO_REVISIONES.with_suffix(".tmp")
     temporal.write_text(json.dumps(serializable, ensure_ascii=False, indent=2), encoding="utf-8")
     temporal.replace(ARCHIVO_REVISIONES)
+
+
+def _es_cancelar_solicitud(texto: str) -> bool:
+    """True si el mensaje es exactamente el comando CANCELAR SOLICITUD (sin importar mayusculas)."""
+    return bool(COMANDO_CANCELAR.fullmatch(texto or ""))
+
+
+def _cancelar_solicitud(sesion_id: str) -> str | None:
+    """Retira la solicitud que espera al staff y libera el hilo; None si no habia ninguna.
+
+    Funciona tambien con una pausa huerfana (hilo pausado sin entrada en la cola). Si el
+    staff la esta resolviendo en este momento no toca nada. Si no se pudo borrar la
+    pausa, la solicitud queda como estaba y se avisa sin anunciar la cancelacion."""
+    from ..agentes import reservas
+
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id in _resolviendo:
+            return SOLICITUD_EN_RESOLUCION
+        if sesion_id not in _revisiones and not reservas.tiene_hilo_guardado(sesion_id):
+            return None
+        if not reservas.liberar_pausa(sesion_id):
+            registrar("error", sesion_id, detalle={"paso": "cancelar_solicitud"})
+            return NO_SE_PUDO_CANCELAR
+        retirada = _revisiones.pop(sesion_id, None)
+    if retirada is not None:
+        _guardar_revisiones()
+    registrar("solicitud_cancelada", sesion_id, agente="reservas",
+              detalle={"estaba_en_cola": retirada is not None})
+    return SOLICITUD_CANCELADA
+
+
+def _liberar_pausa_sin_vigencia(sesion_id: str) -> str | None:
+    """Libera un hilo pausado cuya solicitud ya no puede resolverse; devuelve el texto para el cliente o None.
+
+    Dos casos: la solicitud ya no esta en la cola (alguien reinicio la sesion o se
+    perdio el archivo), o lleva mas de VENCIMIENTO_REVISION_SEGUNDOS sin decision. A
+    una solicitud guardada antes de existir el vencimiento se le pone la hora de hoy."""
+    from ..agentes import reservas
+
+    ahora = time.time()
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id in _resolviendo:
+            return None
+        pendiente = _revisiones.get(sesion_id)
+        if pendiente is not None and "creada" not in pendiente:
+            pendiente["creada"] = ahora
+            _guardar_revisiones()
+            return None
+        if pendiente is not None and ahora - pendiente["creada"] < VENCIMIENTO_REVISION_SEGUNDOS:
+            return None
+        if not reservas.liberar_pausa(sesion_id):
+            return None
+        _revisiones.pop(sesion_id, None)
+        _guardar_revisiones()
+    registrar("pausa_liberada", sesion_id, agente="reservas",
+              detalle={"motivo": "vencida" if pendiente is not None else "huerfana"})
+    return PAUSA_SIN_VIGENCIA
 
 
 class EstadoConversacion(TypedDict, total=False):
@@ -740,12 +816,26 @@ def _responder_turno(
             final = {"respuesta": texto, "ruta": "reservas", "motivo_ruta": "confirmacion validada por el servidor", "plan": ["reservas"]}
             registrar("plan", entrante.sesion_id, agente="reservas", detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
             registrar("operacion", entrante.sesion_id, agente="reservas", detalle={"salida": texto, **datos})
+        elif (_es_cancelar_solicitud(entrante.texto)
+              and (cancelacion := _cancelar_solicitud(entrante.sesion_id)) is not None):
+            # Como CONFIRMO: un comando exacto que el codigo resuelve sin modelo.
+            final = {"respuesta": cancelacion, "ruta": "reservas",
+                     "motivo_ruta": "solicitud al staff retirada por el cliente", "plan": ["reservas"]}
+            registrar("plan", entrante.sesion_id, agente="reservas",
+                      detalle={"plan": ["reservas"], "motivo": final["motivo_ruta"]})
         else:
             # Un nuevo pedido invalida el resumen anterior; no se confirma algo
             # que quedo atras en la conversacion. Las tools pueden proponer otro.
             autorizacion.descartar(entrante.sesion_id)
             with contexto_de_trazado():
                 final = obtener_grafo().invoke(estado_inicial)
+            if contexto.datos.get("hilo_en_revision"):
+                # El hilo seguia esperando al staff. Si esa espera ya no tiene sentido
+                # (solicitud vencida o perdida de la cola), se libera en vez de atrapar al cliente.
+                liberada = _liberar_pausa_sin_vigencia(entrante.sesion_id)
+                if liberada:
+                    contexto.datos.pop("hilo_en_revision", None)
+                    final = {**final, "respuesta": liberada}
     except Exception as error:
         registrar_error(entrante.sesion_id, "turno", error)
         texto_error = (
@@ -775,6 +865,7 @@ def _responder_turno(
             "contexto": contexto,
             "solicitud": revision.get("solicitud", {}),
             "canal": entrante.canal,
+            "creada": time.time(),
         }
         _guardar_revisiones()
     _ultimo_agente[entrante.sesion_id] = final["ruta"]
@@ -804,12 +895,23 @@ def olvidar_sesion(sesion_id: str) -> None:
     Al reiniciar un hilo, el planificador deja de arrastrar el agente anterior.
 
     Tambien se olvida el caso escalado: un hilo nuevo con el mismo identificador
-    es otra conversacion, y su escalamiento merece su propio ticket.
+    es otra conversacion, y su escalamiento merece su propio ticket. Y se libera
+    la pausa del hilo de reservas: si solo se sacara la solicitud de la cola, el
+    hilo quedaria esperando una decision que el staff ya no puede tomar. Una
+    revision que el staff esta resolviendo en este momento no se toca.
     """
+    from ..agentes import reservas
+
     _ultimo_agente.pop(sesion_id, None)
     _escalado_de.pop(sesion_id, None)
-    _cargar_revisiones()
-    if _revisiones.pop(sesion_id, None) is not None:
+    with _lock_revisiones:
+        _cargar_revisiones()
+        if sesion_id not in _resolviendo:
+            retirada = _revisiones.pop(sesion_id, None)
+            reservas.liberar_pausa(sesion_id)
+        else:
+            retirada = None
+    if retirada is not None:
         _guardar_revisiones()
     autorizacion.descartar(sesion_id)
 
@@ -833,6 +935,9 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     with _lock_revisiones:
         _cargar_revisiones()
         pendiente = _revisiones.pop(sesion_id, None)
+        if pendiente is not None:
+            # Mientras se reanuda, ni la cancelacion del cliente ni el vencimiento tocan el hilo.
+            _resolviendo.add(sesion_id)
     if pendiente is None:
         raise KeyError("No existe una revisión pendiente para esa sesión")
     try:
@@ -840,7 +945,10 @@ def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> Respue
     except Exception:
         with _lock_revisiones:
             _revisiones[sesion_id] = pendiente
+            _resolviendo.discard(sesion_id)
         raise
+    with _lock_revisiones:
+        _resolviendo.discard(sesion_id)
     _guardar_revisiones()
     return respuesta
 
