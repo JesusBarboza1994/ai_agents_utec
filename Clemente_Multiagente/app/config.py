@@ -68,8 +68,8 @@ class Config:
     embeddings_backend: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
     # RAG del catalogo: "chroma" (local, default) o "azure_search" (push directo
-    # al indice de Azure AI Search, sin Blob Storage ni indexer -- ver
-    # app/agentes/rag/indice.py).
+    # al indice de Azure AI Search desde Python, sin indexer ni skillset -- ver
+    # app/agentes/rag/indice_catalogo.py).
     rag_backend: str = "chroma"
 
     # Backends de datos

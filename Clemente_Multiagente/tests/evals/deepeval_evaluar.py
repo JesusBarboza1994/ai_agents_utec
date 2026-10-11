@@ -55,7 +55,7 @@ def _contexto_recuperado(pregunta: str) -> list[str]:
     consulta antes de buscar -- pero mide el mismo indice con la misma pregunta
     del cliente, y no cuesta nada porque los embeddings son locales.
     """
-    from app.agentes.rag.indice import buscar
+    from app.agentes.rag.indice_catalogo import buscar
 
     return [f"[{f.fuente}] {f.texto}" for f in buscar(pregunta)]
 

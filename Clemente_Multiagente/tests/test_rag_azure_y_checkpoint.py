@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agentes import base
-from app.agentes.rag import indice
+from app.agentes.rag import indice_catalogo
 
 
 class AzureFalso:
@@ -36,6 +36,11 @@ class AzureFalso:
         return len(self.docs)
 
 
+def _blob_desde(carpeta):
+    """Simula el contenedor del Blob: (ruta relativa, bytes) de cada archivo de la carpeta."""
+    return lambda: [(str(p.relative_to(carpeta)), p.read_bytes()) for p in sorted(carpeta.rglob("*")) if p.is_file()]
+
+
 @pytest.fixture
 def catalogo(tmp_path, monkeypatch):
     """Catalogo temporal con dos archivos, conectado a un Azure falso y a embeddings falsos."""
@@ -43,9 +48,9 @@ def catalogo(tmp_path, monkeypatch):
         "# Doc\n## Horarios\nAbrimos de martes a domingo.\n## Cancelacion\nSe cancela hasta 2 horas antes.\n", encoding="utf-8")
     (tmp_path / "b.md").write_text("# Carta\n## Platos\nCeviche y lomo saltado.\n", encoding="utf-8")
     azure = AzureFalso()
-    monkeypatch.setattr(indice, "CARPETA_DOCUMENTOS", tmp_path)
-    monkeypatch.setattr(indice, "_cliente_azure_search", lambda: azure)
-    monkeypatch.setattr(indice, "resolver_embeddings",
+    monkeypatch.setattr(indice_catalogo, "_leer_documentos_blob", _blob_desde(tmp_path))
+    monkeypatch.setattr(indice_catalogo, "_cliente_azure_search", lambda: azure)
+    monkeypatch.setattr(indice_catalogo, "resolver_embeddings",
                         lambda: SimpleNamespace(embed_documents=lambda textos: [[0.0] * 3 for _ in textos]))
     return tmp_path, azure
 
@@ -53,12 +58,12 @@ def catalogo(tmp_path, monkeypatch):
 def test_reindexar_tras_agregar_una_seccion_no_duplica(catalogo):
     """Verifica que agregar una seccion al principio deja 4 chunks y no 7: los ids no dependen de la posicion global."""
     carpeta, azure = catalogo
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     assert len(azure.docs) == 3
     (carpeta / "a.md").write_text(
         "# Doc\n## Estacionamiento\nHay convenio con la playa.\n## Horarios\nAbrimos de martes a domingo.\n"
         "## Cancelacion\nSe cancela hasta 2 horas antes.\n", encoding="utf-8")
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     assert len(azure.docs) == 4
     assert sorted(azure.docs.values()).count("Abrimos de martes a domingo.") == 1
 
@@ -66,9 +71,9 @@ def test_reindexar_tras_agregar_una_seccion_no_duplica(catalogo):
 def test_editar_una_seccion_actualiza_en_lugar_de_duplicar(catalogo):
     """Verifica que cambiar el texto de una seccion reemplaza su version vieja."""
     carpeta, azure = catalogo
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     (carpeta / "b.md").write_text("# Carta\n## Platos\nCeviche, lomo saltado y ají de gallina.\n", encoding="utf-8")
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     assert len(azure.docs) == 3
     assert not any("Ceviche y lomo saltado." == v for v in azure.docs.values())
     assert any("ají de gallina" in v for v in azure.docs.values())
@@ -77,39 +82,39 @@ def test_editar_una_seccion_actualiza_en_lugar_de_duplicar(catalogo):
 def test_una_seccion_retirada_se_borra_del_indice(catalogo):
     """Verifica que lo que ya no esta en el catalogo deja de poder recuperarse."""
     carpeta, azure = catalogo
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     (carpeta / "b.md").unlink()
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     assert len(azure.docs) == 2 and not any("Ceviche" in v for v in azure.docs.values())
 
 
 def test_un_catalogo_vacio_no_vacia_el_indice(catalogo):
     """Verifica que un error de carpeta (sin documentos) no borra el indice existente."""
     carpeta, azure = catalogo
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     for archivo in carpeta.glob("*.md"):
         archivo.unlink()
-    assert indice.indexar_en_azure_search() == 0
+    assert indice_catalogo.indexar_en_azure_search() == 0
     assert len(azure.docs) == 3
 
 
 def test_una_carga_incompleta_no_borra_nada(catalogo):
     """Verifica que si Azure rechaza documentos no se borra lo anterior."""
     carpeta, azure = catalogo
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     (carpeta / "b.md").unlink()
     azure.aceptar = False
-    indice.indexar_en_azure_search()
+    indice_catalogo.indexar_en_azure_search()
     assert any("Ceviche" in v for v in azure.docs.values())
 
 
 def test_dos_archivos_con_el_mismo_nombre_no_se_pisan(tmp_path, monkeypatch):
-    """Verifica que un mismo nombre de archivo y seccion en dos carpetas genera ids distintos."""
+    """Verifica que un mismo nombre de archivo y seccion en dos carpetas del contenedor genera ids distintos."""
     for carpeta in ("norte", "sur"):
         (tmp_path / carpeta).mkdir()
         (tmp_path / carpeta / "menu.md").write_text("# D" + chr(10) + "## Nota" + chr(10) + f"Texto de {carpeta}.", encoding="utf-8")
-    monkeypatch.setattr(indice, "CARPETA_DOCUMENTOS", tmp_path)
-    _, ids = indice._cargar_documentos()
+    monkeypatch.setattr(indice_catalogo, "_leer_documentos_blob", _blob_desde(tmp_path))
+    _, ids = indice_catalogo._cargar_documentos()
     assert len(ids) == len(set(ids)) == 2
 
 

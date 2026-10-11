@@ -16,7 +16,7 @@ from . import con_traza, limpiar_texto
 from ...incidencias import abiertas_de, obtener_servicio as servicio_incidencias
 from ...reservas import obtener_servicio as servicio_reservas
 from .. import autorizacion
-from ..rag.casos import buscar_casos
+from ..rag.indice_incidencias import buscar_casos
 
 # Tope de casos abiertos por conversacion en una hora: un reclamo real no necesita mas.
 MAX_CASOS_POR_HORA = 3

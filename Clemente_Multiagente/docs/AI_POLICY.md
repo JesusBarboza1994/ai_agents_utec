@@ -61,7 +61,7 @@ y **IA dentro de Clemente en operación** (modelo conversacional, juez y clasifi
 | Tarea | Uso de IA | Quién decidió y validó |
 |---|---|---|
 | Arquitectura (router → orquestador, agentes, MCP) | Discusión y generación de alternativas de diseño | El equipo, contrastado en vivo con el docente (asesoría del 2026-09-07, `ASESORIA_01_BORIS_ACUERDOS.md`) |
-| Código de agentes, orquestador, tools, RAG | Generación y refactorización asistida | Los responsables inspeccionaron los cambios mediante diff, pruebas y revisión de los archivos críticos (`base.py`, `grafo.py`, `autorizacion.py`, `indice.py`, `mcp_trello.py`) |
+| Código de agentes, orquestador, tools, RAG | Generación y refactorización asistida | Los responsables inspeccionaron los cambios mediante diff, pruebas y revisión de los archivos críticos (`base.py`, `grafo.py`, `autorizacion.py`, `indice_catalogo.py`, `mcp_trello.py`) |
 | Pruebas automatizadas (126 casos) | Generación asistida de casos de prueba | Ejecutadas y verificadas por el equipo; no se aceptó ningún caso sin que pasara localmente (ver sección 4) |
 | Documentación (README, análisis, evaluaciones) | Redacción y estructuración asistida | Revisada por el equipo contra el código real antes de publicarse; ver la nota de re-verificación del 2026-09-11 en `ANALISIS_INDICACIONES_PROYECTO_SESION25.md` |
 | Evaluación (DeepEval/GEval, LangSmith, DeepTeam) | Diseño de métricas y guiones de prueba | El equipo definió los criterios de "buena respuesta" en `tests/eval/metricas.py`; los resultados se corrieron contra el sistema real, no se simularon |

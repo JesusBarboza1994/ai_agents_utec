@@ -39,7 +39,7 @@ def entorno_aislado(destino: Path):
             "PYTHON_DOTENV_DISABLED": "1",
         }))
         from app.agentes import autorizacion, memoria
-        from app.agentes.rag import indice
+        from app.agentes.rag import indice_catalogo
         from app.observabilidad import trazas
         from app.orquestador import grafo
         from app.reservas import servicio_json as reservas
@@ -53,10 +53,10 @@ def entorno_aislado(destino: Path):
             (trazas, "ARCHIVO_CONVERSACIONES", "conversaciones.jsonl"),
             (reservas, "ARCHIVO_RESERVAS", "reservas.json"),
             (incidencias, "ARCHIVO", "incidencias.json"),
-            (indice, "CARPETA_INDICE", "chroma_index"),
+            (indice_catalogo, "CARPETA_INDICE", "chroma_index"),
         ):
             pila.enter_context(patch.object(modulo, atributo, destino / nombre))
-        pila.enter_context(patch.object(indice, "_vector_store", None))
+        pila.enter_context(patch.object(indice_catalogo, "_vector_store", None))
         app.reservas.reiniciar_servicio()
         app.incidencias.reiniciar_servicio()
         grafo.reiniciar_grafo()
