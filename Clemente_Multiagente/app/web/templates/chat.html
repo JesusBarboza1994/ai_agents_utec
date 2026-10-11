@@ -198,6 +198,7 @@
       <input id="staff-token" type="password" placeholder="CLEMENTE_HITL_TOKEN" autocomplete="off">
       <button class="staff-recargar" id="staff-recargar" type="button">Cargar pendientes</button>
       <div class="staff-estado" id="staff-estado">Sin autenticar</div>
+      <div class="staff-estado" id="staff-aviso"></div>
       <div id="staff-revisiones"></div>
     </div>
 
@@ -340,6 +341,7 @@ document.querySelectorAll('.ejemplo').forEach(b =>
 
 const staffToken = document.getElementById('staff-token');
 const staffEstado = document.getElementById('staff-estado');
+const staffAviso = document.getElementById('staff-aviso');
 const staffRevisiones = document.getElementById('staff-revisiones');
 
 // El token se recuerda solo mientras la pestaña siga abierta (sessionStorage): al recargar la pagina en
@@ -403,6 +405,13 @@ async function cargarRevisiones() {
  * Muestra el resultado en este chat si corresponde a su sesion y recarga la cola.
  * El servidor valida el token y la decision; no se confirma una mesa desde el DOM.
  */
+function textoDelAviso(n) {
+  if (!n) return '';
+  if (n.estado === 'enviado') return 'Aviso enviado al cliente por WhatsApp.';
+  if (n.estado === 'no_enviado') return 'No se pudo avisar por WhatsApp: ' + n.motivo + '.';
+  return 'Sin aviso al cliente: ' + n.motivo + '.';
+}
+
 async function resolverRevision(id, decision) {
   const token = staffToken.value.trim();
   const r = await fetch(`/api/staff/revisiones/${encodeURIComponent(id)}/resolver`, {
@@ -412,6 +421,7 @@ async function resolverRevision(id, decision) {
   const d = await r.json();
   if (!r.ok) { staffEstado.textContent=d.error || 'No se pudo resolver'; return; }
   staffEstado.textContent = decision === 'approve' ? 'Solicitud aprobada' : 'Solicitud rechazada';
+  staffAviso.textContent = textoDelAviso(d.notificacion);
   if (id === sesionId && d.respuesta_cliente) {
     burbuja(d.respuesta_cliente,'clemente','reservas','decisión del personal',
       {tipo:decision === 'approve' ? 'escalado' : 'acceso_protegido',
