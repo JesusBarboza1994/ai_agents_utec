@@ -46,6 +46,12 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(bp_comunicacion)
     app.register_blueprint(bp_observabilidad)
 
+    # Lectura para el dashboard (listar reservas y chats). Siempre activas.
+    from .reservas.rutas import bp_lectura as bp_reservas_lectura
+    from .communication.rutas_chats import bp as bp_chats
+    app.register_blueprint(bp_reservas_lectura)
+    app.register_blueprint(bp_chats)
+
     # Rutas de depuracion de reservas (crear/consultar/cancelar SIN pasar
     # por el LLM ni por la confirmacion de autorizacion.py): solo para
     # probar persistencia y rendimiento a mano. Apagado por defecto -- no
@@ -53,7 +59,5 @@ def create_app(config: Config | None = None) -> Flask:
     if os.getenv("CLEMENTE_DEBUG_ROUTES") == "1":
         from .reservas.rutas import bp as bp_reservas_debug
         app.register_blueprint(bp_reservas_debug)
-        from .communication.rutas_chats import bp as bp_chats_debug
-        app.register_blueprint(bp_chats_debug)
 
     return app

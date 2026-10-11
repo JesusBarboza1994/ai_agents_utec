@@ -200,7 +200,7 @@ inyección de prompt persistente, no solo "datos sucios".
   como red de seguridad a nivel de base, además del `SELECT ... FOR UPDATE` a nivel de app.
 - **`app/reservas/rutas.py`** (nuevo): `POST/GET /api/reservas...` para crear/consultar/cancelar
   reservas sin pasar por el LLM ni por el intercambio `CONFIRMO`. Registrado solo con
-  `CLEMENTE_DEBUG_ROUTES=1` (ver `app/__init__.py`) — sin autenticación, nunca debe estar
+  `CLEMENTE_DEBUG_ROUTES=1` (ver `app/__init__.py`; excepto `GET /api/reservas` y `/api/chats`, siempre activos para el dashboard) — sin autenticación, nunca debe estar
   prendido con tráfico real. `scripts/benchmark_reservas.py` ejercita esto con peticiones
   concurrentes reales para probar el lock y la idempotencia (no un mock).
 - Verificado contra Postgres real: 15 peticiones concurrentes a la misma mesa → exactamente 1

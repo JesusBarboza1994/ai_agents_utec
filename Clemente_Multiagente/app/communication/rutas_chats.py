@@ -1,16 +1,15 @@
 """
 Blueprint de solo lectura para el dashboard: lista los chats y sus mensajes.
 
-Registrado SOLO si CLEMENTE_DEBUG_ROUTES=1 (ver app/__init__.py), igual que
-`app/reservas/rutas.py`. No tiene autenticacion: expone conversaciones y
-telefonos de clientes, asi que no debe prenderse con trafico real.
+Siempre registrado (ver app/__init__.py). No tiene autenticacion: expone
+conversaciones y telefonos de clientes.
 """
 
 from flask import Blueprint, jsonify
 
 from ..db.connection import connection
 
-bp = Blueprint("chats_debug", __name__, url_prefix="/api/chats")
+bp = Blueprint("chats", __name__, url_prefix="/api/chats")
 
 
 @bp.get("")
