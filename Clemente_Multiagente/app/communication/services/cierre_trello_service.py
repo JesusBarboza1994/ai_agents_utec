@@ -9,14 +9,20 @@ Reglas que conserva:
 - Un caso se avisa una sola vez: mover la tarjeta de ida y vuelta, o un reintento de Trello, no repiten el mensaje.
 - El aviso es un mensaje libre de WhatsApp: llega mientras el cliente haya escrito en las ultimas 24 horas.
 - Un caso del webchat no sale por Twilio: el aviso queda en la bandeja de su navegador, que el chat recoge solo.
+- Lo que hizo el equipo llega al cliente solo si alguien lo escribio para el: un comentario de la tarjeta que empieza
+  con "Para el cliente:". Las notas internas (las del equipo y las que deja Clemente) nunca salen. Sin ese comentario
+  se manda el aviso generico. El texto es una plantilla, sin modelo, y pasa por la validacion de salida del aviso.
 """
 import base64
 import hashlib
 import hmac
 import json
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
+import requests
 
 from ...datos import carpeta_de_datos
 from ...incidencias.codigos import codigo_admitido
@@ -28,6 +34,15 @@ LISTA_RESUELTO = "resuelto"
 ARCHIVO_AVISOS = carpeta_de_datos(Path(__file__).resolve().parents[2] / "incidencias" / "datos") / "avisos_cierre.json"
 TEXTO_CIERRE = ("¡Listo! Tu caso {codigo} ya fue resuelto por el equipo del restaurante ✅ "
                 "Si necesitas algo más, aquí estamos.")
+# Con lo que el equipo escribio para el cliente, segun el tipo de caso.
+CIERRE_RECLAMO = "¡Listo! Revisamos tu caso {codigo}{sobre}. Lo que hicimos: {resolucion}. Gracias por avisarnos ✅"
+CIERRE_PEDIDO_DE_PERSONA = ("¡Listo! El equipo atendió tu pedido {codigo}: {resolucion}. ¿Quedó resuelta tu consulta? "
+                            "Si falta algo, cuéntame aquí 😊")
+CIERRE_CON_RESOLUCION = "¡Listo! Tu caso {codigo} ya fue resuelto por el equipo del restaurante: {resolucion} ✅"
+PREFIJO_PARA_EL_CLIENTE = "para el cliente:"
+TIPOS_DE_RECLAMO = {"espera", "servicio", "producto"}
+LARGO_MAXIMO_RESOLUCION = 400
+LARGO_MAXIMO_RESUMEN = 80
 # Un solo aviso a la vez: Trello reintenta si tarda, y el segundo intento tiene que ver el primero ya registrado.
 _candado = threading.Lock()
 
@@ -57,6 +72,51 @@ def codigo_del_cierre(carga: dict) -> str | None:
     titulo = (datos.get("card") or {}).get("name") or ""
     codigo = titulo.split("·")[0].strip().upper()
     return codigo if codigo_admitido(codigo) else None
+
+
+def resolucion_para_el_cliente(id_tarjeta: str) -> str | None:
+    """El comentario mas reciente de la tarjeta que empieza con "Para el cliente:", sin el prefijo; None si no hay.
+
+    Usa las credenciales de Trello de la app. Si faltan o Trello no responde, devuelve None y el cliente recibe el
+    aviso generico: que la resolucion no se pueda leer no impide avisar que el caso se cerro."""
+    clave, token = os.getenv("TRELLO_API_KEY", ""), os.getenv("TRELLO_TOKEN", "")
+    if not (id_tarjeta and clave and token):
+        return None
+    try:
+        respuesta = requests.get(f"https://api.trello.com/1/cards/{id_tarjeta}/actions",
+                                 params={"key": clave, "token": token, "filter": "commentCard"}, timeout=10)
+        respuesta.raise_for_status()
+        comentarios = respuesta.json()
+    except Exception as error:
+        registrar("error", "trello", detalle={"paso": "leer_resolucion", "error": type(error).__name__})
+        return None
+    for comentario in comentarios if isinstance(comentarios, list) else []:      # Trello los da del mas reciente
+        texto = str(((comentario or {}).get("data") or {}).get("text") or "").strip()
+        if texto.lower().startswith(PREFIJO_PARA_EL_CLIENTE):
+            resolucion = " ".join(texto[len(PREFIJO_PARA_EL_CLIENTE):].split()).rstrip(" .")
+            return resolucion[:LARGO_MAXIMO_RESOLUCION] or None
+    return None
+
+
+def _resumen_del_reclamo(descripcion: str) -> str:
+    """La primera linea del caso, corta y sin las marcas internas, para recordarle al cliente de que se trataba."""
+    primera = (descripcion or "").splitlines()[0].strip() if descripcion else ""
+    if not primera or primera.startswith("["):
+        return ""
+    if len(primera) > LARGO_MAXIMO_RESUMEN:
+        primera = primera[:LARGO_MAXIMO_RESUMEN].rsplit(" ", 1)[0] + "…"
+    return f" ({primera.rstrip('.')})"
+
+
+def texto_de_cierre(caso, codigo: str, resolucion: str | None) -> str:
+    """El aviso para el cliente: con lo que hizo el equipo si lo escribio, segun el tipo de caso; si no, el generico."""
+    if not resolucion:
+        return TEXTO_CIERRE.format(codigo=codigo)
+    if caso.tipo in TIPOS_DE_RECLAMO:
+        return CIERRE_RECLAMO.format(codigo=codigo, sobre=_resumen_del_reclamo(caso.descripcion), resolucion=resolucion)
+    if caso.tipo == "otro":
+        return CIERRE_PEDIDO_DE_PERSONA.format(codigo=codigo, resolucion=resolucion)
+    return CIERRE_CON_RESOLUCION.format(codigo=codigo, resolucion=resolucion)
 
 
 def _leer_avisados() -> dict:
@@ -97,7 +157,9 @@ def avisar_cierre(carga: dict) -> dict:
         if caso is None:
             registrar("cierre_trello_ignorado", "trello", detalle={"codigo": codigo, "motivo": "caso desconocido"})
             return {"estado": "ignorado", "motivo": "caso desconocido", "codigo": codigo}
-        resultado = aviso_staff_service.avisar_decision(caso.sesion_id, TEXTO_CIERRE.format(codigo=codigo))
+        id_tarjeta = ((((carga.get("action") or {}).get("data") or {}).get("card")) or {}).get("id", "")
+        texto = texto_de_cierre(caso, codigo, resolucion_para_el_cliente(id_tarjeta))
+        resultado = aviso_staff_service.avisar_decision(caso.sesion_id, texto)
         if resultado["estado"] == aviso_staff_service.ENVIADO:
             _marcar_avisado(codigo)
         registrar("cierre_trello", caso.sesion_id, detalle={"codigo": codigo, "estado": resultado["estado"],
