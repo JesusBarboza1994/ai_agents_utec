@@ -12,6 +12,8 @@ Reglas que conserva:
 - Lo que hizo el equipo llega al cliente solo si alguien lo escribio para el: un comentario de la tarjeta que empieza
   con "Para el cliente:". Las notas internas (las del equipo y las que deja Clemente) nunca salen. Sin ese comentario
   se manda el aviso generico. El texto es una plantilla, sin modelo, y pasa por la validacion de salida del aviso.
+- Un aviso entregado anula el resumen de reserva que estuviera esperando confirmacion, igual que lo anula cualquier
+  mensaje nuevo: si no, un "si" a "¿quedo resuelta tu consulta?" confirmaria esa reserva sin que el cliente lo quisiera.
 """
 import base64
 import hashlib
@@ -141,6 +143,18 @@ def _marcar_avisado(codigo: str) -> None:
         registrar("error", "trello", detalle={"paso": "marcar_aviso_de_cierre", "error": type(error).__name__})
 
 
+def _anular_resumen_pendiente(sesion_id: str) -> None:
+    """Descarta el resumen que esperaba confirmacion: el ultimo mensaje que vio el cliente ya no es ese resumen.
+
+    Un fallo se traza y no interrumpe el aviso, que ya salio."""
+    from ...agentes import autorizacion          # al usarlo: los servicios de comunicacion no cargan los agentes al importar
+
+    try:
+        autorizacion.descartar(sesion_id)
+    except Exception as error:
+        registrar("error", sesion_id, detalle={"paso": "anular_resumen_por_aviso", "error": type(error).__name__})
+
+
 def avisar_cierre(carga: dict) -> dict:
     """Avisa al cliente que su caso se cerro, si la llamada de Trello es un cierre y el caso aun no se aviso.
 
@@ -162,6 +176,7 @@ def avisar_cierre(carga: dict) -> dict:
         resultado = aviso_staff_service.avisar_decision(caso.sesion_id, texto)
         if resultado["estado"] == aviso_staff_service.ENVIADO:
             _marcar_avisado(codigo)
+            _anular_resumen_pendiente(caso.sesion_id)
         registrar("cierre_trello", caso.sesion_id, detalle={"codigo": codigo, "estado": resultado["estado"],
                                                             "motivo": resultado["motivo"]})
     return {"codigo": codigo, "estado": resultado["estado"], "motivo": resultado["motivo"]}

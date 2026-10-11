@@ -366,3 +366,56 @@ def test_el_aviso_del_cierre_pasa_por_la_validacion_de_salida(trello, comentario
     comentarios["comentarios"] = ["Para el cliente: escríbenos a gerencia@clemente.demo"]
     _post(trello, _carga(caso))
     assert revisados and "gerencia@clemente.demo" not in trello.enviados[0]["cuerpo"]
+
+
+# --- el aviso anula el resumen que esperaba confirmacion --------------------------------------------------------
+
+def _dejar_resumen_pendiente(sesion=SESION):
+    """Deja una propuesta de reserva esperando confirmacion, como la deja crear_reserva."""
+    import time
+
+    from app.agentes import autorizacion
+
+    with autorizacion._db() as db:
+        db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
+                   (sesion, "ABCD1234", "crear", "{}", time.time() + autorizacion.VIGENCIA_SEGUNDOS))
+
+
+def _hay_resumen_pendiente(sesion=SESION):
+    """True si la conversacion sigue con un resumen esperando confirmacion."""
+    from app.agentes import autorizacion
+
+    with autorizacion._db() as db:
+        return db.execute("SELECT 1 FROM propuestas WHERE sesion=?", (sesion,)).fetchone() is not None
+
+
+def test_un_aviso_entregado_anula_el_resumen_pendiente(trello):
+    """Un "si" a "¿quedo resuelta tu consulta?" ya no puede confirmar la reserva que estaba esperando."""
+    from app.agentes import autorizacion
+
+    caso = _caso()
+    _dejar_resumen_pendiente()
+    _post(trello, _carga(caso))
+    assert trello.enviados and not _hay_resumen_pendiente()
+    assert autorizacion.confirmar(SESION, "sí", None) is None
+
+
+def test_si_el_aviso_no_sale_el_resumen_sigue_valiendo(trello, monkeypatch):
+    """El cliente no vio el aviso: su proximo "si" todavia se refiere al resumen."""
+    def falla(*args, **kwargs):
+        """Twilio rechaza el envio."""
+        raise RuntimeError("twilio caido")
+
+    monkeypatch.setattr(saliente, "send_whatsapp_message", falla)
+    caso = _caso()
+    _dejar_resumen_pendiente()
+    _post(trello, _carga(caso))
+    assert _hay_resumen_pendiente()
+
+
+def test_el_aviso_no_toca_el_resumen_de_otra_conversacion(trello):
+    """Solo se anula el resumen de la conversacion del caso."""
+    caso = _caso()
+    _dejar_resumen_pendiente("whatsapp-51888000111")
+    _post(trello, _carga(caso))
+    assert _hay_resumen_pendiente("whatsapp-51888000111")
