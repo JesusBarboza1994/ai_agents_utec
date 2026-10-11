@@ -14,6 +14,7 @@ from ..observabilidad.trazas import registrar
 from ..reservas.validaciones import (
     DIAS_MAX_A_FUTURO, TELEFONO_RE, TURNOS_VALIDOS, ReservaInvalida, validar_nombre,
 )
+from . import casos_abiertos
 from . import fecha as reloj
 from .base import construir_agente, ejecutar, id_de_hilo, reanudar_revision
 from .contexto import ContextoConversacion
@@ -227,12 +228,17 @@ def _descartar_excepcion_invalida(sesion_id: str, contexto: ContextoConversacion
     revision = contexto.datos.get("revision_humana") or {}
     if revision.get("estado") != "pendiente":
         return None
-    argumentos = _argumentos_de_la_solicitud(revision.get("solicitud"))
-    if argumentos is None:
-        return None
-    motivo = next((m for m in map(_motivo_rechazo_excepcion, argumentos) if m), None)
-    if motivo is None:
-        return None
+    # Una operacion a la vez: con un pedido al equipo sin atender no se abre otra solicitud (casos_abiertos).
+    abierto = casos_abiertos.caso_de_atencion_abierto(sesion_id)
+    if abierto:
+        motivo = casos_abiertos.BLOQUEO_POR_CASO_ABIERTO.format(codigo=abierto)
+    else:
+        argumentos = _argumentos_de_la_solicitud(revision.get("solicitud"))
+        if argumentos is None:
+            return None
+        motivo = next((m for m in map(_motivo_rechazo_excepcion, argumentos) if m), None)
+        if motivo is None:
+            return None
     if not liberar_pausa(sesion_id):
         registrar("prevalidacion_no_aplicada", sesion_id, agente=FLUJO, detalle={"motivo": motivo})
         return None

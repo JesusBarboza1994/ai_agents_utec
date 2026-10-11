@@ -173,7 +173,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
     """Un rechazo, un error o un aviso de seguridad se leen sobrios: ninguno de estos textos lleva emoji."""
     import re
 
-    from app.agentes import autorizacion, base
+    from app.agentes import autorizacion, base, casos_abiertos
     from app.communication.services import aviso_staff_service
     from app.orquestador import grafo
 
@@ -185,6 +185,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         grafo.OFERTA_DIFERIDO, base.RESPALDO_TRAS_LA_REVISION, aviso_staff_service.TEXTO_SALIDA_BLOQUEADA,
         grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
         autorizacion.OPERACION_YA_PREPARADA, autorizacion.AVISO_OPERACION_APLAZADA,
+        casos_abiertos.BLOQUEO_POR_CASO_ABIERTO,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)

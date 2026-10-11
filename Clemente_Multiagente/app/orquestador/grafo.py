@@ -57,7 +57,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from ..agentes import AGENTES
-from ..agentes import autorizacion
+from ..agentes import autorizacion, casos_abiertos
 from ..agentes import fecha as reloj
 from ..agentes.prompts import HORARIO_DE_ATENCION, TELEFONO_RESTAURANTE
 from ..reservas import obtener_servicio as servicio_reservas
@@ -215,8 +215,8 @@ def _retirar_pedido_al_equipo(sesion_id: str) -> str:
     if _retirado_de.get(sesion_id) != codigo:
         try:
             anotada = servicio_incidencias().anotar(
-                codigo, "[el cliente retiró su pedido] Escribió CANCELAR SOLICITUD: ya no necesita que lo atiendan "
-                        "por este caso. Si no hay nada pendiente, se puede cerrar.")
+                codigo, f"{casos_abiertos.MARCA_PEDIDO_RETIRADO} Escribió CANCELAR SOLICITUD: ya no necesita que lo "
+                        "atiendan por este caso. Si no hay nada pendiente, se puede cerrar.")
         except Exception as error:
             registrar_error(sesion_id, "retirar_pedido", error)
             anotada = False
@@ -829,7 +829,7 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
     if abierto:
         _escalado_de[sesion] = abierto
         _retirado_de.pop(sesion, None)
-        if not servicio.anotar(abierto, f"[dato nuevo del cliente] {detalle}\nDijo: {mensaje}"):
+        if not servicio.anotar(abierto, f"{casos_abiertos.MARCA_DATO_NUEVO} {detalle}\nDijo: {mensaje}"):
             raise RuntimeError("No se pudo actualizar el caso existente")
         contexto.datos["incidencia"] = {"id": abierto, "actualizada": True}
         return abierto
@@ -901,6 +901,7 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
     continuar_con = diferido["agente"] if diferido.get("agente") in NODOS else ruta
 
     pendiente = contexto.datos.get("confirmacion_pendiente")
+    bloqueo = contexto.datos.get("operacion_bloqueada")
     if pendiente and contexto.datos.get("operacion_aplazada"):
         # Pidio dos operaciones y el servidor prepara una por vez: el resumen es de una sola, y se le avisa.
         pendiente = f"{autorizacion.AVISO_OPERACION_APLAZADA} {pendiente}"
@@ -910,10 +911,10 @@ def _nodo_cierre(estado: EstadoConversacion) -> dict:
         texto = ""
     elif not respuestas:
         return {"respuesta": SIN_MENSAJE, "ruta": "informacion", "continuar_con": ruta, "contexto": contexto}
-    elif pendiente:
-        # El resumen autorizado lo escribe el servidor, nunca lo reescribe el LLM.
+    elif pendiente or bloqueo:
+        # El resumen autorizado y el aviso de que hay un pedido sin atender los escribe el servidor, nunca el LLM.
         otros = [r["texto"] for r in respuestas if r["agente"] != "reservas"]
-        texto = " ".join(otros + [pendiente])
+        texto = " ".join(otros + [t for t in (bloqueo, pendiente) if t])
     else:
         texto = _sintetizar(respuestas, sesion)
 

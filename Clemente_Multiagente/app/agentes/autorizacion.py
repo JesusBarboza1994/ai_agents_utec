@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 from threading import RLock
 
+from . import casos_abiertos
 from . import fecha as reloj
 from ..datos import carpeta_de_datos
 from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
@@ -187,6 +188,13 @@ def proponer(contexto, accion, datos, servicio):
     if not sesion or sesion in {"desconocida", "studio"}:
         return "No se puede preparar una operación sin una sesión identificada. Usa el chat."
     datos = dict(datos)
+    if accion == "crear":
+        # Una operacion a la vez: con un pedido al equipo sin atender no se abre otra reserva (casos_abiertos).
+        abierto = casos_abiertos.caso_de_atencion_abierto(sesion)
+        if abierto:
+            texto = casos_abiertos.BLOQUEO_POR_CASO_ABIERTO.format(codigo=abierto)
+            contexto.datos["operacion_bloqueada"] = texto
+            return texto
     if accion in {"modificar", "cancelar"}:
         codigo = datos["reserva_id"]
         if not es_propietario(sesion, codigo):
