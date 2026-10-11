@@ -26,7 +26,7 @@ flowchart TD
 ```
 
 1. Los controllers normalizan JSON o formularios de Twilio. `chat_controller` usa la cookie firmada; `whatsapp_controller` exige firma Twilio y procesa en segundo plano. Ambos llegan a `app/communication/services/chat_service.py:handle_incoming_message`, que aplica los controles antes del orquestador.
-2. `app/orquestador/grafo.py:responder` intenta validar `CONFIRMO <codigo>` fuera del modelo. Para texto conversacional invalida la propuesta anterior y ejecuta `obtener_grafo().invoke(estado_inicial)`.
+2. `app/orquestador/grafo.py:responder` intenta validar la confirmacion (`CONFIRMO` o un sinonimo) fuera del modelo. Para texto conversacional invalida la propuesta anterior y ejecuta `obtener_grafo().invoke(estado_inicial)`.
 3. LangGraph recorre el plan y el cierre. El contexto de negocio se comparte entre componentes; cada uno recibe el mensaje del cliente y el historial previo.
 4. El canal valida la salida, redacta PII y agrega los mensajes al historial. La respuesta del orquestador incluye el plan en `datos`; el chat HTTP actual no devuelve todos esos datos en su JSON.
 

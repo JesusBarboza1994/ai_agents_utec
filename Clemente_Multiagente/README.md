@@ -62,7 +62,7 @@
 > `create_agent`, HIL persistente, Guardrails AI, PII, toxicidad y su representación en el webchat.
 >
 > Las tools de crear, modificar y cancelar ahora **preparan** una operación. El
-> servidor muestra el resumen exacto y exige otro mensaje `CONFIRMO <código>`:
+> servidor muestra el resumen exacto y exige otro mensaje `CONFIRMO` (o un sinónimo como «sí, confirmo»):
 > permiso de un uso, ligado a la sesión, con vigencia de 10 minutos. La ejecución
 > de esa confirmación no pasa por el modelo. Un mensaje distinto invalida la
 > propuesta anterior; un cambio en la reserva exige un resumen nuevo.
@@ -315,7 +315,7 @@ trazas como `guardrail_input`.
 | `PIIMiddleware` | LangChain | **Implementado** | Redacta correos y tarjetas en entradas, salidas y resultados de tools |
 | PII y secretos en el canal | Propio, determinista | **Implementado** | Bloquea tarjetas, API keys y credenciales; redacta correo, DNI, IP, MAC y teléfono en respuestas y trazas |
 | Autorización por sesión | Propio, determinista | **Se conserva** | Impide consultar, modificar o cancelar reservas de otra sesión aunque se conozca el teléfono o código |
-| Confirmación `CONFIRMO <código>` | Propio, determinista | **Se conserva** | Ninguna creación, modificación o cancelación se ejecuta directamente desde una respuesta del modelo |
+| Confirmación `CONFIRMO` (o un sinónimo) | Propio, determinista | **Se conserva** | Ninguna creación, modificación o cancelación se ejecuta directamente desde una respuesta del modelo |
 | `HumanInTheLoopMiddleware` | LangChain | **Implementado** | Pausa solicitudes de más de 10 personas hasta que el *staff* las apruebe o rechace |
 | Restricción de tools por agente | Propio, determinista | **Se conserva** | El orquestador no puede reservar y el agente de incidencias no puede cerrar casos ni conceder compensaciones |
 | Disponibilidad y políticas con evidencia | Propio | **Se conserva** | Obliga a consultar las tools o el RAG antes de afirmar disponibilidad o citar una política |

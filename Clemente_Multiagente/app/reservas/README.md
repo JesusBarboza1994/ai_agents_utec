@@ -67,7 +67,7 @@ nada ahí para que funcione con Postgres.
 
 Encima de este módulo, ellos agregaron `app/agentes/autorizacion.py`: una
 capa de permisos y confirmación (el cliente tiene que escribir
-`CONFIRMO <código>` antes de que se ejecute cualquier cambio, y solo puede
+`CONFIRMO` antes de que se ejecute cualquier cambio, y solo puede
 tocar reservas que están "vinculadas" a su sesión). Esa capa tiene su propia
 base SQLite chiquita (`datos/autorizaciones.sqlite3`, solo permisos y
 propuestas pendientes) — **no reemplaza ni toca la base de reservas**, solo

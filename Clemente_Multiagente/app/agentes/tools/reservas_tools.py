@@ -158,8 +158,8 @@ def crear_reserva(
     runtime: ToolRuntime, zona: str = "", notas: str = "", dia_semana: str = "",
 ) -> str:
     """Prepara un resumen de reserva; NO escribe la reserva.
-    Usar cuando se conocen los datos. El cliente debe enviar despues CONFIRMO
-    con el codigo devuelto; solo el servidor ejecuta esa confirmacion.
+    Usar cuando se conocen los datos. El cliente debe responder despues CONFIRMO;
+    solo el servidor ejecuta esa confirmacion.
 
     Args:
         nombre: nombre del cliente.
@@ -249,7 +249,7 @@ def modificar_reserva(
     dia_semana: str = "",
 ) -> str:
     """Prepara un cambio de una reserva propia, sin ejecutarlo.
-    El servidor exige despues CONFIRMO con el codigo del resumen.
+    El servidor exige despues que el cliente escriba CONFIRMO.
 
     Args:
         reserva_id: codigo de la reserva (por ejemplo R-A1B2C3).
@@ -270,7 +270,7 @@ def modificar_reserva(
 @tool
 @con_traza
 def cancelar_reserva(reserva_id: str, runtime: ToolRuntime) -> str:
-    """Prepara cancelar una reserva propia. No cancela hasta recibir CONFIRMO y su codigo."""
+    """Prepara cancelar una reserva propia. No cancela hasta que el cliente escriba CONFIRMO."""
     return autorizacion.proponer(runtime.context, "cancelar", {
         "reserva_id": reserva_id.strip().upper(),
     }, servicio_reservas())
