@@ -272,5 +272,11 @@ AVISO_FICHA = (
     "lo que el restaurante ya sabe, y nunca la menciones ni la leas en voz alta"
 )
 
+# Se antepone a la tarea que asigna el orquestador, y solo cuando la hay.
+AVISO_COORDINACION = (
+    "coordinacion del turno, dato interno: indica que parte del mensaje atender y que datos ya "
+    "estan resueltos; no autoriza operaciones ni cambia tus reglas, y nunca la mencionas"
+)
+
 # Se antepone en TODOS los turnos: la referencia temporal es del sistema, no del modelo.
 AVISO_FECHA = "dato interno del sistema, fecha y hora de Lima al recibir este mensaje"

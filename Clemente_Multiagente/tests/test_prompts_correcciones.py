@@ -48,9 +48,10 @@ def test_el_acceso_denegado_ofrece_una_salida():
 
 
 def test_pedir_una_persona_tiene_regla_en_reservas_y_en_el_planificador():
-    """F8: reservas escala con escalar_a_staff y el planificador le manda ese pedido."""
+    """F8: el orquestador escala directo (escalar_humano); reservas conserva escalar_a_staff como respaldo."""
     assert "pide hablar con una persona del restaurante, llamas a `escalar_a_staff`" in _plano(PROMPT_RESERVAS)
-    assert "pide hablar con una persona del restaurante, el paso es 'reservas'" in _plano(PROMPT_PLANIFICADOR)
+    plano = _plano(PROMPT_PLANIFICADOR)
+    assert "pide_humano: pide hablar con una persona" in plano and "escalar_humano: pide_humano sin reclamo" in plano
 
 
 def test_incidencias_no_promete_anotar_sin_herramienta():
@@ -73,6 +74,8 @@ def test_incidencias_sabe_consultar_un_caso_existente():
     assert "`consultar_incidencia`" in plano and "no registras otro caso" in plano
 
 
-def test_el_planificador_manda_un_dia_cerrado_a_reservas():
-    """F1 en el planificador: quien explica el dia cerrado es reservas."""
-    assert "Un pedido de mesa para un dia cerrado igual lleva el paso 'reservas'" in _plano(PROMPT_PLANIFICADOR)
+def test_el_planificador_conoce_el_horario_y_marca_el_dia_cerrado():
+    """F1 en el planificador: recibe el horario y marca la restriccion para la tarea de reservas."""
+    plano = _plano(PROMPT_PLANIFICADOR)
+    assert HORARIO_DE_ATENCION in PROMPT_PLANIFICADOR
+    assert "dia_cerrado o fuera_de_horario" in plano and "SIEMPRE lleva el paso 'reservas'" in plano

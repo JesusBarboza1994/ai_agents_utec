@@ -231,9 +231,9 @@ def _descartar_excepcion_invalida(sesion_id: str, contexto: ContextoConversacion
 
 def responder(
     texto: str, sesion_id: str, historial: list[dict] | None = None,
-    contexto: ContextoConversacion | None = None,
+    contexto: ContextoConversacion | None = None, coordinacion: str = "",
 ) -> str:
-    """Ejecuta el agente de reservas con texto, sesion, historial y contexto.
+    """Ejecuta el agente de reservas con texto, sesion, historial, contexto y la tarea del orquestador.
 
     Devuelve texto o el fallback si el modelo escribe una tool como texto;
     una interrupcion HITL valida queda registrada en contexto para la cola del
@@ -244,7 +244,7 @@ def responder(
     respuesta = ejecutar(
         obtener_agente(), texto, sesion_id, historial, contexto=contexto,
         fallback="Perdona, se me cruzo la linea. Me confirmas fecha, hora y cuantas personas son?",
-        flujo=FLUJO,
+        flujo=FLUJO, coordinacion=coordinacion,
     )
     return _descartar_excepcion_invalida(sesion_id, contexto) or respuesta
 

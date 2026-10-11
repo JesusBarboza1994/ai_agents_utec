@@ -24,7 +24,7 @@ from ..observabilidad.trazas import registrar
 from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
-from .prompts import AVISO_FECHA, AVISO_FICHA
+from .prompts import AVISO_COORDINACION, AVISO_FECHA, AVISO_FICHA
 
 log = logging.getLogger("clemente")
 
@@ -175,15 +175,19 @@ def _con_imagenes_recientes(mensajes: list[dict]) -> list[dict]:
     return resultado
 
 
-def _armar_entrada(texto: str, ficha: str) -> str:
+def _armar_entrada(texto: str, ficha: str, coordinacion: str = "") -> str:
     """Antepone al mensaje los datos del sistema que el modelo no debe adivinar.
 
-    Siempre la fecha y hora de Lima de este turno; la ficha del cliente solo
-    cuando existe. Van pegados al mensaje y no al system prompt para que
-    cambien turno a turno."""
+    Siempre la fecha y hora de Lima de este turno; la ficha del cliente y la
+    coordinacion del orquestador solo cuando existen. Van pegados al mensaje y no
+    al system prompt para que cambien turno a turno. La coordinacion viaja como
+    dato con su propia advertencia, nunca como mensaje de sistema: deriva del texto
+    del cliente y no puede tener privilegio sobre las reglas."""
     bloques = [f"[{AVISO_FECHA}: {fecha.describir_ahora()}]"]
     if ficha:
         bloques.append(f"[{AVISO_FICHA}: {ficha}]")
+    if coordinacion:
+        bloques.append(f"[{AVISO_COORDINACION}:\n{coordinacion}]")
     bloques.append(texto)
     return "\n".join(bloques)
 
@@ -238,7 +242,7 @@ def _olvidar_hilo(agente, config: dict) -> None:
 def ejecutar(
     agente, texto: str, sesion_id: str, historial: list[dict] | None = None,
     fallback: str = "Disculpa, no te entendi bien. Me lo repites?",
-    contexto: ContextoConversacion | None = None, flujo: str = "agente",
+    contexto: ContextoConversacion | None = None, flujo: str = "agente", coordinacion: str = "",
 ) -> str:
     """
     Invoca al agente y devuelve solo su texto de respuesta.
@@ -270,7 +274,7 @@ def ejecutar(
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga
     # ni un token explicando que hacer con algo que no llego. Es el recorte de
     # contexto que pidio Boris en la asesoria del 2026-09-07 [08:22].
-    entrada = _armar_entrada(texto or (TEXTO_SOLO_IMAGEN if contexto.imagenes else ""), ficha)
+    entrada = _armar_entrada(texto or (TEXTO_SOLO_IMAGEN if contexto.imagenes else ""), ficha, coordinacion)
     if ficha:
         # La ficha entra por el prompt, no por una tool, asi que sin esta traza
         # el agente puede citar la reserva de un cliente y en el registro no
