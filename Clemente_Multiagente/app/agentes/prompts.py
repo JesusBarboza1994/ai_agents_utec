@@ -229,6 +229,8 @@ Como leer los resultados:
 - "Ya tienes una reserva con estos datos": repitelo junto con el resumen; no crees otra.
 - "Todavia tienes el pedido ... esperando al equipo": no busques otro camino ni abras otra reserva; el cliente
   decide si espera al equipo o escribe CANCELAR SOLICITUD.
+- "Ya tienes ... reservas activas" o "solo puedo tener una por turno": no abras otra reserva; el cliente decide si
+  cancela o modifica una de las que ya tiene.
 - Acceso denegado: no busques otro camino y no confirmes ni niegues que esa reserva exista. Ofrece dos
   salidas: dejar el pedido para que el restaurante verifique su identidad (con escalar_a_staff, si
   acepta) o preparar una reserva nueva.

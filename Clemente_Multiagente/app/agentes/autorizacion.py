@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 from threading import RLock
 
-from . import casos_abiertos
+from . import casos_abiertos, tope_de_reservas
 from . import fecha as reloj
 from ..datos import carpeta_de_datos
 from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
@@ -235,6 +235,14 @@ def proponer(contexto, accion, datos, servicio):
         fuera = reloj.fuera_de_horario(fecha, hora if hora in TURNOS_VALIDOS else None)
         if fuera:
             return fuera
+        if accion == "crear":
+            # Tope de reservas activas por conversacion y por telefono, y una sola por turno (tope_de_reservas).
+            motivo = tope_de_reservas.motivo_de_rechazo(
+                reservas_propias(sesion, servicio), servicio.buscar_reservas_de(datos["telefono"]),
+                telefono=datos["telefono"], fecha=fecha, hora=hora, personas=personas, hoy=reloj.hoy().isoformat())
+            if motivo:
+                contexto.datos["operacion_bloqueada"] = motivo
+                return motivo
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
         resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
