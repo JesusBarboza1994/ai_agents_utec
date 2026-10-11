@@ -202,3 +202,11 @@ def test_reservas_prepara_una_sola_operacion_por_mensaje():
     plano = _plano(PROMPT_RESERVAS)
     assert "Una sola operacion por mensaje: no prepares dos a la vez (crear, modificar o cancelar)" in plano
     assert "la otra la haces despues de que la confirme" in plano
+
+
+def test_reservas_pregunta_por_alergias_en_la_reserva_normal_y_no_en_el_grupo():
+    """Revision de Jean: el prompt de informacion dice que la alergia se declara al reservar, asi que reservas la pregunta."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "agrega en esa misma frase una pregunta corta (alguna alergia u ocasion especial?)" in plano
+    assert "Lo que cuente va en notas" in plano and "Se pregunta una sola vez" in plano
+    assert "En los grupos de mas de 8 no se pregunta antes de pedir la excepcion" in plano
