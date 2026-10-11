@@ -1,72 +1,60 @@
 """
-Juez gpt-5.6-luna compartido por los dos evaluadores copiados de la tarea grupal
-(deepeval/evaluador_deepeval.py, langsmith/evaluador_langsmith.py).
+Juez Claude del evaluador de LangSmith (langsmith/evaluador_langsmith.py).
+Las evaluaciones solo usan Claude como juez. El evaluador DeepEval post-deploy
+se elimino el 2026-10-10: LangSmith (criterios custom + openevals) lo reemplaza.
 
-Por que no se reusa `app.llm.resolver_modelo` directamente: esa funcion decide
-el proveedor por el PREFIJO del nombre del modelo (`proveedor_de`), y todo lo
-que empieza con "gpt" se manda por la rama de OpenAI nativo -- pero en este
-`.env` no hay `OPENAI_API_KEY`, solo `AZURE_OPENAI_API_KEY`. `gpt-5.6-luna` es
-el nombre del *deployment* de Azure de este proyecto (ver `app/llm.py`, rama
-`azure`), no un modelo accesible via la API publica de OpenAI. Forzar el
-nombre a traves de `resolver_modelo(modelo="gpt-5.6-luna")` habria fallado por
-falta de `OPENAI_API_KEY`, asi que este archivo replica exactamente la misma
-rama `azure` de `app/llm.py`, fijando el deployment a "gpt-5.6-luna" sin
-depender de `AGENT_MODEL` (que en este `.env` esta en `llama3.2`).
+Por que Claude y no gpt-5.6-luna (el juez anterior, hasta el 2026-10-10):
+  - El filtro de jailbreak de Azure OpenAI bloqueaba (400 content_filter) al
+    propio JUEZ cuando el caso de prueba contenia el texto del ataque, asi que
+    los casos de prompt injection quedaban sin puntaje.
+  - El agente corre sobre gpt-5.6-luna: juzgarlo con otra familia de modelo
+    evita que el juez premie a su propio modelo (sesgo de autopreferencia).
+
+El agente evaluado sigue usando Azure OpenAI; esto solo cambia quien juzga.
 """
 
 import os
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
-if not os.getenv("AZURE_OPENAI_ENDPOINT"):
+if not os.getenv("ANTHROPIC_API_KEY"):
     from dotenv import load_dotenv
     load_dotenv(RAIZ / ".env")
 
-from langchain_openai import AzureChatOpenAI
-from deepeval.models.base_model import DeepEvalBaseLLM
-
-DEPLOYMENT_GPT_LUNA = "gpt-5.6-luna"
+MODELO_JUEZ_CLAUDE = "claude-sonnet-5-5"
 
 
-def chat_gpt_luna(temperature: float = 0.0) -> AzureChatOpenAI:
+def modelo_del_juez() -> str:
+    """`JUEZ_MODEL` si esta definido, si no claude-sonnet-5-5."""
+    return os.getenv("JUEZ_MODEL") or MODELO_JUEZ_CLAUDE
+
+
+def chat_claude_juez():
     """
-    LLM de LangChain apuntando al deployment de Azure gpt-5.6-luna, el mismo
-    que usa el agente real de este proyecto cuando `AGENT_MODEL=azure`.
+    Juez Claude como chat model de LangChain (lo usan openevals y los criterios
+    custom de LangSmith).
 
-    `temperature` se ignora a proposito: gpt-5.6-luna es un modelo de
-    razonamiento (familia "gpt-5" en adelante) y la API lo rechaza con 400 si
-    se envia ese parametro (ver `app/llm.py`, `OPENAI_SIN_TEMPERATURE`). Por la
-    misma razon se fija `reasoning_effort="none"`: sin eso, cualquier llamada
-    con herramientas de funcion -- incluida la salida estructurada que usa
-    `with_structured_output(method="function_calling")` -- falla con 400
-    (`OPENAI_SIN_RAZONAMIENTO`, descubierto el 2026-09-08).
+    - Sin `temperature`: Sonnet 5.5 rechaza valores no default con 400. Se fija
+      effort "medium" (su default es "high"): juzgar es un prompt corto con
+      salida corta y no necesita el razonamiento mas profundo.
+    - fallbacks "default": si el clasificador de seguridad de Claude declina
+      juzgar un caso adversarial, la API reintenta en otro modelo dentro de la
+      misma llamada en vez de dejar el caso sin puntaje.
     """
-    return AzureChatOpenAI(
-        azure_deployment=DEPLOYMENT_GPT_LUNA,
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
-        reasoning_effort="none",
-        timeout=60,
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "Falta ANTHROPIC_API_KEY: el juez de las evaluaciones es Claude "
+            "(ver tests/evals/modelo_juez.py)."
+        )
+    from langchain_anthropic import ChatAnthropic
+
+    return ChatAnthropic(
+        model=modelo_del_juez(),
+        max_tokens=16000,
+        output_config={"effort": "medium"},
+        betas=["server-side-fallback-2026-07-01"],
+        model_kwargs={"fallbacks": "default"},
+        timeout=120,
         max_retries=2,
     )
 
-
-class JuezGptLuna(DeepEvalBaseLLM):
-    """Envoltorio de gpt-5.6-luna (Azure) para usarlo como juez en DeepEval."""
-
-    def load_model(self):
-        """Devuelve el modelo de chat configurado para el juez de DeepEval."""
-        return chat_gpt_luna(temperature=0.0)
-
-    def generate(self, prompt: str) -> str:
-        """Invoca el juez sincronicamente y devuelve su texto."""
-        return self.model.invoke(prompt).content
-
-    async def a_generate(self, prompt: str) -> str:
-        """Invoca el juez asincronicamente y devuelve su texto."""
-        respuesta = await self.model.ainvoke(prompt)
-        return respuesta.content
-
-    def get_model_name(self) -> str:
-        """Devuelve el nombre del modelo juez para identificar los reportes."""
-        return f"{DEPLOYMENT_GPT_LUNA} (Azure OpenAI)"

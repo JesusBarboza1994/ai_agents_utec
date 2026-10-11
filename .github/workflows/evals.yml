@@ -1,17 +1,35 @@
 name: Execute evaluations
 
+# Dos formas de correrlo:
+#   - A demanda (workflow_dispatch): pestana Actions -> "Execute evaluations".
+#   - Como paso previo del deploy (workflow_call): deploy-azure.yml lo llama antes
+#     de construir y desplegar; si este workflow falla, el deploy no corre.
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: "Tag o ref a evaluar (ej. v0.2.0). Vacio = usa el branch/tag desde el que se dispara el workflow."
         required: false
+      suites:
+        description: "Suites separadas por espacio (security conversation quality trajectory rag safety). Vacio = todas."
+        required: false
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag o ref a evaluar."
+        required: true
+        type: string
+      suites:
+        description: "Suites separadas por espacio. Vacio = todas."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: evals-clemente-${{ github.event.inputs.tag || github.ref }}
+  group: evals-clemente-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 defaults:
@@ -22,14 +40,14 @@ defaults:
 
 jobs:
   evaluar:
-    name: Correr evaluadores (DeepEval + LangSmith)
+    name: Correr evaluadores (LangSmith)
     runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -64,21 +82,16 @@ jobs:
           LANGSMITH_TRACING: "true"
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          # Juez Claude de las evaluaciones (ver tests/evals/modelo_juez.py).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Por variable de entorno y no interpolado en el script: es texto libre
+          # del usuario. El evaluador rechaza (exit 1) cualquier suite desconocida.
+          SUITES: ${{ inputs.suites }}
         run: |
-          echo "::group::DeepEval (metricas nativas)"
-          python3 tests/evals/deepeval/evaluador_deepeval.py
+          echo "::group::LangSmith (${SUITES:-todas las suites})"
+          read -ra suites <<< "$SUITES"   # cada palabra es un argumento; vacio = todas
+          python3 tests/evals/langsmith/evaluador_langsmith.py "${suites[@]}"
           echo "::endgroup::"
 
-          echo "::group::LangSmith (LLM-as-judge propio + enrutamiento)"
-          python3 tests/evals/langsmith/evaluador_langsmith.py
-          echo "::endgroup::"
-
-      - name: Publicar reportes como artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evals-clemente-${{ github.event.inputs.tag || github.sha }}
-          path: |
-            Clemente_Multiagente/tests/evals/deepeval/reportes/
-            Clemente_Multiagente/tests/evals/langsmith/reportes/
-          if-no-files-found: warn
+      # Sin artifacts: los resultados (scores y comentarios del juez) se revisan en
+      # los experimentos de LangSmith.
