@@ -176,9 +176,11 @@ class ServicioIncidencias(Protocol):
     el metodo de cierre no significa que este expuesto como herramienta al agente."""
     def crear_incidencia(
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
-        reserva_id: str | None = None,
+        reserva_id: str | None = None, codigo: str | None = None,
     ) -> Incidencia:
-        """Registra un caso de la sesion y devuelve su codigo, estado inicial y plazo."""
+        """Registra un caso de la sesion y devuelve su codigo, estado inicial y plazo.
+
+        `codigo` es opcional: la solicitud de un grupo grande llega con su G-XXXXXX para que la tarjeta lo conserve."""
         ...
 
     def listar_incidencias(self, estado: str | None = None) -> list[Incidencia]:

@@ -168,7 +168,7 @@ class ServicioIncidenciasTrello:
 
     def crear_incidencia(
         self, sesion_id: str, descripcion: str, tipo: str = "otro",
-        reserva_id: str | None = None,
+        reserva_id: str | None = None, codigo: str | None = None,
     ) -> Incidencia:
         # Primero el registro local: es el que garantiza que el cliente reciba un
         # codigo aunque Trello este caido.
@@ -176,8 +176,9 @@ class ServicioIncidenciasTrello:
 
         Agrega codigo, descripcion, vencimiento y etiqueta cuando esta disponible.
         Si Trello falla registra una advertencia y devuelve el caso local: el codigo
-        no demuestra por si solo que se haya creado una tarjeta o notificado al staff."""
-        incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id)
+        no demuestra por si solo que se haya creado una tarjeta o notificado al staff.
+        Con `codigo` (el G-XXXXXX de un grupo) la tarjeta lleva ese mismo codigo."""
+        incidencia = self.espejo.crear_incidencia(sesion_id, descripcion, tipo, reserva_id, codigo=codigo)
 
         try:
             self._cargar_tablero()

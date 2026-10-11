@@ -19,6 +19,7 @@ import logging
 import warnings
 
 from ..contratos import PREFIJO_IMAGEN
+from ..incidencias.codigos import PREFIJO_GRUPO, nuevo_codigo
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import registrar
 from . import fecha
@@ -205,6 +206,28 @@ AVISO_REVISION_PENDIENTE = (
     "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
 )
 
+# Con el codigo G- de la solicitud: es lo que el cliente cita al preguntar por ella y lo que ve el personal.
+AVISO_REVISION_PENDIENTE_CON_CODIGO = (
+    "Tu solicitud {codigo} sigue en revisión del equipo del restaurante; apenas decidan te avisamos. "
+    "Todavía no hay una mesa confirmada. Si prefieres retirarla, escribe CANCELAR SOLICITUD."
+)
+SOLICITUD_EN_REVISION = (
+    "Tu solicitud {codigo} necesita revisión del equipo del restaurante. "
+    "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
+)
+
+
+def _codigo_de_la_solicitud(sesion_id: str) -> str | None:
+    """El G-XXXXXX de la solicitud que espera al personal en esa sesion, o None si no se puede saber.
+
+    Lo guarda la cola del orquestador; se importa al usarlo porque el orquestador importa este modulo."""
+    try:
+        from ..orquestador.grafo import codigo_de_revision
+        return codigo_de_revision(sesion_id)
+    except Exception:
+        return None
+
+
 # Si tras la decision del staff el modelo no escribe nada, el cliente igual recibe algo verdadero:
 # ni aprueba ni rechaza por su cuenta, y no promete una mesa.
 RESPALDO_TRAS_LA_REVISION = (
@@ -340,23 +363,24 @@ def ejecutar(
         # Solo marca la pantalla (etiqueta "Revision humana pendiente"). No es "revision_humana":
         # esa clave vuelve a registrar la revision en la cola del staff y con esta respuesta no hay solicitud.
         contexto.datos["hilo_en_revision"] = True
-        return AVISO_REVISION_PENDIENTE
+        codigo = _codigo_de_la_solicitud(sesion_id)
+        return AVISO_REVISION_PENDIENTE_CON_CODIGO.format(codigo=codigo) if codigo else AVISO_REVISION_PENDIENTE
     _descartar_turno_inconcluso(agente, config, sesion_id, flujo)
     resultado = agente.invoke({"messages": mensajes}, config=config, context=contexto)
 
     interrupciones = resultado.get("__interrupt__") or []
     if interrupciones:
         solicitud = interrupciones[0].value
+        # El codigo G- nace al pausar: el cliente, el panel del personal y la tarjeta de Trello usan el mismo.
+        codigo = nuevo_codigo(PREFIJO_GRUPO)
         contexto.datos["revision_humana"] = {
             "estado": "pendiente",
             "flujo": flujo,
             "solicitud": solicitud,
+            "codigo": codigo,
         }
-        registrar("hitl_pendiente", sesion_id, agente=flujo, detalle={"solicitud": solicitud})
-        return (
-            "La solicitud necesita revisión del equipo del restaurante. "
-            "Todavía no hay una mesa confirmada; te avisaremos cuando el equipo decida."
-        )
+        registrar("hitl_pendiente", sesion_id, agente=flujo, detalle={"solicitud": solicitud, "codigo": codigo})
+        return SOLICITUD_EN_REVISION.format(codigo=codigo)
     respuesta = extraer_texto(resultado["messages"][-1])
     _olvidar_hilo(agente, config)
 

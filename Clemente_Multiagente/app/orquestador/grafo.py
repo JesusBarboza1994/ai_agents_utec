@@ -118,6 +118,7 @@ VENCIMIENTO_REVISION_SEGUNDOS = 24 * 60 * 60
 # Es un comando y no una frase libre para no confundirlo con "cancelar mi reserva".
 COMANDO_CANCELAR = re.compile(r"\s*CANCELAR\s+SOLICITUD\s*[.!]?\s*", re.IGNORECASE)
 SOLICITUD_CANCELADA = "Listo, cancelé tu solicitud. ¿Te ayudo con otra reserva?"
+SOLICITUD_CANCELADA_CON_CODIGO = "Listo, cancelé tu solicitud {codigo}. ¿Te ayudo con otra reserva?"
 SOLICITUD_EN_RESOLUCION = ("Tu solicitud ya la está resolviendo el equipo del restaurante; "
                            "en un momento tendrás la respuesta.")
 NO_SE_PUDO_CANCELAR = ("No pude cancelar tu solicitud en este momento. Escríbeme de nuevo "
@@ -187,7 +188,8 @@ def _cancelar_solicitud(sesion_id: str) -> str | None:
         _guardar_revisiones()
     registrar("solicitud_cancelada", sesion_id, agente="reservas",
               detalle={"estaba_en_cola": retirada is not None})
-    return SOLICITUD_CANCELADA
+    codigo = (retirada or {}).get("codigo")
+    return SOLICITUD_CANCELADA_CON_CODIGO.format(codigo=codigo) if codigo else SOLICITUD_CANCELADA
 
 
 def _liberar_pausa_sin_vigencia(sesion_id: str) -> str | None:
@@ -796,6 +798,8 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
         return abierto
 
     origen = escalamiento.get("origen", "agente")
+    # La solicitud de un grupo grande ya tiene su G-XXXXXX desde que se pauso: la tarjeta lo conserva.
+    codigo_grupo = contexto.datos.get("codigo_grupo") if origen == "reservas_hitl" else None
     incidencia = servicio.crear_incidencia(
         sesion_id=sesion,
         descripcion=(
@@ -803,6 +807,7 @@ def _escalar(sesion: str, escalamiento: dict, mensaje: str, contexto) -> str:
             f"Mensaje del cliente: {mensaje}"
         ),
         tipo="otro" if origen == "orquestador" else "reserva",
+        **({"codigo": codigo_grupo} if codigo_grupo else {}),
     )
     _escalado_de[sesion] = incidencia.id
     contexto.datos["incidencia"] = incidencia.__dict__
@@ -1114,6 +1119,7 @@ def _responder_turno(
             "solicitud": revision.get("solicitud", {}),
             "canal": entrante.canal,
             "creada": time.time(),
+            "codigo": revision.get("codigo"),
         }
         _guardar_revisiones()
     # Continuidad: quien atiende el proximo mensaje. Con un paso ofrecido es ese
@@ -1171,9 +1177,15 @@ def revisiones_pendientes() -> list[dict]:
     """Vista serializable para el panel/API del staff; no expone objetos internos."""
     _cargar_revisiones()
     return [
-        {"sesion_id": sid, "solicitud": item["solicitud"], "canal": item["canal"]}
+        {"sesion_id": sid, "solicitud": item["solicitud"], "canal": item["canal"], "codigo": item.get("codigo")}
         for sid, item in _revisiones.items()
     ]
+
+
+def codigo_de_revision(sesion_id: str) -> str | None:
+    """El G-XXXXXX de la solicitud que espera al personal en esa sesion, o None si no hay o no tiene codigo."""
+    _cargar_revisiones()
+    return (_revisiones.get(sesion_id) or {}).get("codigo")
 
 
 def resolver_revision(sesion_id: str, decision: str, motivo: str = "") -> RespuestaClemente:
@@ -1217,6 +1229,9 @@ def _ejecutar_resolucion(sesion_id: str, decision: str, motivo: str, pendiente: 
     contexto = pendiente.get("contexto") or ContextoConversacion(
         sesion_id=sesion_id, canal=pendiente.get("canal", "webchat"),
     )
+    if pendiente.get("codigo"):
+        # El codigo viaja en la cola (sobrevive a un reinicio); `_escalar` lo usa para la tarjeta.
+        contexto.datos["codigo_grupo"] = pendiente["codigo"]
     decision_hitl = {"type": decision}
     if motivo:
         decision_hitl["message"] = motivo

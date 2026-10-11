@@ -389,7 +389,7 @@ async function cargarRevisiones() {
   staffEstado.textContent = d.revisiones.length ? `${d.revisiones.length} pendiente(s)` : 'Sin revisiones pendientes';
   d.revisiones.forEach(item => {
     const card = document.createElement('div'); card.className = 'revision-card';
-    const titulo = document.createElement('b'); titulo.textContent = `Sesión ${item.sesion_id}`;
+    const titulo = document.createElement('b'); titulo.textContent = `${item.codigo ? item.codigo + ' · ' : ''}Sesión ${item.sesion_id}`;
     const detalle = document.createElement('div'); detalle.textContent = resumenDeSolicitud(item.solicitud);
     const acciones = document.createElement('div'); acciones.className = 'staff-acciones';
     [['approve','Aprobar','aprobar'],['reject','Rechazar','rechazar']].forEach(([decision,texto,clase]) => {
