@@ -1,16 +1,16 @@
 """Aviso al cliente cuando el personal aprueba o rechaza una revision humana (HITL).
 
-Hasta ahora el endpoint del personal solo devolvia el texto al panel: el cliente de
-WhatsApp no se enteraba de la decision hasta volver a escribir. Este servicio envia ese
-texto por el mismo canal de salida que ya usa el webhook (Twilio REST).
+Hasta ahora el endpoint del personal solo devolvia el texto al panel: el cliente no se
+enteraba de la decision hasta volver a escribir. Este servicio la entrega por el canal de
+ese cliente: a WhatsApp por el mismo canal de salida que usa el webhook (Twilio REST), y al
+webchat dejandola en su bandeja (`bandeja_webchat`), que el chat del navegador recoge solo.
 
 Reglas que conserva:
 - El texto pasa por la misma validacion y redaccion de salida que cualquier respuesta
   del chat (`validar_salida`, `redactar_pii`), y lo que se guarda en `messages` va redactado.
 - La decision del personal NO depende del aviso: se resuelve primero y se avisa despues.
   Un fallo del envio se devuelve al panel para que el personal lo sepa, nunca se silencia.
-- El webchat no tiene canal de salida: el cliente ve la decision al escribir de nuevo. Para que eso sea cierto, la
-  decision queda SIEMPRE en el hilo de la conversacion (haya salido el aviso o no): si no, el agente no sabe que el
+- La decision queda SIEMPRE en el hilo de la conversacion (haya salido el aviso o no): si no, el agente no sabe que el
   personal ya decidio y, al siguiente mensaje, vuelve a pedir la excepcion o abre un reclamo nuevo.
 """
 from flask import current_app
@@ -20,14 +20,13 @@ from ...db.repositories import chats_repository, customers_repository, messages_
 from ...observabilidad.trazas import registrar
 from ...seguridad.guardrails_ai import validar_salida
 from ...seguridad.pii import redactar_pii
-from . import outbound_whatsapp_service
+from . import bandeja_webchat, outbound_whatsapp_service
 from .sesiones import obtener_sesion
 
 ENVIADO = "enviado"
 NO_ENVIADO = "no_enviado"
-NO_APLICA = "no_aplica"
 
-MOTIVO_WEBCHAT = "el webchat no admite mensajes salientes: el cliente lo vera al escribir de nuevo"
+MOTIVO_BANDEJA = "no se pudo dejar el aviso en la bandeja del webchat: el cliente lo vera al escribir de nuevo"
 MOTIVO_VENTANA = ("fuera de la ventana de 24 horas de WhatsApp: el cliente tiene que escribir de nuevo "
                   "o hace falta una plantilla aprobada")
 MOTIVO_SIN_CREDENCIALES = "las credenciales de Twilio no estan configuradas en este servidor"
@@ -77,20 +76,30 @@ def _guardar_en_historial(sesion_id: str, chat_key: str, texto: str, config, can
                   detalle={"paso": "guardar_aviso_del_personal", "error": type(error).__name__})
 
 
+def _avisar_al_webchat(sesion_id: str, cuerpo: str, config) -> dict:
+    """Deja la decision en el hilo y en la bandeja del navegador; `no_enviado` si la bandeja no pudo guardarla."""
+    _guardar_en_historial(sesion_id, sesion_id, cuerpo, config, "webchat")
+    aviso_id = bandeja_webchat.depositar(sesion_id, cuerpo)
+    if aviso_id is None:
+        registrar("aviso_staff_fallido", sesion_id, detalle={"canal": "webchat", "motivo": MOTIVO_BANDEJA})
+        return {"canal": "webchat", "estado": NO_ENVIADO, "motivo": MOTIVO_BANDEJA}
+    registrar("aviso_staff_enviado", sesion_id, detalle={"canal": "webchat", "aviso_id": aviso_id})
+    return {"canal": "webchat", "estado": ENVIADO, "motivo": "", "aviso_id": aviso_id}
+
+
 def avisar_decision(sesion_id: str, texto: str) -> dict:
     """Envia por WhatsApp la decision del personal, la deja en el hilo y devuelve el resultado para el panel.
 
-    Devuelve `{"canal", "estado", "motivo"}`. `estado` es `enviado`, `no_enviado` (con el motivo) o
-    `no_aplica` (webchat, sin canal de salida). La decision se guarda en el hilo en los tres casos. No lanza: el que
-    resuelve ya decidio y el aviso es un efecto aparte."""
+    Devuelve `{"canal", "estado", "motivo"}`; `estado` es `enviado` o `no_enviado` (con el motivo). En el webchat,
+    `enviado` significa que quedo en la bandeja del navegador y se agrega `aviso_id`. La decision se guarda en el hilo
+    en todos los casos. No lanza: el que resuelve ya decidio y el aviso es un efecto aparte."""
     chat_key = chat_key_de(sesion_id)
     config = current_app.config["CLEMENTE"]
     cuerpo = None
     try:
         cuerpo = _texto_para_el_cliente(sesion_id, texto, config)
         if not chat_key:
-            _guardar_en_historial(sesion_id, sesion_id, cuerpo, config, "webchat")
-            return {"canal": "webchat", "estado": NO_APLICA, "motivo": MOTIVO_WEBCHAT}
+            return _avisar_al_webchat(sesion_id, cuerpo, config)
         sid = outbound_whatsapp_service.send_whatsapp_message(
             config.twilio_account_sid, config.twilio_auth_token,
             config.twilio_whatsapp_from, chat_key, cuerpo,

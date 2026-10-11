@@ -4,6 +4,7 @@ rule points straight at a controller function.
 
     GET  /                        -- webchat demo
     POST /api/chat                -- internal API (webchat + tests)
+    GET  /api/chat/avisos         -- lo que el servidor le dejo a este navegador
     POST /api/webhook/whatsapp    -- Twilio inbound
     HEAD /api/webhook/trello      -- Trello comprueba la URL
     POST /api/webhook/trello      -- Trello avisa que una tarjeta paso a Resuelto
@@ -18,6 +19,7 @@ bp = Blueprint("communication", __name__)
 
 bp.add_url_rule("/", view_func=chat_controller.chat_demo, methods=["GET"])
 bp.add_url_rule("/api/chat", view_func=chat_controller.chat, methods=["POST"])
+bp.add_url_rule("/api/chat/avisos", view_func=chat_controller.avisos, methods=["GET"])
 bp.add_url_rule("/api/chat/imagen", view_func=chat_controller.chat_imagen, methods=["POST"])
 bp.add_url_rule("/api/webhook/whatsapp", view_func=whatsapp_controller.handle_webhook, methods=["POST"])
 bp.add_url_rule("/api/webhook/trello", view_func=trello_controller.verificar_webhook, methods=["HEAD"], endpoint="trello_verificar")

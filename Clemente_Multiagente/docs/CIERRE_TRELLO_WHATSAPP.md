@@ -1,6 +1,8 @@
-# Cierre de un caso desde Trello hacia WhatsApp
+# Cierre de un caso desde Trello hacia WhatsApp y el webchat
 
-Cuando el personal mueve una tarjeta a la lista **Resuelto** en Trello, el cliente recibe en WhatsApp: *"Tu caso G-XXXXXX fue resuelto por el equipo del restaurante. Si necesitas algo más, escríbenos por aquí."*
+Cuando el personal mueve una tarjeta a la lista **Resuelto** en Trello, el cliente recibe, en WhatsApp o en su webchat: *"Tu caso G-XXXXXX fue resuelto por el equipo del restaurante. Si necesitas algo más, escríbenos por aquí."*
+
+La misma entrega se usa cuando el personal **aprueba o rechaza** una solicitud de grupo desde el panel: el cliente se entera sin tener que escribir de nuevo.
 
 Siglas: HMAC-SHA1 (*Hash-based Message Authentication Code* con SHA-1, firma que prueba que la llamada viene de Trello).
 
@@ -17,10 +19,20 @@ Siglas: HMAC-SHA1 (*Hash-based Message Authentication Code* con SHA-1, firma que
 | Situación | Resultado |
 |---|---|
 | Tarjeta a Resuelto de un caso de WhatsApp | Se envía el mensaje |
-| Caso del webchat | No hay canal de salida: no se envía nada (`no_aplica`) |
+| Caso del webchat | El aviso queda en la bandeja de su navegador y el chat lo muestra solo, en unos segundos (`enviado`, canal `webchat`). No usa Twilio ni la ventana de 24 horas |
 | Otra lista, tarjeta nueva, otra acción o título sin código | Se ignora |
 | Código que no existe | Se ignora |
 | Twilio rechaza el envío | Responde 200 con el motivo; el caso no queda como avisado y un nuevo movimiento lo reintenta |
+
+## Cómo llega al webchat
+
+El webchat no tiene Twilio, así que el servidor deja el mensaje en una bandeja (`app/communication/services/bandeja_webchat.py`, archivo `bandeja_webchat.json` en la carpeta de datos) y la página del chat la consulta cada 4 segundos con `GET /api/chat/avisos`.
+
+- **Cada navegador ve solo lo suyo:** la sesión sale de la cookie firmada, no de un dato que mande el cliente.
+- **Entrega con acuse:** el chat avisa hasta qué número ya mostró (`visto`) y el servidor borra hasta ahí. Si una respuesta se pierde, el aviso se repite y el chat lo descarta por su número.
+- **Si la página está cerrada:** el aviso espera en la bandeja y aparece cuando el cliente vuelva a abrirla con la misma sesión del navegador. Si cierra el navegador entero, la cookie de sesión se pierde y ese aviso ya no tiene a quién llegar.
+- **Si el panel del personal está en la misma página que el chat:** el mensaje llega por la respuesta del panel y por la bandeja, pero se dibuja una sola vez.
+- **Además**, la decisión queda siempre en el hilo de la conversación, para que el agente sepa que el personal ya decidió.
 
 ## Variables
 
@@ -48,6 +60,6 @@ Sin credenciales de Twilio la respuesta es `no_enviado` con el motivo; la firma,
 
 ## Límites
 
-- **Ventana de 24 horas de WhatsApp:** el mensaje es libre, así que solo llega si el cliente escribió en las últimas 24 horas. Pasado ese plazo, WhatsApp exigiría una plantilla aprobada, que esta versión no usa. Es una regla de WhatsApp Business, no se comprobó en la cuenta del proyecto.
+- **Ventana de 24 horas de WhatsApp (solo WhatsApp, no el webchat):** el mensaje es libre, así que solo llega si el cliente escribió en las últimas 24 horas. Pasado ese plazo, WhatsApp exigiría una plantilla aprobada, que esta versión no usa. Es una regla de WhatsApp Business, no se comprobó en la cuenta del proyecto.
 - **La firma no se probó contra un Trello real**, solo con llamadas firmadas con el algoritmo documentado por Trello. Hasta el paso 4 de producción no hay certeza.
 - La app escala a cero: el primer aviso tras un rato sin tráfico pasa por un arranque en frío. Trello reintenta, y el registro de avisos evita duplicados.

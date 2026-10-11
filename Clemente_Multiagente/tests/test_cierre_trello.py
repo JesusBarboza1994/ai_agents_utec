@@ -13,6 +13,7 @@ from dataclasses import replace
 import pytest
 
 from app import create_app
+from app.communication.services import bandeja_webchat as bandeja
 from app.communication.services import cierre_trello_service as cierre
 from app.communication.services import outbound_whatsapp_service as saliente
 from app.incidencias.servicio_json import ServicioIncidenciasJSON
@@ -35,6 +36,7 @@ def trello(monkeypatch, tmp_path):
 
     monkeypatch.setattr(saliente, "send_whatsapp_message", enviar_falso)
     monkeypatch.setattr(cierre, "ARCHIVO_AVISOS", tmp_path / "avisos_cierre.json")
+    monkeypatch.setattr(bandeja, "ARCHIVO", tmp_path / "bandeja_webchat.json")
     app = create_app()
     app.config["TESTING"] = True
     app.config["CLEMENTE"] = replace(
@@ -176,15 +178,28 @@ def test_un_codigo_que_no_existe_no_avisa(trello):
     assert trello.enviados == []
 
 
-def test_un_caso_del_webchat_no_envia_nada(trello):
-    """El webchat no tiene canal de salida: se explica y no se envia ni se da por avisado."""
-    caso = _caso(sesion="abc123def456")
+def test_un_caso_del_webchat_queda_en_la_bandeja_del_chat(trello):
+    """Un caso del webchat no sale por Twilio: el aviso queda en la bandeja de su navegador y el caso se anota avisado."""
+    caso = _caso(sesion="web-abc123def456", codigo=CODIGO_GRUPO)
 
     respuesta = _post(trello, _carga(caso))
 
-    assert respuesta.get_json()["estado"] == "no_aplica"
+    assert respuesta.get_json() == {"codigo": caso, "estado": "enviado", "motivo": ""}
     assert trello.enviados == []
-    assert not cierre.ARCHIVO_AVISOS.exists()
+    assert [m["texto"] for m in bandeja.recoger("web-abc123def456")] == [cierre.TEXTO_CIERRE.format(codigo=caso)]
+    assert caso in json.loads(cierre.ARCHIVO_AVISOS.read_text(encoding="utf-8"))
+
+
+def test_un_caso_del_webchat_se_avisa_una_sola_vez(trello):
+    """Mover la tarjeta de ida y vuelta no deja un segundo mensaje en la bandeja."""
+    caso = _caso(sesion="web-abc123def456")
+
+    _post(trello, _carga(caso))
+    _post(trello, _carga(caso, antes="Resuelto", despues="En atención"))
+    segunda = _post(trello, _carga(caso))
+
+    assert segunda.get_json()["estado"] == "ya_avisado"
+    assert len(bandeja.recoger("web-abc123def456")) == 1
 
 
 def test_un_cuerpo_que_no_es_un_objeto_se_ignora(trello):

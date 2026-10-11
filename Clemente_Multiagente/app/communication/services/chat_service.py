@@ -28,6 +28,7 @@ from ...orquestador import responder as responder_orquestador
 from ...orquestador.grafo import olvidar_sesion
 from ...reservas.validaciones import mensaje_nombre_invalido
 from ...seguridad.pii import pii_prohibida, redactar_pii
+from . import bandeja_webchat
 from .sesiones import MAXIMO_TURNOS, obtener_sesion, limpiar_sesion
 
 
@@ -289,3 +290,4 @@ def reset_session(sesion_id: str) -> None:
     """
     limpiar_sesion(sesion_id)
     olvidar_sesion(sesion_id)
+    bandeja_webchat.olvidar(sesion_id)

@@ -9,6 +9,7 @@ import pytest
 
 from app import create_app
 from app.communication.services import aviso_staff_service as aviso
+from app.communication.services import bandeja_webchat as bandeja
 from app.communication.services import outbound_whatsapp_service as saliente
 from app.communication.services.sesiones import limpiar_sesion, obtener_sesion
 from app.contratos import RespuestaClemente
@@ -22,7 +23,7 @@ TEXTO = "Tu solicitud quedó registrada con el código I-ABC123. La mesa todaví
 
 
 @pytest.fixture
-def staff(monkeypatch):
+def staff(monkeypatch, tmp_path):
     """Cliente Flask con token del personal, Twilio configurado y un envio simulado que anota lo enviado."""
     enviados = []
 
@@ -37,6 +38,7 @@ def staff(monkeypatch):
 
     monkeypatch.setattr(saliente, "send_whatsapp_message", enviar_falso)
     monkeypatch.setattr("app.orquestador.grafo.resolver_revision", resolver_falso)
+    monkeypatch.setattr(bandeja, "ARCHIVO", tmp_path / "bandeja_webchat.json")
     app = create_app()
     app.config["TESTING"] = True
     app.config["CLEMENTE"] = replace(
@@ -71,15 +73,48 @@ def test_resolver_en_whatsapp_envia_el_texto_al_cliente(staff, decision):
     assert datos["respuesta_cliente"] == TEXTO
 
 
-def test_en_el_webchat_no_se_envia_nada_y_se_explica(staff):
-    """El webchat no tiene canal de salida: se resuelve, no se envia y el panel recibe el motivo."""
-    respuesta = _resolver(staff, sesion_id="abc123def456")
+def test_en_el_webchat_el_aviso_va_a_la_bandeja_del_chat(staff):
+    """El webchat no tiene Twilio: el aviso se deja en la bandeja del navegador y el panel recibe el numero del aviso."""
+    respuesta = _resolver(staff, sesion_id=SESION_WEB)
+
+    assert respuesta.status_code == 200
+    notificacion = respuesta.get_json()["notificacion"]
+    assert notificacion["canal"] == "webchat" and notificacion["estado"] == "enviado" and notificacion["motivo"] == ""
+    assert isinstance(notificacion["aviso_id"], int)
+    assert [m["texto"] for m in bandeja.recoger(SESION_WEB)] == [TEXTO]
+    assert staff.enviados == []
+
+
+def test_el_navegador_de_esa_sesion_recibe_el_aviso_y_los_demas_no(staff):
+    """Tras aprobar, solo el navegador dueno de la sesion encuentra el mensaje en /api/chat/avisos."""
+    _resolver(staff, sesion_id=SESION_WEB)
+    duenio, otro = staff.application.test_client(), staff.application.test_client()
+    with duenio.session_transaction() as sesion:
+        sesion["clemente_sesion"] = SESION_WEB
+    with otro.session_transaction() as sesion:
+        sesion["clemente_sesion"] = "web-ajeno"
+
+    assert [a["texto"] for a in duenio.get("/api/chat/avisos").get_json()["avisos"]] == [TEXTO]
+    assert otro.get("/api/chat/avisos").get_json()["avisos"] == []
+
+
+def test_un_aviso_de_whatsapp_no_pasa_por_la_bandeja_del_webchat(staff):
+    """El cliente de WhatsApp recibe su aviso por Twilio; la bandeja del webchat no se toca."""
+    _resolver(staff)
+
+    assert bandeja.recoger(SESION_WHATSAPP) == []
+
+
+def test_si_la_bandeja_falla_el_panel_lo_sabe_y_el_hilo_conserva_la_decision(staff, monkeypatch):
+    """Sin poder dejar el aviso en la bandeja se informa `no_enviado`, pero la decision igual queda en el hilo."""
+    monkeypatch.setattr(bandeja, "depositar", lambda sesion_id, texto: None)
+    respuesta = _resolver(staff, sesion_id=SESION_WEB)
 
     assert respuesta.status_code == 200
     assert respuesta.get_json()["notificacion"] == {
-        "canal": "webchat", "estado": "no_aplica", "motivo": aviso.MOTIVO_WEBCHAT,
+        "canal": "webchat", "estado": "no_enviado", "motivo": aviso.MOTIVO_BANDEJA,
     }
-    assert staff.enviados == []
+    assert obtener_sesion(SESION_WEB, "webchat").historial[-1] == {"role": "assistant", "content": TEXTO}
 
 
 def test_fuera_de_la_ventana_de_24_horas_la_decision_sigue_resuelta(staff, monkeypatch):

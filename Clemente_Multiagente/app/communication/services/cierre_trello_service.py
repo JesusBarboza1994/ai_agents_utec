@@ -1,4 +1,4 @@
-"""Cierre de un caso desde Trello: cuando el personal mueve la tarjeta a "Resuelto", el cliente recibe el aviso por WhatsApp.
+"""Cierre de un caso desde Trello: cuando el personal mueve la tarjeta a "Resuelto", el cliente recibe el aviso.
 
 Trello llama a un webhook cada vez que algo cambia en el tablero. Aqui se reconoce el unico cambio que interesa
 (una tarjeta que pasa a la lista Resuelto), se identifica el caso por el codigo del titulo de la tarjeta (I-XXXXXX
@@ -8,7 +8,7 @@ Reglas que conserva:
 - Solo se acepta una llamada firmada por Trello; sin secreto configurado no se acepta ninguna.
 - Un caso se avisa una sola vez: mover la tarjeta de ida y vuelta, o un reintento de Trello, no repiten el mensaje.
 - El aviso es un mensaje libre de WhatsApp: llega mientras el cliente haya escrito en las ultimas 24 horas.
-- Un caso del webchat no tiene canal de salida: se registra y no se envia nada.
+- Un caso del webchat no sale por Twilio: el aviso queda en la bandeja de su navegador, que el chat recoge solo.
 """
 import base64
 import hashlib
@@ -84,8 +84,8 @@ def _marcar_avisado(codigo: str) -> None:
 def avisar_cierre(carga: dict) -> dict:
     """Avisa al cliente que su caso se cerro, si la llamada de Trello es un cierre y el caso aun no se aviso.
 
-    Devuelve `{"estado", ...}`: `ignorado` (no era un cierre o el caso no existe), `ya_avisado`, `enviado`,
-    `no_enviado` (con el motivo) o `no_aplica` (webchat). No lanza por un fallo del envio."""
+    Devuelve `{"estado", ...}`: `ignorado` (no era un cierre o el caso no existe), `ya_avisado`, `enviado`
+    o `no_enviado` (con el motivo). No lanza por un fallo del envio."""
     codigo = codigo_del_cierre(carga)
     if not codigo:
         return {"estado": "ignorado", "motivo": "no es el cierre de un caso"}
