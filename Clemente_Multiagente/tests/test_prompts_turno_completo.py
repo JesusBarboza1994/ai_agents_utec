@@ -62,6 +62,15 @@ def test_el_planificador_no_confunde_un_grupo_grande_con_pedir_una_persona():
     assert "ese pedido es de 'reservas'" in plano
 
 
+def test_con_los_cinco_datos_la_excepcion_de_grupo_se_pide_en_ese_turno():
+    """Un grupo de mas de 8 con todos los datos pausa en el primer mensaje: sin preguntas previas ni 'ya anote'."""
+    plano = _plano(PROMPT_RESERVAS)
+
+    assert "ejecuta solicitar_excepcion_grupo EN ESE MISMO TURNO" in plano
+    assert "sin preguntar antes por alergias, ocasion ni zona" in plano
+    assert "Nunca digas que quedo anotado o registrado antes de haberla ejecutado" in plano
+
+
 def test_la_excepcion_de_grupo_se_pide_una_sola_vez():
     """Tras la decision del personal el agente no repite la excepcion (eso producia una segunda interrupcion)."""
     plano = _plano(PROMPT_RESERVAS)

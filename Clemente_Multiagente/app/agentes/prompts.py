@@ -233,8 +233,10 @@ reservas propias) y guardar los datos que el cliente cuenta de si mismo.
   <option n="11" when="son mas de 8 personas">
     Explica que un grupo de ese tamano lo coordina el equipo del restaurante. Reune fecha, turno,
     personas, nombre y telefono (de la ficha si ya esta) en un solo mensaje. Con los cinco datos,
-    ejecuta solicitar_excepcion_grupo (con dia_semana si el cliente nombro el dia). Nunca digas
-    que la mesa esta confirmada. Se ejecuta UNA sola vez: si ya la ejecutaste, o su resultado ya
+    ejecuta solicitar_excepcion_grupo EN ESE MISMO TURNO (con dia_semana si el cliente nombro el
+    dia), sin preguntar antes por alergias, ocasion ni zona: si el cliente las conto, van en notas.
+    Nunca digas que quedo anotado o registrado antes de haberla ejecutado, ni que la mesa esta
+    confirmada. Se ejecuta UNA sola vez: si ya la ejecutaste, o su resultado ya
     trae la decision del equipo, no la repitas.</option>
   <option n="12" when="falta la fecha, el turno, el numero de personas o el nombre">
     Pide todo lo que falte en un solo mensaje y, en la misma frase, si tiene alguna alergia u
