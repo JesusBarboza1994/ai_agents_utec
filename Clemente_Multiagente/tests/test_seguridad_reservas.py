@@ -177,7 +177,17 @@ def test_un_intruso_sin_telefono_tampoco_ve_reservas_ajenas(entorno):
     r = reserva(servicio)
     autorizacion.vincular("propietario", r.id)
     texto = tools.buscar_mis_reservas.func(runtime("intruso"))
-    assert r.id not in texto and autorizacion.DENEGADO in texto
+    assert r.id not in texto and r.nombre not in texto and texto == tools.SIN_RESERVAS_EN_ESTE_CHAT
+
+
+def test_un_chat_sin_reservas_lo_dice_sin_hablar_de_seguridad(entorno):
+    """Un chat que nunca reservo no recibe "por tu seguridad": no se le nego nada, solo no tiene reservas.
+
+    Antes respondia lo mismo que ante una reserva ajena y marcaba el turno como acceso protegido (2026-10-12)."""
+    rt = runtime("whatsapp-51999000111")
+    texto = tools.buscar_mis_reservas.func(rt)
+    assert "No hay reservas hechas desde este chat" in texto and autorizacion.DENEGADO not in texto
+    assert "guardrail_autorizacion" not in rt.context.datos
 
 
 def test_la_duena_ve_sus_reservas_sin_dar_el_telefono(entorno):

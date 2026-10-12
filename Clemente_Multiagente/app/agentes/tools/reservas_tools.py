@@ -199,6 +199,14 @@ def crear_reserva(
     return f"{aviso} {resumen}" if aviso else resumen
 
 
+# Un chat sin reservas no es un acceso denegado: antes respondia lo mismo que ante una reserva ajena ("por tu
+# seguridad...") y el cliente creia que lo habian bloqueado. Decirle que este chat no tiene ninguna no revela nada.
+SIN_RESERVAS_EN_ESTE_CHAT = (
+    "No hay reservas hechas desde este chat. Díselo así, sin hablar de seguridad ni de verificar su identidad: "
+    "las reservas hechas desde otro número o desde la web se ven escribiendo desde ahí. Ofrécele preparar una nueva."
+)
+
+
 @tool
 @con_traza
 def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
@@ -206,7 +214,7 @@ def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
 
     Usar cuando el cliente pregunta que reservas tiene y antes de modificar o cancelar.
     La sesion es lo que autoriza: el telefono no concede acceso, solo acota si coincide con
-    alguna. Sin reservas propias devuelve rechazo y marca guardrail_autorizacion.
+    alguna. Sin reservas propias lo dice, sin marcarlo como acceso denegado.
 
     Args:
         telefono: opcional; si el cliente lo dio, se listan primero las hechas con ese numero.
@@ -214,8 +222,7 @@ def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
     telefono = limpiar_texto(telefono, 20)
     propias = autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
     if not propias:
-        runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
-        return autorizacion.DENEGADO
+        return SIN_RESERVAS_EN_ESTE_CHAT
     coinciden = [r for r in propias if telefono and r.telefono == telefono]
     reservas = coinciden or propias
     return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
