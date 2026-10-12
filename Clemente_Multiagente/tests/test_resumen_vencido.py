@@ -118,6 +118,63 @@ def test_en_el_webchat_el_aviso_queda_en_la_bandeja_del_navegador(monkeypatch, t
     assert [m["texto"] for m in bandeja_webchat.recoger("web-h")] == [vencimiento_service.TEXTO_VENCIDO["crear"]]
 
 
+def test_en_azure_la_url_de_salud_sale_del_nombre_y_el_dominio_de_la_app(monkeypatch):
+    """Azure define el nombre de la app y el sufijo de su entorno; fuera de Azure no hay URL y no se pide nada."""
+    monkeypatch.setenv("CONTAINER_APP_NAME", "caclmt01")
+    monkeypatch.setenv("CONTAINER_APP_ENV_DNS_SUFFIX", "ejemplo.eastus2.azurecontainerapps.io")
+    assert vencimiento_service.url_de_salud() == "https://caclmt01.ejemplo.eastus2.azurecontainerapps.io/api/salud"
+    monkeypatch.delenv("CONTAINER_APP_ENV_DNS_SUFFIX")
+    assert vencimiento_service.url_de_salud() is None
+
+
+class _Respuesta:
+    """Lo minimo de la respuesta de urlopen: se usa como contexto y no se lee."""
+    def __enter__(self):
+        """Entra al contexto."""
+        return self
+
+    def __exit__(self, *error):
+        """Sale del contexto sin tragarse errores."""
+        return False
+
+
+def test_con_un_resumen_esperando_confirmo_se_pide_la_url_para_que_azure_no_apague(monkeypatch):
+    """Faltan cinco minutos para que venza: la replica tiene que seguir encendida para avisar."""
+    pedidos = []
+    _resumen("web-i", vencio_hace=-300)
+    assert vencimiento_service.mantener_despierta(
+        "https://app/api/salud", pedir=lambda url, timeout: pedidos.append(url) or _Respuesta()) is True
+    assert pedidos == ["https://app/api/salud"]
+
+
+@pytest.mark.parametrize("vencio_hace", [None, 60, 3 * 3600])
+def test_sin_resumen_esperando_no_se_pide_nada_y_la_app_puede_apagarse(vencio_hace):
+    """Sin resumenes, o con uno ya vencido (lo retira el aviso), no hay motivo para seguir encendida."""
+    if vencio_hace is not None:
+        _resumen("web-j", vencio_hace=vencio_hace)
+    assert vencimiento_service.mantener_despierta("https://app/api/salud", pedir=pytest.fail) is False
+
+
+def test_fuera_de_azure_no_se_pide_nada():
+    """En local no hay URL publica ni escala a cero."""
+    _resumen("web-k", vencio_hace=-300)
+    assert vencimiento_service.mantener_despierta(None, pedir=pytest.fail) is False
+
+
+def test_si_el_pedido_falla_se_traza_y_el_hilo_sigue(monkeypatch):
+    """Un error de red no sale del hilo: queda en las trazas."""
+    trazas = []
+    monkeypatch.setattr(vencimiento_service, "registrar", lambda *args, **kwargs: trazas.append(kwargs["detalle"]))
+    _resumen("web-l", vencio_hace=-300)
+
+    def sin_red(url, timeout):
+        """Simula que el dominio no responde."""
+        raise OSError("sin red")
+
+    assert vencimiento_service.mantener_despierta("https://app/api/salud", pedir=sin_red) is False
+    assert trazas == [{"paso": "mantener_despierta", "error": "OSError"}]
+
+
 def test_el_hilo_se_arranca_una_sola_vez(monkeypatch):
     """Llamar dos veces a iniciar no arranca dos hilos que avisarian dos veces."""
     arrancados = []

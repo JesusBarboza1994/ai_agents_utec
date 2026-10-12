@@ -218,6 +218,13 @@ def descartar(sesion):
         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
 
 
+def hay_resumenes_pendientes(ahora=None) -> bool:
+    """True si alguna conversacion tiene un resumen que todavia espera su CONFIRMO (no vencio)."""
+    ahora = time.time() if ahora is None else ahora
+    with _db() as db:
+        return db.execute("SELECT 1 FROM propuestas WHERE vence > ? LIMIT 1", (ahora,)).fetchone() is not None
+
+
 def retirar_vencidas(ahora=None):
     """Saca las propuestas que vencieron hace poco y devuelve [(sesion, accion)] para avisarle a cada cliente.
 
