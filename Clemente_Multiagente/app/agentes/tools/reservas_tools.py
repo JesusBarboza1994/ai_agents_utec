@@ -207,6 +207,15 @@ SIN_RESERVAS_EN_ESTE_CHAT = (
 )
 
 
+# Va junto a cada reserva que se ve por el numero de WhatsApp pero se hizo desde otro chat.
+SOLO_PARA_VER = " (hecha desde otro chat con este número: se puede ver, no cambiar ni cancelar desde aquí)"
+
+
+def _linea_de_reserva(r, nota: str = "") -> str:
+    """Una reserva en una linea para el modelo: codigo, turno, personas, zona y estado."""
+    return f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}{nota}"
+
+
 @tool
 @con_traza
 def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
@@ -214,18 +223,23 @@ def buscar_mis_reservas(runtime: ToolRuntime, telefono: str = "") -> str:
 
     Usar cuando el cliente pregunta que reservas tiene y antes de modificar o cancelar.
     La sesion es lo que autoriza: el telefono no concede acceso, solo acota si coincide con
-    alguna. Sin reservas propias lo dice, sin marcarlo como acceso denegado.
+    alguna. En WhatsApp se suman las hechas desde otro chat con el numero verificado del
+    cliente, marcadas como solo para ver. Sin ninguna lo dice, sin marcarlo como acceso denegado.
 
     Args:
         telefono: opcional; si el cliente lo dio, se listan primero las hechas con ese numero.
     """
     telefono = limpiar_texto(telefono, 20)
-    propias = autorizacion.reservas_propias(runtime.context.sesion_id, servicio_reservas())
-    if not propias:
+    servicio = servicio_reservas()
+    propias = autorizacion.reservas_propias(runtime.context.sesion_id, servicio)
+    ids_propias = {r.id for r in propias}
+    del_numero = [r for r in autorizacion.reservas_del_numero(runtime.context, servicio) if r.id not in ids_propias]
+    if not propias and not del_numero:
         return SIN_RESERVAS_EN_ESTE_CHAT
     coinciden = [r for r in propias if telefono and r.telefono == telefono]
-    reservas = coinciden or propias
-    return "; ".join(f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}" for r in reservas)
+    lineas = [_linea_de_reserva(r) for r in coinciden or propias]
+    lineas += [_linea_de_reserva(r, SOLO_PARA_VER) for r in del_numero]
+    return "; ".join(lineas)
 
 
 @tool
@@ -234,11 +248,17 @@ def consultar_reserva_por_codigo(reserva_id: str, runtime: ToolRuntime) -> str:
     """Consulta una reserva propia por codigo, normalizado a mayusculas.
 
     Usar antes de modificar o cancelar cuando el cliente da el codigo. Verifica
-    propiedad de la sesion del runtime antes de leer; un codigo ajeno o inexistente
-    devuelve el mismo rechazo y marca guardrail_autorizacion sin revelar datos.
+    propiedad de la sesion del runtime antes de leer (en WhatsApp tambien vale el numero
+    verificado, solo para ver); un codigo ajeno o inexistente devuelve el mismo rechazo y
+    marca guardrail_autorizacion sin revelar datos.
     """
     codigo = limpiar_texto(reserva_id, 20).upper()
     if not autorizacion.es_propietario(runtime.context.sesion_id, codigo):
+        del_numero = next((r for r in autorizacion.reservas_del_numero(runtime.context, servicio_reservas())
+                           if r.id == codigo), None)
+        if del_numero is not None:
+            return (f"{del_numero.id}: {del_numero.nombre}, {del_numero.personas} personas, {del_numero.fecha} "
+                    f"{del_numero.hora}, zona {del_numero.zona}, estado {del_numero.estado}.{SOLO_PARA_VER}")
         runtime.context.datos["guardrail_autorizacion"] = {"estado": "bloqueado"}
         return autorizacion.DENEGADO
     reserva = servicio_reservas().obtener_reserva(codigo)

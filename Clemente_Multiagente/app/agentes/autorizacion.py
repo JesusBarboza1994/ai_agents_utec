@@ -2,6 +2,8 @@
 
 El telefono y los argumentos de tools NO son identidad. Las reservas antiguas
 sin vinculacion requieren recuperacion por personal; no se adjudican por codigo.
+Unica excepcion, de solo lectura: en WhatsApp el numero lo verifica el canal, y
+deja ver las reservas que tienen ese numero de contacto (reservas_del_numero).
 SQLite guarda permisos/propuestas, no reemplaza el gestor de reservas de Miguel.
 """
 import hashlib
@@ -18,6 +20,7 @@ from threading import RLock
 
 from . import casos_abiertos, tope_de_reservas
 from . import fecha as reloj
+from .contexto import telefono_de
 from ..datos import carpeta_de_datos
 from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
@@ -154,6 +157,39 @@ def reservas_propias(sesion, servicio):
     with _db() as db:
         ids = [r[0] for r in db.execute("SELECT reserva FROM propietarios WHERE sesion=?", (sesion,))]
     return [r for codigo in ids if (r := servicio.obtener_reserva(codigo)) is not None]
+
+
+def numero_verificado(contexto) -> str | None:
+    """El numero de WhatsApp desde el que escribe el cliente; None en el webchat o con el id oculto de WhatsApp.
+
+    Es el unico telefono que prueba algo: la sesion whatsapp-<numero> solo la arma el webhook firmado por Twilio (el
+    webchat usa web-<uuid> de su cookie firmada). El telefono que el cliente escribe en el chat sigue sin probar nada."""
+    if getattr(contexto, "canal", "") != "whatsapp":
+        return None
+    numero = telefono_de(getattr(contexto, "sesion_id", "") or "") or ""
+    return numero if numero.isdigit() and 7 <= len(numero) <= 15 else None
+
+
+def _formas_del_numero(numero: str) -> set[str]:
+    """Como puede estar guardado ese numero de contacto: 51999111222, +51999111222 o, si es de Peru, 999111222."""
+    formas = {numero, f"+{numero}"}
+    if numero.startswith("51") and len(numero) == 11:
+        formas.add(numero[2:])
+    return formas
+
+
+def reservas_del_numero(contexto, servicio):
+    """Reservas cuyo contacto es el numero de WhatsApp verificado del cliente, hechas desde cualquier chat; [] si no hay numero.
+
+    Solo para mostrarlas: cambiar o cancelar sigue exigiendo que la reserva sea de esta conversacion (es_propietario)."""
+    numero = numero_verificado(contexto)
+    if not numero:
+        return []
+    encontradas = {}
+    for forma in _formas_del_numero(numero):
+        for reserva in servicio.buscar_reservas_de(forma):
+            encontradas[reserva.id] = reserva
+    return list(encontradas.values())
 
 
 def _zona(zona) -> str:
