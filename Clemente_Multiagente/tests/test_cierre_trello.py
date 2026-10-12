@@ -419,3 +419,24 @@ def test_el_aviso_no_toca_el_resumen_de_otra_conversacion(trello):
     _dejar_resumen_pendiente("whatsapp-51888000111")
     _post(trello, _carga(caso))
     assert _hay_resumen_pendiente("whatsapp-51888000111")
+
+
+# --- el cierre queda en el registro local -----------------------------------------------------------------------
+
+def test_el_cierre_queda_en_el_registro_local(trello):
+    """Si despues Trello no responde, el registro local ya dice cerrada: el pedido no vuelve a bloquear reservas."""
+    caso = _caso()
+    _post(trello, _carga(caso))
+    assert next(c for c in ServicioIncidenciasJSON().listar_incidencias() if c.id == caso).estado == "cerrada"
+
+
+def test_el_cierre_queda_en_local_aunque_el_aviso_no_salga(trello, monkeypatch):
+    """El caso esta resuelto en Trello aunque el WhatsApp falle: el estado local no depende del envio."""
+    def enviar_que_falla(*_):
+        """Simula que Twilio rechaza el mensaje."""
+        raise saliente.WhatsAppSendError("rechazado")
+
+    monkeypatch.setattr(saliente, "send_whatsapp_message", enviar_que_falla)
+    caso = _caso()
+    _post(trello, _carga(caso))
+    assert next(c for c in ServicioIncidenciasJSON().listar_incidencias() if c.id == caso).estado == "cerrada"

@@ -226,9 +226,10 @@ class ServicioIncidenciasTrello:
         """
         El estado lo manda Trello: es donde una persona mueve la tarjeta.
 
-        Si Trello no responde se devuelve el registro local, que tendra el estado
-        con el que nacio la incidencia. Es informacion vieja, no informacion
-        falsa, y es mejor que un error en medio de una conversacion.
+        Cada lectura buena se guarda en el registro local. Si Trello no responde
+        se devuelve ese registro, con el ultimo estado que se leyo del tablero:
+        sin guardarlo volvia el estado con que nacio el caso, y un pedido ya
+        resuelto seguia bloqueando las reservas del cliente (2026-10-12, I-54A4F4).
         """
         locales = self.espejo.listar_incidencias()
         try:
@@ -248,6 +249,12 @@ class ServicioIncidenciasTrello:
                     incidencia.estado = estado_por_codigo[incidencia.id]
         except Exception as error:
             log.warning("no se pudo leer el estado desde Trello (%s)", describir_error(error))
+        else:
+            try:
+                self.espejo.actualizar_estados(estado_por_codigo)
+            except Exception as error:
+                # Guardar la copia es una mejora: la lectura de Trello ya salio bien y se devuelve igual.
+                log.warning("no se pudo guardar el estado de Trello en local (%s)", describir_error(error))
 
         return [i for i in locales if estado is None or i.estado == estado]
 

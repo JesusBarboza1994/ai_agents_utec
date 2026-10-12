@@ -89,6 +89,22 @@ class ServicioIncidenciasJSON:
                 return True
         return False
 
+    def actualizar_estados(self, estados: dict[str, str]) -> int:
+        """Guarda el estado que trae el tablero (codigo -> estado) y devuelve cuantos casos cambiaron.
+
+        Es la copia del ultimo estado conocido: si despues el tablero no responde, se lee esta y no el
+        estado con que nacio el caso. Solo escribe si algo cambio."""
+        registro = self._leer()
+        cambiados = 0
+        for i in registro:
+            nuevo = estados.get(i["id"])
+            if nuevo and i.get("estado") != nuevo:
+                i["estado"] = nuevo
+                cambiados += 1
+        if cambiados:
+            self._escribir(registro)
+        return cambiados
+
     def cerrar_incidencia(self, incidencia_id: str, nota_cierre: str = "") -> Incidencia | None:
         """Solo para el panel del staff: ningun agente tiene tool para esto."""
         registro = self._leer()
