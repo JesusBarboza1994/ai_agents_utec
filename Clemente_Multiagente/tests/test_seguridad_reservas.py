@@ -111,6 +111,14 @@ def test_el_resumen_aclara_que_la_hora_es_la_de_lima(entorno):
     assert "20:00 (hora de Lima)" in texto
 
 
+def test_la_zona_salon_se_escribe_con_tilde_en_lo_que_lee_el_cliente(entorno):
+    """La zona se guarda "salon", pero el resumen y la confirmacion, que escribe el servidor, dicen salón."""
+    servicio, _ = entorno
+    resumen = tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", 2, runtime("web-zona"), zona="salon")
+    texto, _ = autorizacion.confirmar("web-zona", "CONFIRMO", servicio)
+    assert "zona salón" in resumen and "zona salón" in texto
+
+
 def test_el_nombre_con_codigo_html_no_llega_a_preparar_la_reserva(entorno):
     """<script> como nombre se rechaza en la validacion: no vuelve crudo en el resumen ni se guarda."""
     texto = tools.crear_reserva.func("<script>alert(1)</script>", "999111222", "2026-10-10", "20:00", 2, runtime("web-abc"))

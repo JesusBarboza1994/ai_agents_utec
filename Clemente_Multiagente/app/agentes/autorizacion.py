@@ -156,6 +156,11 @@ def reservas_propias(sesion, servicio):
     return [r for codigo in ids if (r := servicio.obtener_reserva(codigo)) is not None]
 
 
+def _zona(zona) -> str:
+    """La zona como la lee el cliente: se guarda "salon" (es una clave) pero en el texto va salón."""
+    return {"salon": "salón"}.get(zona, zona)
+
+
 def _dia_y_fecha(fecha) -> str:
     """Devuelve el dia y la fecha (sabado 2026-10-10); el dia lo calcula el servidor, para que el cliente vea si coincide con lo que quiso."""
     try:
@@ -248,7 +253,7 @@ def proponer(contexto, accion, datos, servicio):
         resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
                    f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora} (hora de Lima), {personas} personas")
         if accion == "crear":
-            resumen += f", contacto {datos['telefono']}, zona {datos.get('zona') or 'según disponibilidad'}"
+            resumen += f", contacto {datos['telefono']}, zona {_zona(datos.get('zona')) or 'según disponibilidad'}"
             if datos.get("notas"):
                 resumen += f", observaciones: {datos['notas']}"
     else:
@@ -332,7 +337,7 @@ def confirmar(sesion, texto, servicio):
                     # personas) y esa ya tiene dueno. A quien la hizo se le dice cual es; a otra conversacion no.
                     if es_propietario(sesion, r.id):
                         return (f"Ya tenías esta reserva, así que no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
-                                f"(hora de Lima), {r.personas} personas, zona {r.zona}.",
+                                f"(hora de Lima), {r.personas} personas, zona {_zona(r.zona)}.",
                                 {"reserva": r.__dict__, "operacion": "ya_existia"})
                     return RESERVA_REPETIDA_DE_OTRA_CONVERSACION, {}
             elif accion == "modificar":
@@ -347,5 +352,5 @@ def confirmar(sesion, texto, servicio):
             return "No pude completar la operación porque la disponibilidad o los datos cambiaron. Pídeme un nuevo resumen y lo vemos.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
         return (f"Listo, tu reserva {r.id} quedó {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), "
-                f"{r.personas} personas, zona {r.zona}.{CIERRE_DE_LA_OPERACION[accion]}",
+                f"{r.personas} personas, zona {_zona(r.zona)}.{CIERRE_DE_LA_OPERACION[accion]}",
                 {"reserva": r.__dict__, "operacion": accion})
