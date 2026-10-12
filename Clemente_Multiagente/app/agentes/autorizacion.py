@@ -26,6 +26,11 @@ from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cam
 
 ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
+# Un resumen vencido se le avisa al cliente si vencio hace menos que esto: tras un reinicio no se avisa lo de ayer.
+VENTANA_AVISO_VENCIDO_SEGUNDOS = 30 * 60
+# Conversaciones a las que ya se aviso que su resumen vencio: un CONFIRMO tardio recibe RESUMEN_VENCIDO, no
+# "no encuentro un resumen". Vive hasta el siguiente mensaje que no confirma (descartar) o hasta otro resumen.
+_vencidas_avisadas: set[str] = set()
 # Codigos equivocados que se toleran contra una misma propuesta; al llegar al tope se descarta.
 MAX_INTENTOS_CONFIRMO = 5
 _intentos_fallidos: dict[str, int] = {}
@@ -208,8 +213,29 @@ def _dia_y_fecha(fecha) -> str:
 def descartar(sesion):
     """Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas."""
     _intentos_fallidos.pop(sesion, None)
+    _vencidas_avisadas.discard(sesion)
     with _db() as db:
         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
+
+
+def retirar_vencidas(ahora=None):
+    """Saca las propuestas que vencieron hace poco y devuelve [(sesion, accion)] para avisarle a cada cliente.
+
+    Cada propuesta sale una sola vez, bajo el mismo candado que confirmar: un CONFIRMO que llega a la vez o se
+    ejecuta antes (y la consume) o encuentra la propuesta ya retirada y recibe RESUMEN_VENCIDO. Las que vencieron
+    hace mas de VENTANA_AVISO_VENCIDO_SEGUNDOS no se tocan: un CONFIRMO tardio sigue recibiendo RESUMEN_VENCIDO."""
+    ahora = time.time() if ahora is None else ahora
+    with _lock:
+        with _db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            filas = db.execute("SELECT sesion, codigo, accion FROM propuestas WHERE vence <= ? AND vence > ?",
+                               (ahora, ahora - VENTANA_AVISO_VENCIDO_SEGUNDOS)).fetchall()
+            for sesion, codigo, _ in filas:
+                db.execute("DELETE FROM propuestas WHERE sesion=? AND codigo=?", (sesion, codigo))
+        for sesion, _, _ in filas:
+            _intentos_fallidos.pop(sesion, None)
+            _vencidas_avisadas.add(sesion)
+    return [(sesion, accion) for sesion, _, accion in filas]
 
 
 def proponer(contexto, accion, datos, servicio):
@@ -307,6 +333,7 @@ def proponer(contexto, accion, datos, servicio):
             contexto.datos["operacion_aplazada"] = True
             return OPERACION_YA_PREPARADA
         _intentos_fallidos.pop(sesion, None)
+        _vencidas_avisadas.discard(sesion)
         codigo = _codigo_de_confirmacion()
         with _db() as db:
             db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
@@ -350,6 +377,10 @@ def confirmar(sesion, texto, servicio):
                         _intentos_fallidos.pop(sesion, None)
                         return DEMASIADOS_INTENTOS, {}
                 if not fila:
+                    if sesion in _vencidas_avisadas:
+                        # Ya se le aviso que vencio: "no encuentro un resumen" lo confundiria.
+                        _vencidas_avisadas.discard(sesion)
+                        return RESUMEN_VENCIDO, {}
                     return SIN_RESUMEN_PENDIENTE, {}
                 return (CODIGO_NO_COINCIDE if not coincide else RESUMEN_VENCIDO), {}
             db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
