@@ -20,13 +20,39 @@ PATRONES_REDACTAR = {
 CORREOS_PUBLICOS = frozenset({"reservas@clemente.demo"})
 
 
+def _luhn_valido(digitos: str) -> bool:
+    """True si la secuencia pasa la verificacion de Luhn, la que cumple todo numero de tarjeta real."""
+    total = 0
+    for posicion, caracter in enumerate(reversed(digitos)):
+        digito = int(caracter)
+        if posicion % 2:
+            digito = digito * 2 - 9 if digito > 4 else digito * 2
+        total += digito
+    return total % 10 == 0
+
+
+def _es_tarjeta(coincidencia: re.Match) -> bool:
+    """Una secuencia de 13 a 19 digitos es tarjeta solo si pasa Luhn y no es el id de WhatsApp de un cliente.
+
+    Sin esto el BSUID (whatsapp-PE.1028522870210512) salia como [REDACTED_TARJETA] en las trazas, y cualquier numero
+    largo (un codigo de pedido, una operacion) bloqueaba el mensaje del cliente con "No envies tarjetas".
+    El BSUID se reconoce por su prefijo de pais: dos letras y un punto pegados a los digitos."""
+    inicio = coincidencia.start()
+    if re.search(r"[A-Za-z]{2}\.$", coincidencia.string[max(0, inicio - 3):inicio]):
+        return False
+    return _luhn_valido(re.sub(r"\D", "", coincidencia.group()))
+
+
 def pii_prohibida(texto: str) -> str | None:
     """Devuelve el primer tipo de tarjeta o secreto detectado por regex, o None.
 
     El telefono de contacto no se bloquea. Son patrones locales, no una
     garantia de deteccion de todos los datos sensibles posibles."""
     for tipo, patron in PATRONES_BLOQUEO.items():
-        if patron.search(texto):
+        if tipo == "tarjeta":
+            if any(_es_tarjeta(m) for m in patron.finditer(texto)):
+                return tipo
+        elif patron.search(texto):
             return tipo
     return None
 
@@ -61,6 +87,8 @@ def redactar_pii(valor: Any, incluir_telefono: bool = True) -> Any:
             if tipo == "email":
                 resultado = patron.sub(
                     lambda m: m.group() if _es_publico(m.group()) else "[REDACTED_EMAIL]", resultado)
+            elif tipo == "tarjeta":
+                resultado = patron.sub(lambda m: "[REDACTED_TARJETA]" if _es_tarjeta(m) else m.group(), resultado)
             else:
                 resultado = patron.sub(f"[REDACTED_{tipo.upper()}]", resultado)
         return resultado
