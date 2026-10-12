@@ -92,12 +92,36 @@ def test_otra_hora_el_mismo_dia_si_se_puede(servicio):
 
 
 def test_repetir_exactamente_una_reserva_sigue_el_flujo_de_ya_la_tienes(servicio):
-    """Con el tope lleno, pedir de nuevo la misma reserva no se rechaza: avisa que ya la tiene y no crea otra."""
-    for dia in DIAS[:3]:
-        reservar(dia)
-    texto = pedir(DIAS[0])
-    assert "Ya tienes una reserva con estos datos" in texto and "CONFIRMO" in texto
+    """Con el tope lleno, pedir de nuevo la misma reserva no se rechaza por tope: le dice que ya la tiene,
+    con su codigo, y no prepara un resumen que confirmar."""
+    reservas = [reservar(dia) for dia in DIAS[:3]]
+    rt = SimpleNamespace(context=ContextoConversacion(sesion_id=SESION))
+    texto = pedir(DIAS[0], rt=rt)
+    assert "Ya tienes una reserva con estos datos" in texto and reservas[0]["id"] in texto
+    assert "CONFIRMO" not in texto and "confirmacion_pendiente" not in rt.context.datos
+    assert rt.context.datos["operacion_bloqueada"] == texto       # el cierre lo manda tal cual al cliente
+    assert autorizacion.confirmar(SESION, "confirmo", servicio)[0] == autorizacion.SIN_RESUMEN_PENDIENTE
     assert len(servicio.buscar_reservas_de(TELEFONO)) == 3
+
+
+def test_pedir_otra_vez_una_reserva_ya_modificada_no_crea_otra(servicio):
+    """Prueba por WhatsApp del 12-oct: reservar, modificar la hora y volver a pedir esa hora preparaba un
+    resumen nuevo, y su CONFIRMO creaba otra reserva en el mismo turno."""
+    original = reservar(DIAS[0], hora="20:00")
+    servicio.modificar_reserva(original["id"], hora="21:00")
+    rt = SimpleNamespace(context=ContextoConversacion(sesion_id=SESION))
+    texto = pedir(DIAS[0], hora="21:00", rt=rt)
+    assert "Ya tienes una reserva con estos datos" in texto and original["id"] in texto
+    assert "confirmacion_pendiente" not in rt.context.datos
+    assert [r.id for r in servicio.buscar_reservas_de(TELEFONO) if r.estado != "cancelada"] == [original["id"]]
+
+
+def test_el_turno_que_dejo_una_reserva_modificada_se_puede_volver_a_pedir(servicio):
+    """La reserva movida de las 20:00 a las 21:00 ya no ocupa las 20:00: pedirlas crea una reserva nueva."""
+    original = reservar(DIAS[0], hora="20:00")
+    servicio.modificar_reserva(original["id"], hora="21:00")
+    nueva = reservar(DIAS[0], hora="20:00")
+    assert nueva["id"] != original["id"] and nueva["hora"] == "20:00"
 
 
 def test_un_telefono_con_tres_reservas_de_otra_conversacion_no_puede_sumar_otra(servicio):

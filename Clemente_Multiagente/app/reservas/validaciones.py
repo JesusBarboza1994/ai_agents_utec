@@ -184,3 +184,7 @@ def clave_idempotencia(telefono: str, fecha: str, hora: str, personas: int) -> s
     coordinacion extra."""
     base = f"{(telefono or '').strip()}|{fecha}|{hora}|{personas}"
     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:32]
+
+
+# Modificar una reserva a los datos exactos de otra activa del mismo telefono la duplicaria (misma clave).
+YA_HAY_OTRA_IGUAL = "ya tienes otra reserva con esa misma fecha, hora y cantidad de personas"

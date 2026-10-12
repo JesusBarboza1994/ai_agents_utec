@@ -27,7 +27,10 @@ import psycopg2.errors
 
 from ..contratos import OpcionDisponibilidad, Reserva
 from ..db.connection import connection
-from .validaciones import TURNOS_VALIDOS, clave_idempotencia, validar_cambio_turno, validar_datos_reserva
+from .validaciones import (
+    TURNOS_VALIDOS, YA_HAY_OTRA_IGUAL, ReservaInvalida, clave_idempotencia, validar_cambio_turno,
+    validar_datos_reserva,
+)
 
 
 class ServicioReservasPostgres:
@@ -159,7 +162,10 @@ class ServicioReservasPostgres:
         self, reserva_id: str, fecha: str | None = None, hora: str | None = None,
         personas: int | None = None,
     ) -> Reserva | None:
-        """Bloquea la reserva activa y mesas candidatas, verifica disponibilidad y actualiza fecha, turno y capacidad."""
+        """Bloquea la reserva activa y mesas candidatas, verifica disponibilidad y actualiza fecha, turno y capacidad.
+
+        Recalcula la clave de idempotencia con los datos nuevos; si otra reserva activa ya tiene esos mismos
+        datos, lanza ReservaInvalida y no toca nada."""
         with connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
@@ -185,11 +191,18 @@ class ServicioReservasPostgres:
             if not opciones:
                 raise ValueError("No hay disponibilidad para ese cambio")
 
-            cur.execute(
-                "UPDATE reservas SET fecha=%s, hora=%s, personas=%s, mesa_id=%s, "
-                "estado='modificada' WHERE id=%s",
-                (nueva_fecha, nueva_hora, nuevas_personas, opciones[0].mesa_id, reserva_id),
-            )
+            # La clave sigue a los datos: si se quedara con los de antes, pedir la reserva ya
+            # modificada no la encontraria (y crearia otra en el mismo turno), y pedir el turno
+            # viejo devolveria esta como si fuera esa.
+            clave = clave_idempotencia(actual.telefono, nueva_fecha, nueva_hora, nuevas_personas)
+            try:
+                cur.execute(
+                    "UPDATE reservas SET fecha=%s, hora=%s, personas=%s, mesa_id=%s, "
+                    "estado='modificada', idempotency_key=%s WHERE id=%s",
+                    (nueva_fecha, nueva_hora, nuevas_personas, opciones[0].mesa_id, clave, reserva_id),
+                )
+            except psycopg2.errors.UniqueViolation:
+                raise ReservaInvalida(YA_HAY_OTRA_IGUAL) from None
             cur.execute(
                 "SELECT r.id, r.nombre, r.telefono, r.fecha, r.hora, r.personas, m.zona, "
                 "r.mesa_id, r.estado, r.notas, r.creada FROM reservas r "

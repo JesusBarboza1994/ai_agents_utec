@@ -137,17 +137,19 @@ def consultar_disponibilidad(
 
 def _reserva_repetida(sesion_id: str, telefono: str, fecha: str, hora: str, personas: int) -> str | None:
     """Si esta misma conversacion ya tiene una reserva activa con ese telefono, dia, hora y personas,
-    devuelve el aviso para anteponerlo al resumen.
+    devuelve el texto para el cliente; crear_reserva no prepara otro resumen.
 
-    Solo avisa a su dueno: de otra conversacion no muestra nada aqui, y al confirmar le sigue diciendo que
-    no se puede (autorizacion.confirmar). El resumen y el CONFIRMO se generan igual; no se crea otra reserva."""
+    Antes se preparaba el resumen igual y este aviso iba delante, pero el cierre solo le manda al cliente
+    el resumen del servidor: el aviso no le llegaba y parecia una reserva nueva (prueba por WhatsApp del
+    12-oct). Solo avisa a su dueno: de otra conversacion no muestra nada aqui, y al confirmar le sigue
+    diciendo que no se puede (autorizacion.confirmar)."""
     for reserva in servicio_reservas().buscar_reservas_de(telefono):
         if reserva.estado == "cancelada" or (reserva.fecha, reserva.hora, reserva.personas) != (fecha, hora, personas):
             continue
         if autorizacion.es_propietario(sesion_id, reserva.id):
             return (f"Ya tienes una reserva con estos datos: {reserva.id}, {reserva.nombre}, {reserva.fecha} a las "
-                    f"{reserva.hora} (hora de Lima), {reserva.personas} personas, zona {reserva.zona}. "
-                    "Si confirmas el resumen de abajo, no se creará otra.")
+                    f"{reserva.hora} (hora de Lima), {reserva.personas} personas, zona "
+                    f"{autorizacion._zona(reserva.zona)}. No preparé otra; si quieres cambiar algo, dime qué.")
     return None
 
 
@@ -190,13 +192,16 @@ def crear_reserva(
         if not telefono:
             return ("Falta el telefono de contacto. Pidele al cliente un numero para la reserva y "
                     "prepara la reserva cuando lo tengas; no la prepares con un dato inventado.")
-    aviso = _reserva_repetida(runtime.context.sesion_id, telefono, fecha, hora, personas)
-    resumen = autorizacion.proponer(runtime.context, "crear", {
+    repetida = _reserva_repetida(runtime.context.sesion_id, telefono, fecha, hora, personas)
+    if repetida:
+        # Lo escribe el servidor (el cierre lo manda tal cual), como los demas bloqueos de una operacion.
+        runtime.context.datos["operacion_bloqueada"] = repetida
+        return repetida
+    return autorizacion.proponer(runtime.context, "crear", {
         "nombre": limpiar_texto(nombre, 80), "telefono": telefono,
         "fecha": fecha, "hora": hora, "personas": personas,
         "zona": limpiar_texto(zona, 20), "notas": limpiar_texto(notas, 300),
     }, servicio_reservas())
-    return f"{aviso} {resumen}" if aviso else resumen
 
 
 # Un chat sin reservas no es un acceso denegado: antes respondia lo mismo que ante una reserva ajena ("por tu
