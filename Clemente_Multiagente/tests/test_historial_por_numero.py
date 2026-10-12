@@ -111,9 +111,16 @@ def test_ver_no_es_cambiar_ni_cancelar(servicio, operacion):
 
 
 def test_el_prompt_dice_que_hacer_con_una_reserva_de_otro_chat():
-    """El agente la muestra con su codigo y, para cambiarla, manda al chat donde se hizo o al equipo."""
+    """El agente la muestra con su codigo y, para cambiarla, ofrece el equipo; nunca manda al cliente a la web."""
     from app.agentes.prompts import PROMPT_RESERVAS
 
     plano = " ".join(PROMPT_RESERVAS.split())
     assert 'Una reserva "hecha desde otro chat con este numero": muestrala igual, con su codigo' in plano
-    assert "dile que lo haga desde el chat donde la hizo" in plano
+    assert "desde aqui no se puede: ofrecele dejar el pedido al equipo con escalar_a_staff" in plano
+    assert "No lo mandes a la web, que no es un canal para clientes" in plano
+
+
+def test_el_aviso_de_chat_sin_reservas_no_manda_a_la_web():
+    """El webchat es de control interno: el texto solo menciona otro numero de WhatsApp."""
+    assert "web" not in tools.SIN_RESERVAS_EN_ESTE_CHAT.lower()
+    assert "otro número de WhatsApp" in tools.SIN_RESERVAS_EN_ESTE_CHAT

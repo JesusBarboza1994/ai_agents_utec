@@ -201,9 +201,10 @@ def crear_reserva(
 
 # Un chat sin reservas no es un acceso denegado: antes respondia lo mismo que ante una reserva ajena ("por tu
 # seguridad...") y el cliente creia que lo habian bloqueado. Decirle que este chat no tiene ninguna no revela nada.
+# El cliente usa solo WhatsApp (el webchat es de control interno): el texto no lo manda a la web.
 SIN_RESERVAS_EN_ESTE_CHAT = (
     "No hay reservas hechas desde este chat. Díselo así, sin hablar de seguridad ni de verificar su identidad: "
-    "las reservas hechas desde otro número o desde la web se ven escribiendo desde ahí. Ofrécele preparar una nueva."
+    "si reservó desde otro número de WhatsApp, la ve escribiendo desde ese número. Ofrécele preparar una nueva."
 )
 
 
