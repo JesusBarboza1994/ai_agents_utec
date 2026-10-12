@@ -2,8 +2,10 @@
 
 El telefono y los argumentos de tools NO son identidad. Las reservas antiguas
 sin vinculacion requieren recuperacion por personal; no se adjudican por codigo.
-Unica excepcion, de solo lectura: en WhatsApp el numero lo verifica el canal, y
-deja ver las reservas que tienen ese numero de contacto (reservas_del_numero).
+Dos excepciones, ambas de solo lectura: en WhatsApp el numero lo verifica el canal, y
+deja ver las reservas que tienen ese numero de contacto (reservas_del_numero); y quien
+escribe desde otro numero (perdio el celular) ve una reserva si da su codigo, su nombre
+y su telefono (verificar_con_datos), con tope de intentos fallidos.
 SQLite guarda permisos/propuestas, no reemplaza el gestor de reservas de Miguel.
 """
 import hashlib
@@ -34,6 +36,11 @@ _vencidas_avisadas: set[str] = set()
 # Codigos equivocados que se toleran contra una misma propuesta; al llegar al tope se descarta.
 MAX_INTENTOS_CONFIRMO = 5
 _intentos_fallidos: dict[str, int] = {}
+# Verificacion por datos (verificar_con_datos): intentos fallidos tolerados en 24 horas por conversacion y por codigo.
+# Se guardan en SQLite: un reinicio o la escala a cero no los borran. Al tope, la verificacion la hace el personal.
+MAX_VERIFICACIONES_FALLIDAS_POR_SESION = 3
+MAX_VERIFICACIONES_FALLIDAS_POR_RESERVA = 5
+VENTANA_VERIFICACIONES_SEGUNDOS = 24 * 60 * 60
 _lock = RLock()
 DENEGADO = ("No puedo acceder a esa reserva desde esta conversación, por tu seguridad. Si necesitas recuperarla, "
             "el restaurante puede verificar tu identidad y ayudarte.")
@@ -121,6 +128,7 @@ def _db():
     try:
         db.execute("CREATE TABLE IF NOT EXISTS propietarios (reserva TEXT PRIMARY KEY, sesion TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS propuestas (sesion TEXT PRIMARY KEY, codigo TEXT NOT NULL, accion TEXT NOT NULL, datos TEXT NOT NULL, vence REAL NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS verificaciones_fallidas (sesion TEXT NOT NULL, reserva TEXT NOT NULL, momento REAL NOT NULL)")
         with db:
             yield db
     finally:
@@ -195,6 +203,60 @@ def reservas_del_numero(contexto, servicio):
         for reserva in servicio.buscar_reservas_de(forma):
             encontradas[reserva.id] = reserva
     return list(encontradas.values())
+
+
+def _palabras_del_nombre(nombre) -> set[str]:
+    """Las palabras del nombre sin tildes, mayusculas ni signos: "María-José  Ruíz" da {"maria", "jose", "ruiz"}."""
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", str(nombre or "")) if unicodedata.category(c) != "Mn")
+    return set(re.sub(r"[^a-z]+", " ", sin_tildes.casefold()).split())
+
+
+def _mismo_nombre(dado, guardado) -> bool:
+    """Coincide si cada palabra dada esta en el nombre de la reserva y da al menos dos (o todas, si tiene una).
+
+    "Ana Ruiz" vale para "Ana Ruiz Pérez" y "ruiz ana" tambien; "Ana" sola no vale para "Ana Ruiz"."""
+    dadas, guardadas = _palabras_del_nombre(dado), _palabras_del_nombre(guardado)
+    return bool(dadas) and dadas <= guardadas and len(dadas) >= min(2, len(guardadas))
+
+
+def _mismo_telefono(dado, guardado) -> bool:
+    """Coinciden los digitos, con o sin el 51 de Peru: "+51 999 111 222" es el mismo telefono que "999111222"."""
+    def nacional(telefono) -> str:
+        """Solo los digitos, sin el 51 inicial de un numero peruano de 11."""
+        digitos = re.sub(r"\D", "", str(telefono or ""))
+        return digitos[2:] if digitos.startswith("51") and len(digitos) == 11 else digitos
+    return len(nacional(dado)) >= 7 and nacional(dado) == nacional(guardado)
+
+
+def verificar_con_datos(sesion, codigo, nombre, telefono, servicio, ahora=None):
+    """("ok", reserva) si el codigo, el nombre y el telefono son los de la reserva; si no, ("no_coincide" | "bloqueada", None).
+
+    Para quien escribe desde otro numero (perdio el celular): deja VER la reserva, no la vincula a esta conversacion,
+    asi que cambiarla o cancelarla sigue en manos del personal. Un codigo inexistente y uno con datos equivocados
+    responden igual (no se revela si existe). Cada fallo cuenta contra la conversacion y contra el codigo; el que
+    llega al tope ya responde "bloqueada", y por 24 horas no se verifica mas por aqui."""
+    ahora = time.time() if ahora is None else ahora
+    desde = ahora - VENTANA_VERIFICACIONES_SEGUNDOS
+
+    def al_tope(db) -> bool:
+        """True si la conversacion o el codigo ya gastaron sus intentos."""
+        por_sesion = db.execute("SELECT COUNT(*) FROM verificaciones_fallidas WHERE sesion=? AND momento > ?",
+                                (sesion, desde)).fetchone()[0]
+        por_reserva = db.execute("SELECT COUNT(*) FROM verificaciones_fallidas WHERE reserva=? AND momento > ?",
+                                 (codigo, desde)).fetchone()[0]
+        return por_sesion >= MAX_VERIFICACIONES_FALLIDAS_POR_SESION or por_reserva >= MAX_VERIFICACIONES_FALLIDAS_POR_RESERVA
+
+    with _lock:
+        with _db() as db:
+            db.execute("DELETE FROM verificaciones_fallidas WHERE momento <= ?", (desde,))
+            if al_tope(db):
+                return "bloqueada", None
+        reserva = servicio.obtener_reserva(codigo)
+        if reserva is not None and _mismo_nombre(nombre, reserva.nombre) and _mismo_telefono(telefono, reserva.telefono):
+            return "ok", reserva
+        with _db() as db:
+            db.execute("INSERT INTO verificaciones_fallidas VALUES (?, ?, ?)", (sesion, codigo, ahora))
+            return ("bloqueada" if al_tope(db) else "no_coincide"), None
 
 
 def _zona(zona) -> str:

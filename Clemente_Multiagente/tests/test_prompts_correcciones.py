@@ -175,6 +175,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
     import re
 
     from app.agentes import autorizacion, base, casos_abiertos, tope_de_reservas
+    from app.agentes.tools import reservas_tools
     from app.communication.services import aviso_staff_service
     from app.orquestador import grafo
 
@@ -187,7 +188,8 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
         autorizacion.OPERACION_YA_PREPARADA, autorizacion.AVISO_OPERACION_APLAZADA,
         casos_abiertos.BLOQUEO_POR_CASO_ABIERTO, tope_de_reservas.TOPE_ALCANZADO, tope_de_reservas.MISMO_TURNO,
-        tope_de_reservas.NO_SE_PUEDE_CON_ESE_TELEFONO,
+        tope_de_reservas.NO_SE_PUEDE_CON_ESE_TELEFONO, reservas_tools.PEDIR_DATOS_PARA_VERIFICAR,
+        reservas_tools.DATOS_NO_COINCIDEN, reservas_tools.VERIFICACION_BLOQUEADA,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)

@@ -92,10 +92,11 @@ def test_el_telefono_escrito_en_el_chat_sigue_sin_abrir_nada(servicio):
 
 
 def test_por_codigo_tambien_se_ve_pero_marcada_como_de_otro_chat(servicio):
-    """Si pregunta por el codigo de una reserva de su numero, la ve; de otro numero sigue el mismo rechazo."""
+    """Si pregunta por el codigo de una reserva de su numero, la ve; desde otro numero, sin datos, no la ve."""
     r = reserva_desde_otro_chat(servicio)
     assert r.id in tools.consultar_reserva_por_codigo.func(r.id, whatsapp())
-    assert tools.consultar_reserva_por_codigo.func(r.id, whatsapp("51900000002")) == autorizacion.DENEGADO
+    texto = tools.consultar_reserva_por_codigo.func(r.id, whatsapp("51900000002"))
+    assert texto == tools.PEDIR_DATOS_PARA_VERIFICAR and r.nombre not in texto and r.fecha not in texto
 
 
 @pytest.mark.parametrize("operacion", ["cancelar", "modificar"])
@@ -124,3 +125,4 @@ def test_el_aviso_de_chat_sin_reservas_no_manda_a_la_web():
     """El webchat es de control interno: el texto solo menciona otro numero de WhatsApp."""
     assert "web" not in tools.SIN_RESERVAS_EN_ESTE_CHAT.lower()
     assert "otro número de WhatsApp" in tools.SIN_RESERVAS_EN_ESTE_CHAT
+    assert "si ya no tiene ese celular, con el código R- de la reserva" in tools.SIN_RESERVAS_EN_ESTE_CHAT

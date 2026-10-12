@@ -385,13 +385,15 @@ def test_una_nota_con_instrucciones_solo_aparece_en_el_resumen_del_servidor(serv
 
 
 def test_reserva_ajena_e_inexistente_dan_la_misma_respuesta(servicio):
-    """Verifica que no hay forma de distinguir si un codigo existe: ajeno, inexistente y mal formado responden igual."""
+    """Verifica que no hay forma de distinguir si un codigo existe: ajeno, inexistente y mal formado responden igual.
+
+    Sin nombre ni telefono, la respuesta pide esos datos para verificar; no dice si la reserva existe."""
     ajena = servicio.crear_reserva("Otro cliente", "900000009", "2026-10-10", "20:00", 2, "")
     respuestas = {
         tools.consultar_reserva_por_codigo.func(codigo, runtime())
         for codigo in (ajena.id, "R-ZZZZZZ", "R-000000", "'; DROP TABLE reservas;--", "  r-abc  ")
     }
-    assert respuestas == {autorizacion.DENEGADO}
+    assert respuestas == {tools.PEDIR_DATOS_PARA_VERIFICAR}
 
 
 def test_los_datos_internos_no_se_piden_por_argumentos_de_la_tool():
