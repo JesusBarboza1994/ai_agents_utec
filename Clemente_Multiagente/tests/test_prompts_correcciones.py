@@ -213,3 +213,13 @@ def test_reservas_pregunta_por_alergias_en_la_reserva_normal_y_no_en_el_grupo():
     assert "agrega en esa misma frase una pregunta corta (alguna alergia u ocasion especial?)" in plano
     assert "Lo que cuente va en notas" in plano and "Se pregunta una sola vez" in plano
     assert "En los grupos de mas de 8 no se pregunta antes de pedir la excepcion" in plano
+
+
+def test_reservas_da_el_codigo_al_mostrar_las_reservas():
+    """2026-10-12: al pedir su historial el cliente recibia fecha y hora sin el codigo R-, que necesita para cambiarla.
+
+    La regla de no mencionar codigos es solo para el pedido al equipo, cuyo codigo agrega el orquestador."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "Al mostrarle sus reservas, da el codigo R- de cada una tal como lo devolvio la herramienta" in plano
+    assert "No menciones el codigo de ese pedido: lo agrega el orquestador" in plano
+    assert "No menciones codigos:" not in plano
