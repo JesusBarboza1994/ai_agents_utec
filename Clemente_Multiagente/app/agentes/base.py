@@ -22,6 +22,7 @@ from ..contratos import PREFIJO_IMAGEN
 from ..incidencias.codigos import PREFIJO_GRUPO, nuevo_codigo
 from ..llm import extraer_texto, resolver_modelo
 from ..observabilidad.trazas import registrar
+from ..seguridad.errores import registrar_error
 from . import fecha
 from .contexto import ContextoConversacion
 from .memoria import ficha_del_cliente
@@ -309,6 +310,19 @@ def _olvidar_hilo(agente, config: dict) -> None:
         log.warning("No se pudo borrar el checkpoint del hilo: %s", type(error).__name__)
 
 
+def _ficha_de_reservas(sesion_id: str, flujo: str) -> str:
+    """Las reservas propias para la ficha del turno; vacia si la base no responde.
+
+    La ficha mejora el turno, nunca lo impide. El 2026-10-11 una conexion caida a Postgres hacia fallar aqui cada
+    turno de los tres agentes y el cliente solo leia "Disculpa, no puedo procesar tu mensaje". Sin la ficha el
+    agente sigue atendiendo; si despues necesita la base, sus herramientas informan su propio error."""
+    try:
+        return ficha_del_cliente(sesion_id)
+    except Exception as error:
+        registrar_error(sesion_id, "ficha", error, agente=flujo)
+        return ""
+
+
 def ejecutar(
     agente, texto: str, sesion_id: str, historial: list[dict] | None = None,
     fallback: str = "Disculpa, no te entendi bien. Me lo repites?",
@@ -338,7 +352,7 @@ def ejecutar(
     # las reservas propias vigentes, que se siguen consultando aparte porque
     # `ficha_del_cliente` no vive en la fila de `customers`.
     ficha_cliente = _texto_ficha_cliente(contexto.cliente) if contexto.cliente else ""
-    ficha_reservas = ficha_del_cliente(sesion_id)
+    ficha_reservas = _ficha_de_reservas(sesion_id, flujo)
     ficha = " ".join(parte for parte in (ficha_cliente, ficha_reservas) if parte)
     # La instruccion de como tratar la ficha viaja PEGADA a la ficha, no en el
     # system prompt: si el cliente es nuevo no hay ficha, y entonces no se paga

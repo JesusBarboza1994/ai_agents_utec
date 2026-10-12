@@ -58,6 +58,7 @@ from typing_extensions import TypedDict
 
 from ..agentes import AGENTES
 from ..agentes import autorizacion, casos_abiertos
+from . import turnos_bloqueados
 from ..agentes import fecha as reloj
 from ..agentes.prompts import HORARIO_DE_ATENCION, TELEFONO_RESTAURANTE
 from ..reservas import obtener_servicio as servicio_reservas
@@ -1090,7 +1091,8 @@ def _responder_turno(
     estado_inicial: EstadoConversacion = {
         "sesion_id": entrante.sesion_id,
         "mensaje": entrante.texto,
-        "historial": historial or [],
+        # Sin los turnos que bloqueo un control: un jailbreak rechazado no se le vuelve a mostrar al modelo.
+        "historial": turnos_bloqueados.sin_turnos_bloqueados(historial or []),
         "ultimo_agente": _ultimo_agente.get(entrante.sesion_id, ""),
         # La tarea ofrecida vive un solo turno: se consume aqui, se use o no.
         "tarea_ofrecida": _pendiente_de.pop(entrante.sesion_id, None) or {},
@@ -1105,6 +1107,9 @@ def _responder_turno(
     }
 
     inicio = time.perf_counter()
+    if len(estado_inicial["historial"]) < len(historial or []):
+        registrar("historial_filtrado", entrante.sesion_id,
+                  detalle={"quitados": len(historial or []) - len(estado_inicial["historial"])})
     try:
         confirmada = autorizacion.confirmar(entrante.sesion_id, entrante.texto, servicio_reservas())
         if confirmada is not None:
@@ -1137,11 +1142,7 @@ def _responder_turno(
                     final = {**final, "respuesta": liberada}
     except Exception as error:
         registrar_error(entrante.sesion_id, "turno", error)
-        texto_error = (
-            "Disculpa, no puedo procesar tu mensaje en este momento. "
-            "No puedo asegurar que la operación se haya completado. "
-            "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso."
-        )
+        texto_error = turnos_bloqueados.ERROR_DEL_TURNO
         registrar_conversacion(
             sesion_id=entrante.sesion_id, mensaje=redactar_pii(entrante.texto), respuesta=texto_error,
             agente="orquestador", canal=entrante.canal, motivo_ruta=f"error: {type(error).__name__}",
