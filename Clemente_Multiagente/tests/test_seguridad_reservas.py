@@ -278,12 +278,31 @@ def test_token_ajeno_no_confirma_y_no_consume_el_del_dueno(entorno):
 
 
 def test_pedir_dos_veces_la_misma_reserva_dice_que_ya_existe_en_vez_de_fallar(entorno):
-    """Repetir la misma reserva desde la misma conversacion no da error: avisa cual es la que ya tenia y no crea otra."""
+    """Repetir la misma reserva desde la misma conversacion no da error ni prepara otro resumen: dice cual es la
+    que ya tenia, y un CONFIRMO despues no encuentra nada que ejecutar."""
     servicio, _ = entorno
     _, primero = propuesta_crear()
     codigo = autorizacion.confirmar("propietario", primero, servicio)[1]["reserva"]["id"]
-    _, segundo = propuesta_crear()
-    texto, datos = autorizacion.confirmar("propietario", segundo, servicio)
+    ctx = runtime("propietario")
+    texto = tools.crear_reserva.func("Cliente ficticio", "900000001", "2026-10-10", "20:00", 2, ctx)
+    assert "Ya tienes una reserva con estos datos" in texto and codigo in texto
+    assert "confirmacion_pendiente" not in ctx.context.datos
+    assert autorizacion.confirmar("propietario", "CONFIRMO", servicio)[0] == autorizacion.SIN_RESUMEN_PENDIENTE
+    assert len(servicio.buscar_reservas_de("900000001")) == 1
+
+
+def test_si_un_resumen_repetido_llega_a_confirmarse_no_crea_otra(entorno):
+    """Red de seguridad al confirmar: un resumen con los datos de una reserva que la conversacion ya tiene (por
+    ejemplo, preparado sin pasar por crear_reserva) devuelve la existente en vez de crear otra."""
+    servicio, _ = entorno
+    _, primero = propuesta_crear()
+    codigo = autorizacion.confirmar("propietario", primero, servicio)[1]["reserva"]["id"]
+    ctx = runtime("propietario")
+    autorizacion.proponer(ctx.context, "crear", {
+        "nombre": "Cliente ficticio", "telefono": "900000001", "fecha": "2026-10-10", "hora": "20:00",
+        "personas": 2, "zona": "", "notas": "",
+    }, servicio)
+    texto, datos = autorizacion.confirmar("propietario", "CONFIRMO", servicio)
     assert "Ya tenías esta reserva" in texto and codigo in texto
     assert datos["operacion"] == "ya_existia"
     assert len(servicio.buscar_reservas_de("900000001")) == 1

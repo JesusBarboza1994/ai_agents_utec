@@ -19,6 +19,8 @@ from ..contratos import OpcionDisponibilidad, Reserva
 from ..datos import carpeta_de_datos
 from .validaciones import (
     TURNOS_VALIDOS,
+    YA_HAY_OTRA_IGUAL,
+    ReservaInvalida,
     clave_idempotencia,
     validar_cambio_turno,
     validar_datos_reserva,
@@ -166,8 +168,10 @@ class ServicioReservasJSON:
         """Modifica una reserva no cancelada y vuelve a comprobar disponibilidad.
 
         Conserva los valores omitidos y excluye la propia reserva de las mesas
-        ocupadas; puede reasignar mesa y zona. Persiste estado modificada y devuelve
-        Reserva, o None si no hay registro vigente; sin mesa lanza ValueError."""
+        ocupadas; puede reasignar mesa y zona. Persiste estado modificada y la clave de
+        idempotencia de los datos nuevos, y devuelve Reserva, o None si no hay registro
+        vigente; sin mesa lanza ValueError, y si otra reserva activa ya tiene esos mismos
+        datos, ReservaInvalida."""
         reservas = self._leer()
         for r in reservas:
             if r["id"] != reserva_id or r["estado"] == "cancelada":
@@ -184,9 +188,15 @@ class ServicioReservasJSON:
             if not opciones:
                 raise ValueError("No hay disponibilidad para ese cambio")
 
+            # La clave sigue a los datos, como en Postgres (servicio_postgres.modificar_reserva).
+            clave = clave_idempotencia(r["telefono"], nueva_fecha, nueva_hora, nuevas_personas)
+            if any(o["id"] != reserva_id and o["estado"] != "cancelada" and o.get("idempotency_key") == clave
+                   for o in reservas):
+                raise ReservaInvalida(YA_HAY_OTRA_IGUAL)
             r.update(
                 fecha=nueva_fecha, hora=nueva_hora, personas=nuevas_personas,
                 mesa_id=opciones[0].mesa_id, zona=opciones[0].zona, estado="modificada",
+                idempotency_key=clave,
             )
             self._escribir(reservas)
             return Reserva(**r)

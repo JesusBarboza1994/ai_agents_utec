@@ -94,3 +94,25 @@ def test_idempotencia_no_bloquea_un_pedido_distinto(servicio_reservas):
     r1 = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
     r2 = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 4, "salon")
     assert r1.id != r2.id
+
+
+def test_la_clave_de_idempotencia_sigue_a_la_reserva_modificada(servicio_reservas):
+    """Modificar recalcula la clave: pedir los datos nuevos devuelve la misma reserva (antes creaba otra en el
+    mismo turno) y pedir los viejos crea una nueva (antes devolvia la modificada)."""
+    original = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
+    servicio_reservas.modificar_reserva(original.id, hora="21:00")
+    otra_vez = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "21:00", 2, "salon")
+    assert otra_vez.id == original.id
+    turno_viejo = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
+    assert turno_viejo.id != original.id and turno_viejo.hora == "20:00"
+
+
+def test_modificar_a_los_datos_de_otra_reserva_activa_no_la_duplica(servicio_reservas):
+    """Mover una reserva a la fecha, hora y personas de otra activa del mismo telefono se rechaza sin tocar nada."""
+    from app.reservas.validaciones import YA_HAY_OTRA_IGUAL, ReservaInvalida
+
+    servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "20:00", 2, "salon")
+    segunda = servicio_reservas.crear_reserva("Ana", "999111222", FECHA, "21:00", 2, "salon")
+    with pytest.raises(ReservaInvalida, match=YA_HAY_OTRA_IGUAL):
+        servicio_reservas.modificar_reserva(segunda.id, hora="20:00")
+    assert servicio_reservas.obtener_reserva(segunda.id).hora == "21:00"
