@@ -27,6 +27,7 @@ from . import fecha
 
 # Contacto del restaurante: una sola constante para la ficha y los textos de respaldo.
 TELEFONO_RESTAURANTE = "+51 940070695"
+CORREO_RESTAURANTE = "reservas@clemente.demo"   # visible para el cliente: ver CORREOS_PUBLICOS en seguridad/pii.py
 
 # --------------------------------------------------------------------------
 # Voz comun: para el cliente hay una sola conversacion con "Clemente".
@@ -89,7 +90,7 @@ ofreces confirmarlo con el equipo."""
 # --------------------------------------------------------------------------
 FICHA_DEL_RESTAURANTE = f"""Datos del restaurante que ya conoces:
 Direccion: Av. Grau 320, Barranco, Lima, a tres cuadras del Puente de los Suspiros.
-Telefono/WhatsApp: {TELEFONO_RESTAURANTE}, correo reservas@clemente.demo.
+Telefono/WhatsApp: {TELEFONO_RESTAURANTE}, correo {CORREO_RESTAURANTE}.
 Horarios: {fecha.texto_horario()}. La cocina toma el ultimo pedido 45 minutos antes
 de cerrar.
 Zonas: salon interior climatizado, terraza techada en el segundo piso (se sube por
