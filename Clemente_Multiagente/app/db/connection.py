@@ -26,19 +26,38 @@ _pools: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
 _pool_lock = Lock()
 
 
-def _pool_for(database_url: str) -> psycopg2.pool.SimpleConnectionPool:
+def _pool_for(database_url: str) -> psycopg2.pool.ThreadedConnectionPool:
     """Devuelve el pool cacheado para database_url, creandolo y migrando la base si es el primer uso."""
-    if database_url not in _pools:
-        pool = psycopg2.pool.SimpleConnectionPool(
-            1, int(os.environ.get("CLEMENTE_DB_POOL_MAX", "5")), database_url
-        )
-        conn = pool.getconn()
-        try:
-            migrate.apply_pending(conn)
-        finally:
-            pool.putconn(conn)
-        _pools[database_url] = pool
+    with _pool_lock:
+        if database_url not in _pools:
+            # Threaded: el servidor corre con threaded=True y SimpleConnectionPool no es thread-safe.
+            pool = psycopg2.pool.ThreadedConnectionPool(
+                1, int(os.environ.get("CLEMENTE_DB_POOL_MAX", "5")), database_url,
+                keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+            )
+            conn = pool.getconn()
+            try:
+                migrate.apply_pending(conn)
+            finally:
+                pool.putconn(conn)
+            _pools[database_url] = pool
     return _pools[database_url]
+
+
+def _conexion_viva(pool: psycopg2.pool.ThreadedConnectionPool):
+    """Saca una conexion del pool y la descarta si el servidor ya la cerro (p. ej. por inactividad en el pooler)."""
+    for _ in range(2):
+        conn = pool.getconn()
+        if not conn.closed:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                conn.rollback()
+                return conn
+            except psycopg2.Error:
+                pass
+        pool.putconn(conn, close=True)
+    return pool.getconn()
 
 
 @contextmanager
@@ -49,12 +68,14 @@ def connection():
         raise RuntimeError("CLEMENTE_DATABASE_URL is not configured.")
 
     pool = _pool_for(database_url)
-    conn = pool.getconn()
+    conn = _conexion_viva(pool)
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        if not conn.closed:
+            conn.rollback()
         raise
     finally:
-        pool.putconn(conn)
+        # Una conexion rota no vuelve al pool: la siguiente peticion recibe una nueva.
+        pool.putconn(conn, close=bool(conn.closed))
