@@ -134,7 +134,7 @@ def test_los_textos_fijos_del_servidor_solo_llevan_emoji_donde_se_permite():
         "PEDIDO_AL_EQUIPO_RETIRADO", "ESCALAMIENTO_HUMANO_WEBCHAT",
         "AVISO_REVISION_PENDIENTE", "AVISO_REVISION_PENDIENTE_CON_CODIGO", "SOLICITUD_EN_REVISION",
         "EMOJI_DEL_RESUMEN", "CIERRE_DE_LA_OPERACION", "TEXTO_CIERRE",
-        "CIERRE_RECLAMO", "CIERRE_PEDIDO_DE_PERSONA", "CIERRE_CON_RESOLUCION",
+        "CIERRE_RECLAMO", "CIERRE_PEDIDO_DE_PERSONA", "CIERRE_CON_RESOLUCION", "TEXTO_VENCIDO",
     }
 
     def cadenas(nodo):
@@ -175,6 +175,7 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
     import re
 
     from app.agentes import autorizacion, base, casos_abiertos, tope_de_reservas
+    from app.agentes.tools import reservas_tools
     from app.communication.services import aviso_staff_service
     from app.orquestador import grafo
 
@@ -187,7 +188,8 @@ def test_los_rechazos_los_errores_y_la_seguridad_no_llevan_emoji():
         grafo.NO_SE_PUDO_RETIRAR_EL_PEDIDO, grafo.SIN_SOLICITUD_EN_ESPERA,
         autorizacion.OPERACION_YA_PREPARADA, autorizacion.AVISO_OPERACION_APLAZADA,
         casos_abiertos.BLOQUEO_POR_CASO_ABIERTO, tope_de_reservas.TOPE_ALCANZADO, tope_de_reservas.MISMO_TURNO,
-        tope_de_reservas.NO_SE_PUEDE_CON_ESE_TELEFONO,
+        tope_de_reservas.NO_SE_PUEDE_CON_ESE_TELEFONO, reservas_tools.PEDIR_DATOS_PARA_VERIFICAR,
+        reservas_tools.DATOS_NO_COINCIDEN, reservas_tools.VERIFICACION_BLOQUEADA,
     ]
 
     assert all(not emoji.search(texto) for texto in sobrios)
@@ -213,3 +215,13 @@ def test_reservas_pregunta_por_alergias_en_la_reserva_normal_y_no_en_el_grupo():
     assert "agrega en esa misma frase una pregunta corta (alguna alergia u ocasion especial?)" in plano
     assert "Lo que cuente va en notas" in plano and "Se pregunta una sola vez" in plano
     assert "En los grupos de mas de 8 no se pregunta antes de pedir la excepcion" in plano
+
+
+def test_reservas_da_el_codigo_al_mostrar_las_reservas():
+    """2026-10-12: al pedir su historial el cliente recibia fecha y hora sin el codigo R-, que necesita para cambiarla.
+
+    La regla de no mencionar codigos es solo para el pedido al equipo, cuyo codigo agrega el orquestador."""
+    plano = _plano(PROMPT_RESERVAS)
+    assert "Al mostrarle sus reservas, da el codigo R- de cada una tal como lo devolvio la herramienta" in plano
+    assert "No menciones el codigo de ese pedido: lo agrega el orquestador" in plano
+    assert "No menciones codigos:" not in plano

@@ -155,16 +155,28 @@ def _anular_resumen_pendiente(sesion_id: str) -> None:
         registrar("error", sesion_id, detalle={"paso": "anular_resumen_por_aviso", "error": type(error).__name__})
 
 
+def _guardar_cierre_en_local(codigo: str) -> None:
+    """Deja el caso cerrado en el registro local: si despues Trello no responde, el pedido ya no cuenta como abierto.
+
+    Un fallo se traza y no interrumpe el aviso."""
+    try:
+        ServicioIncidenciasJSON().actualizar_estados({codigo: "cerrada"})
+    except Exception as error:
+        registrar("error", "trello", detalle={"paso": "guardar_cierre_en_local", "error": type(error).__name__})
+
+
 def avisar_cierre(carga: dict) -> dict:
     """Avisa al cliente que su caso se cerro, si la llamada de Trello es un cierre y el caso aun no se aviso.
 
-    Devuelve `{"estado", ...}`: `ignorado` (no era un cierre o el caso no existe), `ya_avisado`, `enviado`
-    o `no_enviado` (con el motivo). No lanza por un fallo del envio."""
+    Antes de avisar deja el caso cerrado en el registro local. Devuelve `{"estado", ...}`: `ignorado` (no era un
+    cierre o el caso no existe), `ya_avisado`, `enviado` o `no_enviado` (con el motivo). No lanza por un fallo del
+    envio."""
     codigo = codigo_del_cierre(carga)
     if not codigo:
         return {"estado": "ignorado", "motivo": "no es el cierre de un caso"}
 
     with _candado:
+        _guardar_cierre_en_local(codigo)
         if codigo in _leer_avisados():
             return {"estado": "ya_avisado", "codigo": codigo}
         caso = next((c for c in ServicioIncidenciasJSON().listar_incidencias() if c.id == codigo), None)

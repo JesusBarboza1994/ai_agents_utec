@@ -2,6 +2,10 @@
 
 El telefono y los argumentos de tools NO son identidad. Las reservas antiguas
 sin vinculacion requieren recuperacion por personal; no se adjudican por codigo.
+Dos excepciones, ambas de solo lectura: en WhatsApp el numero lo verifica el canal, y
+deja ver las reservas que tienen ese numero de contacto (reservas_del_numero); y quien
+escribe desde otro numero (perdio el celular) ve una reserva si da su codigo, su nombre
+y su telefono (verificar_con_datos), con tope de intentos fallidos.
 SQLite guarda permisos/propuestas, no reemplaza el gestor de reservas de Miguel.
 """
 import hashlib
@@ -18,14 +22,25 @@ from threading import RLock
 
 from . import casos_abiertos, tope_de_reservas
 from . import fecha as reloj
+from .contexto import telefono_de
 from ..datos import carpeta_de_datos
 from ..reservas.validaciones import TURNOS_VALIDOS, ReservaInvalida, validar_cambio_turno, validar_datos_reserva
 
 ARCHIVO = carpeta_de_datos(Path(__file__).parent / "datos") / "autorizaciones.sqlite3"
 VIGENCIA_SEGUNDOS = 600
+# Un resumen vencido se le avisa al cliente si vencio hace menos que esto: tras un reinicio no se avisa lo de ayer.
+VENTANA_AVISO_VENCIDO_SEGUNDOS = 30 * 60
+# Conversaciones a las que ya se aviso que su resumen vencio: un CONFIRMO tardio recibe RESUMEN_VENCIDO, no
+# "no encuentro un resumen". Vive hasta el siguiente mensaje que no confirma (descartar) o hasta otro resumen.
+_vencidas_avisadas: set[str] = set()
 # Codigos equivocados que se toleran contra una misma propuesta; al llegar al tope se descarta.
 MAX_INTENTOS_CONFIRMO = 5
 _intentos_fallidos: dict[str, int] = {}
+# Verificacion por datos (verificar_con_datos): intentos fallidos tolerados en 24 horas por conversacion y por codigo.
+# Se guardan en SQLite: un reinicio o la escala a cero no los borran. Al tope, la verificacion la hace el personal.
+MAX_VERIFICACIONES_FALLIDAS_POR_SESION = 3
+MAX_VERIFICACIONES_FALLIDAS_POR_RESERVA = 5
+VENTANA_VERIFICACIONES_SEGUNDOS = 24 * 60 * 60
 _lock = RLock()
 DENEGADO = ("No puedo acceder a esa reserva desde esta conversación, por tu seguridad. Si necesitas recuperarla, "
             "el restaurante puede verificar tu identidad y ayudarte.")
@@ -113,6 +128,7 @@ def _db():
     try:
         db.execute("CREATE TABLE IF NOT EXISTS propietarios (reserva TEXT PRIMARY KEY, sesion TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS propuestas (sesion TEXT PRIMARY KEY, codigo TEXT NOT NULL, accion TEXT NOT NULL, datos TEXT NOT NULL, vence REAL NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS verificaciones_fallidas (sesion TEXT NOT NULL, reserva TEXT NOT NULL, momento REAL NOT NULL)")
         with db:
             yield db
     finally:
@@ -156,6 +172,98 @@ def reservas_propias(sesion, servicio):
     return [r for codigo in ids if (r := servicio.obtener_reserva(codigo)) is not None]
 
 
+def numero_verificado(contexto) -> str | None:
+    """El numero de WhatsApp desde el que escribe el cliente; None en el webchat o con el id oculto de WhatsApp.
+
+    Es el unico telefono que prueba algo: la sesion whatsapp-<numero> solo la arma el webhook firmado por Twilio (el
+    webchat usa web-<uuid> de su cookie firmada). El telefono que el cliente escribe en el chat sigue sin probar nada."""
+    if getattr(contexto, "canal", "") != "whatsapp":
+        return None
+    numero = telefono_de(getattr(contexto, "sesion_id", "") or "") or ""
+    return numero if numero.isdigit() and 7 <= len(numero) <= 15 else None
+
+
+def _formas_del_numero(numero: str) -> set[str]:
+    """Como puede estar guardado ese numero de contacto: 51999111222, +51999111222 o, si es de Peru, 999111222."""
+    formas = {numero, f"+{numero}"}
+    if numero.startswith("51") and len(numero) == 11:
+        formas.add(numero[2:])
+    return formas
+
+
+def reservas_del_numero(contexto, servicio):
+    """Reservas cuyo contacto es el numero de WhatsApp verificado del cliente, hechas desde cualquier chat; [] si no hay numero.
+
+    Solo para mostrarlas: cambiar o cancelar sigue exigiendo que la reserva sea de esta conversacion (es_propietario)."""
+    numero = numero_verificado(contexto)
+    if not numero:
+        return []
+    encontradas = {}
+    for forma in _formas_del_numero(numero):
+        for reserva in servicio.buscar_reservas_de(forma):
+            encontradas[reserva.id] = reserva
+    return list(encontradas.values())
+
+
+def _palabras_del_nombre(nombre) -> set[str]:
+    """Las palabras del nombre sin tildes, mayusculas ni signos: "María-José  Ruíz" da {"maria", "jose", "ruiz"}."""
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", str(nombre or "")) if unicodedata.category(c) != "Mn")
+    return set(re.sub(r"[^a-z]+", " ", sin_tildes.casefold()).split())
+
+
+def _mismo_nombre(dado, guardado) -> bool:
+    """Coincide si cada palabra dada esta en el nombre de la reserva y da al menos dos (o todas, si tiene una).
+
+    "Ana Ruiz" vale para "Ana Ruiz Pérez" y "ruiz ana" tambien; "Ana" sola no vale para "Ana Ruiz"."""
+    dadas, guardadas = _palabras_del_nombre(dado), _palabras_del_nombre(guardado)
+    return bool(dadas) and dadas <= guardadas and len(dadas) >= min(2, len(guardadas))
+
+
+def _mismo_telefono(dado, guardado) -> bool:
+    """Coinciden los digitos, con o sin el 51 de Peru: "+51 999 111 222" es el mismo telefono que "999111222"."""
+    def nacional(telefono) -> str:
+        """Solo los digitos, sin el 51 inicial de un numero peruano de 11."""
+        digitos = re.sub(r"\D", "", str(telefono or ""))
+        return digitos[2:] if digitos.startswith("51") and len(digitos) == 11 else digitos
+    return len(nacional(dado)) >= 7 and nacional(dado) == nacional(guardado)
+
+
+def verificar_con_datos(sesion, codigo, nombre, telefono, servicio, ahora=None):
+    """("ok", reserva) si el codigo, el nombre y el telefono son los de la reserva; si no, ("no_coincide" | "bloqueada", None).
+
+    Para quien escribe desde otro numero (perdio el celular): deja VER la reserva, no la vincula a esta conversacion,
+    asi que cambiarla o cancelarla sigue en manos del personal. Un codigo inexistente y uno con datos equivocados
+    responden igual (no se revela si existe). Cada fallo cuenta contra la conversacion y contra el codigo; el que
+    llega al tope ya responde "bloqueada", y por 24 horas no se verifica mas por aqui."""
+    ahora = time.time() if ahora is None else ahora
+    desde = ahora - VENTANA_VERIFICACIONES_SEGUNDOS
+
+    def al_tope(db) -> bool:
+        """True si la conversacion o el codigo ya gastaron sus intentos."""
+        por_sesion = db.execute("SELECT COUNT(*) FROM verificaciones_fallidas WHERE sesion=? AND momento > ?",
+                                (sesion, desde)).fetchone()[0]
+        por_reserva = db.execute("SELECT COUNT(*) FROM verificaciones_fallidas WHERE reserva=? AND momento > ?",
+                                 (codigo, desde)).fetchone()[0]
+        return por_sesion >= MAX_VERIFICACIONES_FALLIDAS_POR_SESION or por_reserva >= MAX_VERIFICACIONES_FALLIDAS_POR_RESERVA
+
+    with _lock:
+        with _db() as db:
+            db.execute("DELETE FROM verificaciones_fallidas WHERE momento <= ?", (desde,))
+            if al_tope(db):
+                return "bloqueada", None
+        reserva = servicio.obtener_reserva(codigo)
+        if reserva is not None and _mismo_nombre(nombre, reserva.nombre) and _mismo_telefono(telefono, reserva.telefono):
+            return "ok", reserva
+        with _db() as db:
+            db.execute("INSERT INTO verificaciones_fallidas VALUES (?, ?, ?)", (sesion, codigo, ahora))
+            return ("bloqueada" if al_tope(db) else "no_coincide"), None
+
+
+def _zona(zona) -> str:
+    """La zona como la lee el cliente: se guarda "salon" (es una clave) pero en el texto va salón."""
+    return {"salon": "salón"}.get(zona, zona)
+
+
 def _dia_y_fecha(fecha) -> str:
     """Devuelve el dia y la fecha (sabado 2026-10-10); el dia lo calcula el servidor, para que el cliente vea si coincide con lo que quiso."""
     try:
@@ -167,8 +275,36 @@ def _dia_y_fecha(fecha) -> str:
 def descartar(sesion):
     """Elimina la propuesta pendiente de sesion sin borrar la propiedad de sus reservas."""
     _intentos_fallidos.pop(sesion, None)
+    _vencidas_avisadas.discard(sesion)
     with _db() as db:
         db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
+
+
+def hay_resumenes_pendientes(ahora=None) -> bool:
+    """True si alguna conversacion tiene un resumen que todavia espera su CONFIRMO (no vencio)."""
+    ahora = time.time() if ahora is None else ahora
+    with _db() as db:
+        return db.execute("SELECT 1 FROM propuestas WHERE vence > ? LIMIT 1", (ahora,)).fetchone() is not None
+
+
+def retirar_vencidas(ahora=None):
+    """Saca las propuestas que vencieron hace poco y devuelve [(sesion, accion)] para avisarle a cada cliente.
+
+    Cada propuesta sale una sola vez, bajo el mismo candado que confirmar: un CONFIRMO que llega a la vez o se
+    ejecuta antes (y la consume) o encuentra la propuesta ya retirada y recibe RESUMEN_VENCIDO. Las que vencieron
+    hace mas de VENTANA_AVISO_VENCIDO_SEGUNDOS no se tocan: un CONFIRMO tardio sigue recibiendo RESUMEN_VENCIDO."""
+    ahora = time.time() if ahora is None else ahora
+    with _lock:
+        with _db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            filas = db.execute("SELECT sesion, codigo, accion FROM propuestas WHERE vence <= ? AND vence > ?",
+                               (ahora, ahora - VENTANA_AVISO_VENCIDO_SEGUNDOS)).fetchall()
+            for sesion, codigo, _ in filas:
+                db.execute("DELETE FROM propuestas WHERE sesion=? AND codigo=?", (sesion, codigo))
+        for sesion, _, _ in filas:
+            _intentos_fallidos.pop(sesion, None)
+            _vencidas_avisadas.add(sesion)
+    return [(sesion, accion) for sesion, _, accion in filas]
 
 
 def proponer(contexto, accion, datos, servicio):
@@ -248,7 +384,7 @@ def proponer(contexto, accion, datos, servicio):
         resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
                    f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora} (hora de Lima), {personas} personas")
         if accion == "crear":
-            resumen += f", contacto {datos['telefono']}, zona {datos.get('zona') or 'según disponibilidad'}"
+            resumen += f", contacto {datos['telefono']}, zona {_zona(datos.get('zona')) or 'según disponibilidad'}"
             if datos.get("notas"):
                 resumen += f", observaciones: {datos['notas']}"
     else:
@@ -266,6 +402,7 @@ def proponer(contexto, accion, datos, servicio):
             contexto.datos["operacion_aplazada"] = True
             return OPERACION_YA_PREPARADA
         _intentos_fallidos.pop(sesion, None)
+        _vencidas_avisadas.discard(sesion)
         codigo = _codigo_de_confirmacion()
         with _db() as db:
             db.execute("INSERT OR REPLACE INTO propuestas VALUES (?, ?, ?, ?, ?)",
@@ -309,6 +446,10 @@ def confirmar(sesion, texto, servicio):
                         _intentos_fallidos.pop(sesion, None)
                         return DEMASIADOS_INTENTOS, {}
                 if not fila:
+                    if sesion in _vencidas_avisadas:
+                        # Ya se le aviso que vencio: "no encuentro un resumen" lo confundiria.
+                        _vencidas_avisadas.discard(sesion)
+                        return RESUMEN_VENCIDO, {}
                     return SIN_RESUMEN_PENDIENTE, {}
                 return (CODIGO_NO_COINCIDE if not coincide else RESUMEN_VENCIDO), {}
             db.execute("DELETE FROM propuestas WHERE sesion=?", (sesion,))
@@ -332,7 +473,7 @@ def confirmar(sesion, texto, servicio):
                     # personas) y esa ya tiene dueno. A quien la hizo se le dice cual es; a otra conversacion no.
                     if es_propietario(sesion, r.id):
                         return (f"Ya tenías esta reserva, así que no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
-                                f"(hora de Lima), {r.personas} personas, zona {r.zona}.",
+                                f"(hora de Lima), {r.personas} personas, zona {_zona(r.zona)}.",
                                 {"reserva": r.__dict__, "operacion": "ya_existia"})
                     return RESERVA_REPETIDA_DE_OTRA_CONVERSACION, {}
             elif accion == "modificar":
@@ -347,5 +488,5 @@ def confirmar(sesion, texto, servicio):
             return "No pude completar la operación porque la disponibilidad o los datos cambiaron. Pídeme un nuevo resumen y lo vemos.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
         return (f"Listo, tu reserva {r.id} quedó {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), "
-                f"{r.personas} personas, zona {r.zona}.{CIERRE_DE_LA_OPERACION[accion]}",
+                f"{r.personas} personas, zona {_zona(r.zona)}.{CIERRE_DE_LA_OPERACION[accion]}",
                 {"reserva": r.__dict__, "operacion": accion})

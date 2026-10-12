@@ -111,6 +111,14 @@ def test_el_resumen_aclara_que_la_hora_es_la_de_lima(entorno):
     assert "20:00 (hora de Lima)" in texto
 
 
+def test_la_zona_salon_se_escribe_con_tilde_en_lo_que_lee_el_cliente(entorno):
+    """La zona se guarda "salon", pero el resumen y la confirmacion, que escribe el servidor, dicen salón."""
+    servicio, _ = entorno
+    resumen = tools.crear_reserva.func("Ana Ruiz", "999111222", "2026-10-10", "20:00", 2, runtime("web-zona"), zona="salon")
+    texto, _ = autorizacion.confirmar("web-zona", "CONFIRMO", servicio)
+    assert "zona salón" in resumen and "zona salón" in texto
+
+
 def test_el_nombre_con_codigo_html_no_llega_a_preparar_la_reserva(entorno):
     """<script> como nombre se rechaza en la validacion: no vuelve crudo en el resumen ni se guarda."""
     texto = tools.crear_reserva.func("<script>alert(1)</script>", "999111222", "2026-10-10", "20:00", 2, runtime("web-abc"))
@@ -177,7 +185,17 @@ def test_un_intruso_sin_telefono_tampoco_ve_reservas_ajenas(entorno):
     r = reserva(servicio)
     autorizacion.vincular("propietario", r.id)
     texto = tools.buscar_mis_reservas.func(runtime("intruso"))
-    assert r.id not in texto and autorizacion.DENEGADO in texto
+    assert r.id not in texto and r.nombre not in texto and texto == tools.SIN_RESERVAS_EN_ESTE_CHAT
+
+
+def test_un_chat_sin_reservas_lo_dice_sin_hablar_de_seguridad(entorno):
+    """Un chat que nunca reservo no recibe "por tu seguridad": no se le nego nada, solo no tiene reservas.
+
+    Antes respondia lo mismo que ante una reserva ajena y marcaba el turno como acceso protegido (2026-10-12)."""
+    rt = runtime("whatsapp-51999000111")
+    texto = tools.buscar_mis_reservas.func(rt)
+    assert "No hay reservas hechas desde este chat" in texto and autorizacion.DENEGADO not in texto
+    assert "guardrail_autorizacion" not in rt.context.datos
 
 
 def test_la_duena_ve_sus_reservas_sin_dar_el_telefono(entorno):
