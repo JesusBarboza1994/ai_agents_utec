@@ -268,6 +268,21 @@ def test_confirmacion_ejecuta_sin_llm_y_solo_una_vez(entorno, monkeypatch):
     assert codigo in tools.consultar_reserva_por_codigo.func(codigo, runtime())
 
 
+def test_la_confirmacion_y_la_consulta_dicen_la_mesa_de_cada_reserva(entorno, monkeypatch):
+    """Dos clientes en el mismo turno leen su propia mesa: sin ella parecia que a los dos les dieron la misma."""
+    servicio, _ = entorno
+    monkeypatch.setattr(grafo, "obtener_grafo", lambda: pytest.fail("Confirmar no llama al modelo"))
+    mesas = []
+    for sesion, telefono in (("cliente-a", "900000001"), ("cliente-b", "900000002")):
+        tools.crear_reserva.func("Cliente ficticio", telefono, "2026-10-10", "20:00", 2, runtime(sesion))
+        r = grafo.responder(MensajeEntrante(sesion_id=sesion, texto="CONFIRMO"))
+        mesa = r.datos["reserva"]["mesa_id"]
+        assert f"mesa {mesa}" in r.texto
+        assert f"mesa {mesa}" in tools.consultar_reserva_por_codigo.func(r.datos["reserva"]["id"], runtime(sesion))
+        mesas.append(mesa)
+    assert mesas[0] != mesas[1]
+
+
 def test_token_ajeno_no_confirma_y_no_consume_el_del_dueno(entorno):
     """Verifica que token ajeno no confirma y no consume el del dueno."""
     servicio, _ = entorno

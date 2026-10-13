@@ -8,7 +8,7 @@ volver a pensar): tambien se protege que conserven ese esqueleto y no vuelvan a 
 """
 import pytest
 
-from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR, PROMPT_RESERVAS
+from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_INFORMACION, PROMPT_RESERVAS
 
 
 def _plano(texto):
@@ -16,7 +16,7 @@ def _plano(texto):
     return " ".join(texto.split())
 
 
-@pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+@pytest.mark.parametrize("prompt", [PROMPT_INFORMACION, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
 def test_los_tres_agentes_trabajan_en_ciclo_react(prompt):
     """Cada agente razona en vueltas: piensa que falta, ejecuta una herramienta, lee el resultado y vuelve a pensar."""
     plano = _plano(prompt)
@@ -26,7 +26,7 @@ def test_los_tres_agentes_trabajan_en_ciclo_react(prompt):
     assert "lees su resultado" in plano and "vuelves a pensar con eso" in plano
 
 
-@pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+@pytest.mark.parametrize("prompt", [PROMPT_INFORMACION, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
 def test_los_prompts_no_son_una_tabla_de_condiciones(prompt):
     """Sin lista de opciones `when=`: las reglas fijas quedan en 'Reglas que no puedes desactivar' y el resto se razona."""
     assert "<option" not in prompt and "when=" not in prompt
@@ -39,7 +39,7 @@ def test_reservas_e_incidencias_siguen_tras_el_resultado_de_una_herramienta(prom
     assert "Una herramienta no es el final del turno" in _plano(prompt)
 
 
-@pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+@pytest.mark.parametrize("prompt", [PROMPT_INFORMACION, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
 def test_los_tres_agentes_no_responden_vacio(prompt):
     """El bloque de parada prohibe responder con texto vacio."""
     assert "Nunca respondas con texto vacio" in _plano(prompt)

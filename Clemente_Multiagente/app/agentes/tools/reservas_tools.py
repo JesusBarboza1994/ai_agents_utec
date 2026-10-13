@@ -149,7 +149,7 @@ def _reserva_repetida(sesion_id: str, telefono: str, fecha: str, hora: str, pers
         if autorizacion.es_propietario(sesion_id, reserva.id):
             return (f"Ya tienes una reserva con estos datos: {reserva.id}, {reserva.nombre}, {reserva.fecha} a las "
                     f"{reserva.hora} (hora de Lima), {reserva.personas} personas, zona "
-                    f"{autorizacion._zona(reserva.zona)}. No preparé otra; si quieres cambiar algo, dime qué.")
+                    f"{autorizacion._zona(reserva.zona)}{autorizacion._mesa(reserva)}. No preparé otra; si quieres cambiar algo, dime qué.")
     return None
 
 
@@ -241,13 +241,13 @@ VERIFICACION_BLOQUEADA = (
 
 
 def _linea_de_reserva(r, nota: str = "") -> str:
-    """Una reserva en una linea para el modelo: codigo, turno, personas, zona y estado."""
-    return f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, {r.estado}{nota}"
+    """Una reserva en una linea para el modelo: codigo, turno, personas, zona, mesa y estado."""
+    return f"{r.id}: {r.fecha} {r.hora}, {r.personas} personas, zona {r.zona}, mesa {r.mesa_id}, {r.estado}{nota}"
 
 
 def _detalle_de_reserva(r, nota: str = "") -> str:
     """Una reserva con el nombre, como la devuelve la consulta por codigo."""
-    return f"{r.id}: {r.nombre}, {r.personas} personas, {r.fecha} {r.hora}, zona {r.zona}, estado {r.estado}.{nota}"
+    return f"{r.id}: {r.nombre}, {r.personas} personas, {r.fecha} {r.hora}, zona {r.zona}, mesa {r.mesa_id}, estado {r.estado}.{nota}"
 
 
 @tool

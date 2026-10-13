@@ -18,7 +18,7 @@ hilo y ultimo_agente, no los fragmentos del catalogo de este componente.
 
 from ..agentes.base import construir_agente, ejecutar
 from ..agentes.contexto import ContextoConversacion
-from ..agentes.prompts import PROMPT_ORQUESTADOR
+from ..agentes.prompts import PROMPT_INFORMACION
 from ..agentes.tools.catalogo_tools import buscar_en_catalogo, consultar_politica
 from ..agentes.tools.fecha_tools import get_current_datetime
 
@@ -38,7 +38,7 @@ def obtener_agente():
     registra como agente de negocio independiente en AGENTES."""
     global _agente
     if _agente is None:
-        _agente = construir_agente(PROMPT_ORQUESTADOR, TOOLS)
+        _agente = construir_agente(PROMPT_INFORMACION, TOOLS)
     return _agente
 
 

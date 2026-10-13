@@ -5,7 +5,7 @@ y con el banco de ruteo (tests/eval/evaluar.py): aqui solo se protege que sigan 
 """
 import pytest
 
-from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR, PROMPT_RESERVAS
+from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_INFORMACION, PROMPT_RESERVAS
 from app.agentes.tools.reservas_tools import LIMITE_GRUPO_AUTONOMO
 from app.orquestador.grafo import PROMPT_PLANIFICADOR
 
@@ -15,7 +15,7 @@ def _plano(texto):
     return " ".join(texto.split())
 
 
-@pytest.mark.parametrize("prompt", [PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
+@pytest.mark.parametrize("prompt", [PROMPT_INFORMACION, PROMPT_RESERVAS, PROMPT_INCIDENCIAS])
 def test_los_tres_agentes_declinan_lo_que_no_es_del_restaurante(prompt):
     """Los tres agentes comparten la regla de alcance (viene en VOZ_CLEMENTE): examenes, codigo, poemas, noticias..."""
     plano = _plano(prompt)
@@ -26,7 +26,7 @@ def test_los_tres_agentes_declinan_lo_que_no_es_del_restaurante(prompt):
 
 def test_el_agente_de_informacion_no_promete_guardar_datos():
     """Solo reservas e incidencias tienen la herramienta que guarda: informacion no debe decir "tomo nota"."""
-    plano = _plano(PROMPT_ORQUESTADOR)
+    plano = _plano(PROMPT_INFORMACION)
     assert "No guardas datos del cliente" in plano and "nunca digas que anotas" in plano
 
 
