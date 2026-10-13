@@ -16,7 +16,7 @@ Tecnica (ver la nota RAG del vault):
   - Chunking jerarquico por encabezados, igual que el catalogo: cada seccion
     `##` del caso (ticket, causa, solucion, respuesta sugerida, cuando escalar)
     es un chunk, con el titulo del caso antepuesto para que se explique solo.
-    Corte recursivo 1200/120 de respaldo si una seccion crece.
+    No hay corte por tamano: cada seccion es un chunk.
   - La "Ficha del ticket" no es chunk: va como metadata filtrable (tipo,
     prioridad, canal, plazo).
   - "Compensacion aprobada por el personal" se excluye del indice: la politica
@@ -50,7 +50,7 @@ from pathlib import PurePosixPath
 from ...contratos import Fragmento
 from ...llm import resolver_embeddings
 from .blob import leer_contenedor
-from .indice_catalogo import SOLAPE, TAMANO_MAXIMO, _borrar_obsoletos_azure_search, _id_seguro
+from .indice_catalogo import _borrar_obsoletos_azure_search, _id_seguro
 
 DIMENSION_VECTOR = 1536   # text-embedding-3-small, igual que el indice del catalogo
 ANALIZADOR = "es-clemente"
@@ -96,14 +96,13 @@ def _cargar_casos(casos_crudos: list[tuple[str, str]] | None = None):
     """Chunks por seccion de cada caso, con su ficha como metadata y el caso completo como padre.
 
     `casos_crudos` son pares (nombre, texto); por defecto se leen del Blob. Devuelve
-    los chunks y sus ids estables (archivo::seccion::i)."""
+    los chunks y sus ids estables (archivo::seccion::0)."""
     from langchain_core.documents import Document
-    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
 
     if casos_crudos is None:
         casos_crudos = _leer_casos_blob()
     por_encabezado = MarkdownHeaderTextSplitter(headers_to_split_on=ENCABEZADOS)
-    por_tamano = RecursiveCharacterTextSplitter(chunk_size=TAMANO_MAXIMO, chunk_overlap=SOLAPE)
     documentos, ids = [], []
     for nombre, texto in sorted(casos_crudos):
         titulo = next((l.lstrip("# ").strip() for l in texto.splitlines() if l.startswith("# ")),
@@ -125,14 +124,15 @@ def _cargar_casos(casos_crudos: list[tuple[str, str]] | None = None):
             # sintetico..."): no describe el reclamo y solo agrega ruido a la busqueda.
             if not nombre_seccion or nombre_seccion == SECCION_FICHA or nombre_seccion in SECCIONES_EXCLUIDAS:
                 continue
-            for i, chunk in enumerate(por_tamano.split_text(seccion.page_content)):
-                # Titulo del caso y nombre de la seccion dentro del texto que se vectoriza:
-                # una seccion suelta ("Causa identificada") no dice de que caso es.
-                documentos.append(Document(
-                    page_content=f"{titulo}\n{nombre_seccion}\n{chunk}",
-                    metadata={**ficha, "seccion": nombre_seccion, "contenido": chunk},
-                ))
-                ids.append(f"{nombre}::{nombre_seccion}::{i}")
+            chunk = seccion.page_content
+            # Titulo del caso y nombre de la seccion dentro del texto que se vectoriza:
+            # una seccion suelta ("Causa identificada") no dice de que caso es.
+            documentos.append(Document(
+                page_content=f"{titulo}\n{nombre_seccion}\n{chunk}",
+                metadata={**ficha, "seccion": nombre_seccion, "contenido": chunk},
+            ))
+            # "::0" para que los ids sigan siendo los ya indexados.
+            ids.append(f"{nombre}::{nombre_seccion}::0")
     return documentos, ids
 
 

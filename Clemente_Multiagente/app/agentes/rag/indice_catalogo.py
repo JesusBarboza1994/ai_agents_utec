@@ -74,28 +74,26 @@ def _extraer_texto(nombre: str, contenido: bytes) -> str:
     return ""
 
 
-# Se parte primero por encabezado de Markdown y solo despues por tamano
-# (decision 4 de la guia de Jean): asi "Cancelaciones y cambios" viaja entera en
-# un fragmento en vez de quedar cortada a la mitad por un limite de caracteres.
+# Chunking jerarquico: se parte solo por encabezado de Markdown, asi
+# "Cancelaciones y cambios" viaja entera en un fragmento en vez de quedar cortada
+# a la mitad por un limite de caracteres. No hay corte por tamano: cada seccion
+# es un chunk, sin importar cuanto mida.
 ENCABEZADOS = [("#", "documento"), ("##", "seccion"), ("###", "subseccion")]
-TAMANO_MAXIMO = 1200
-SOLAPE = 120
 
 
 def _cargar_documentos(archivos: list[tuple[str, bytes]] | None = None):
     """Devuelve los documentos fragmentados y sus identificadores para el indice RAG.
 
     `archivos` son pares (nombre, bytes); por defecto se leen del contenedor del
-    catalogo. Omite archivos vacios o no admitidos, divide Markdown por
-    encabezados y luego todos los textos por tamano con solape. Cada fragmento
-    conserva fuente y seccion; no crea embeddings aqui."""
+    catalogo. Omite archivos vacios o no admitidos y divide Markdown por
+    encabezados: una seccion = un fragmento. Cada fragmento conserva fuente y
+    seccion; no crea embeddings aqui."""
     from langchain_core.documents import Document
-    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
 
     if archivos is None:
         archivos = _leer_documentos_blob()
     por_encabezado = MarkdownHeaderTextSplitter(headers_to_split_on=ENCABEZADOS)
-    por_tamano = RecursiveCharacterTextSplitter(chunk_size=TAMANO_MAXIMO, chunk_overlap=SOLAPE)
     documentos, ids = [], []
     repetidos: dict[str, int] = {}
 
@@ -122,26 +120,27 @@ def _cargar_documentos(archivos: list[tuple[str, bytes]] | None = None):
                 or ""
             )
 
-            # Una seccion larga se vuelve a partir; una corta queda en un solo fragmento.
-            for i, chunk in enumerate(por_tamano.split_text(seccion.page_content)):
-                # El titulo va dentro del texto que se vectoriza: ayuda a la
-                # busqueda semantica y hace que el fragmento se explique solo
-                # al citarlo. `contenido` guarda el chunk limpio, sin ese
-                # prefijo, para mostrarlo o guardarlo aparte (Azure Search).
-                cuerpo = f"{titulo}\n{chunk}" if titulo else chunk
-                documentos.append(Document(
-                    page_content=cuerpo,
-                    metadata={
-                        "fuente": nombre,
-                        "seccion": titulo,
-                        "contenido": chunk,
-                    },
-                ))
-                id_base = f"{nombre}::{titulo or 'raiz'}::{i}"
-                # Dos secciones con el mismo titulo en un archivo compartirian id y una pisaria a la otra.
-                veces = repetidos.get(id_base, 0)
-                repetidos[id_base] = veces + 1
-                ids.append(id_base if veces == 0 else f"{id_base}~{veces}")
+            chunk = seccion.page_content
+            # El titulo va dentro del texto que se vectoriza: ayuda a la
+            # busqueda semantica y hace que el fragmento se explique solo
+            # al citarlo. `contenido` guarda el chunk limpio, sin ese
+            # prefijo, para mostrarlo o guardarlo aparte (Azure Search).
+            cuerpo = f"{titulo}\n{chunk}" if titulo else chunk
+            documentos.append(Document(
+                page_content=cuerpo,
+                metadata={
+                    "fuente": nombre,
+                    "seccion": titulo,
+                    "contenido": chunk,
+                },
+            ))
+            # El "::0" final se conserva para que los ids no cambien respecto de los
+            # ya indexados (antes numeraba los cortes por tamano de una seccion).
+            id_base = f"{nombre}::{titulo or 'raiz'}::0"
+            # Dos secciones con el mismo titulo en un archivo compartirian id y una pisaria a la otra.
+            veces = repetidos.get(id_base, 0)
+            repetidos[id_base] = veces + 1
+            ids.append(id_base if veces == 0 else f"{id_base}~{veces}")
 
     return documentos, ids
 

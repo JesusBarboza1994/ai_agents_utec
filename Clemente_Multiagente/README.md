@@ -1695,10 +1695,11 @@ clemente/
                                   `consultar_politica` la comparten los agentes
       rag/
         blob.py                   lee los documentos fuente de Azure Blob Storage
-        indice_catalogo.py        catalogo-clemente: chunking por encabezados +
-                                  recursivo 1200/120, indexado y búsqueda vectorial
-        indice_incidencias.py     incidencias-clemente: 1 caso = 1 chunk, analizador
-                                  en español, búsqueda híbrida
+        indice_catalogo.py        catalogo-clemente: chunking jerárquico (una
+                                  sección = un chunk), indexado y búsqueda vectorial
+        indice_incidencias.py     incidencias-clemente: chunking jerárquico por
+                                  sección, analizador en español, búsqueda
+                                  híbrida que devuelve el caso completo
         chroma_index/             índice vectorial                (generado)
 
     reservas/                     ── MIGUEL ─────────────────────────────────
