@@ -1,7 +1,7 @@
 """Correcciones puntuales de los prompts (revision de Christian, F1 y F6 a F11): siguen escritas; sin modelo."""
 from app.agentes import fecha
 from app.agentes.prompts import (
-    FICHA_DEL_RESTAURANTE, HORARIO_DE_ATENCION, PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR,
+    FICHA_DEL_RESTAURANTE, HORARIO_DE_ATENCION, PROMPT_INCIDENCIAS, PROMPT_INFORMACION,
     PROMPT_RESERVAS, TELEFONO_RESTAURANTE,
 )
 from app.orquestador.grafo import PROMPT_PLANIFICADOR
@@ -81,7 +81,7 @@ def test_incidencias_no_promete_anotar_sin_herramienta():
 
 def test_informacion_da_el_contacto_en_vez_de_prometer():
     """F10: sin herramienta para registrar, informacion da telefono y correo."""
-    plano = _plano(PROMPT_ORQUESTADOR)
+    plano = _plano(PROMPT_INFORMACION)
     assert "ofreces consultarlo con el equipo" not in plano
     assert "le das el telefono y el correo" in plano
 

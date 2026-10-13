@@ -499,10 +499,10 @@ def test_las_fotos_viejas_del_historial_quedan_como_texto(monkeypatch):
 
 def test_las_reglas_de_imagen_estan_en_los_prompts():
     """Los agentes no dicen que no ven fotos, y el planificador no las ata a la continuidad."""
-    from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR, PROMPT_RESERVAS
+    from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_INFORMACION, PROMPT_RESERVAS
     from app.orquestador.grafo import PROMPT_PLANIFICADOR
 
-    for prompt in (PROMPT_ORQUESTADOR, PROMPT_RESERVAS, PROMPT_INCIDENCIAS):
+    for prompt in (PROMPT_INFORMACION, PROMPT_RESERVAS, PROMPT_INCIDENCIAS):
         assert "nunca digas que no puedes ver o evaluar fotos" in prompt
     assert "esta regla le gana a la\nde continuidad" in PROMPT_PLANIFICADOR
 

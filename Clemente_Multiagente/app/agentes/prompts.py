@@ -1,5 +1,6 @@
 """
-Prompts de sistema del orquestador y de los dos agentes especializados.
+Prompts de sistema de los tres agentes (informacion, reservas, incidencias). El prompt del
+orquestador, PROMPT_PLANIFICADOR, vive en app/orquestador/grafo.py.
 
 Se mantienen en un archivo aparte a proposito: el prompt es el entregable
 mas revisado del proyecto (es donde viven los limites de cada agente que
@@ -13,8 +14,9 @@ ASESORIA_01_BORIS_ACUERDOS.md):
     sostenia un agente propio; su contenido sube al orquestador, en dos formas a
     la vez -- los datos fijos aqui en el prompt, y el resto por la tool de
     busqueda (`buscar_en_catalogo`).
-  * Nace `PROMPT_ORQUESTADOR`, que ademas de repartir el trabajo responde el
-    mismo las preguntas de informacion (hace de *proxy*, en palabras de Boris).
+  * Nace `PROMPT_INFORMACION`: el orquestador responde las preguntas de
+    informacion con este agente de solo lectura (hace de *proxy*, en palabras de
+    Boris). Planificar y repartir el trabajo lo hace `PROMPT_PLANIFICADOR`.
   * `VOZ_CLEMENTE` se recorta. Boris observo que apoyarse en Claude produce
     system prompts "mega gigantes" y pidio ingenieria de contexto: lo que solo
     aplica a veces dejo de viajar en cada turno. La instruccion sobre la ficha
@@ -115,10 +117,10 @@ HORARIO_DE_ATENCION = (
 
 
 # --------------------------------------------------------------------------
-# Orquestador. Tres trabajos: planificar, responder informacion, y ser el
-# unico punto de salida.
+# Informacion: el proxy del orquestador. Solo responde consultas del
+# restaurante con tools de lectura; planificar y cerrar el turno es de grafo.py.
 # --------------------------------------------------------------------------
-PROMPT_ORQUESTADOR = f"""{VOZ_CLEMENTE}
+PROMPT_INFORMACION = f"""{VOZ_CLEMENTE}
 
 {FICHA_DEL_RESTAURANTE}
 
