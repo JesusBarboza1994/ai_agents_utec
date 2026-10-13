@@ -14,11 +14,15 @@ RESPUESTA_PII = "No envíes tarjetas, contraseñas, tokens ni claves por este ca
 TURNO_BLOQUEADO = frozenset({RESPUESTA_GUARDRAILS, RESPUESTA_PII})
 
 # Respuestas que no dicen nada de lo conversado: se quita la respuesta y se conserva lo que pidio el cliente.
-ERROR_DEL_TURNO = ("Disculpa, no puedo procesar tu mensaje en este momento. "
-                   "No puedo asegurar que la operación se haya completado. "
-                   "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso.")
-SALIDA_BLOQUEADA = "No puedo generar una respuesta apropiada en este momento."
-SIN_CONTENIDO = frozenset({ERROR_DEL_TURNO, SALIDA_BLOQUEADA})
+ERROR_DEL_TURNO = ("Perdón, tuve un problema para responderte. Puede que tu pedido sí se haya procesado, así que "
+                   "antes de repetirlo confírmalo con el restaurante o escríbeme de nuevo en un momento.")
+SALIDA_BLOQUEADA = "Perdón, no pude armar una buena respuesta esta vez. ¿Me lo cuentas de otra forma?"
+# Textos anteriores (hasta 2026-10-12): siguen guardados en conversaciones viejas y hay que seguir reconociendolos.
+_ERROR_DEL_TURNO_ANTERIOR = ("Disculpa, no puedo procesar tu mensaje en este momento. "
+                             "No puedo asegurar que la operación se haya completado. "
+                             "Consulta al restaurante antes de repetirla; tampoco puedo confirmar el envío de un aviso.")
+_SALIDA_BLOQUEADA_ANTERIOR = "No puedo generar una respuesta apropiada en este momento."
+SIN_CONTENIDO = frozenset({ERROR_DEL_TURNO, SALIDA_BLOQUEADA, _ERROR_DEL_TURNO_ANTERIOR, _SALIDA_BLOQUEADA_ANTERIOR})
 
 
 def _texto(mensaje: dict) -> str:

@@ -12,6 +12,7 @@ from app.communication.services import chat_service, whatsapp_service
 from app.communication.services.sesiones import limpiar_sesion, sesiones_activas
 from app.communication.services.whatsapp_service import IncomingMessage
 from app.observabilidad.trazas import ultimas_trazas
+from app.orquestador.turnos_bloqueados import SALIDA_BLOQUEADA
 
 BASE_FALSA = "postgresql://prueba"
 
@@ -212,7 +213,7 @@ def test_entrada_rechazada_evita_el_llm_y_la_salida_sustituida_se_almacena(monke
         reply = whatsapp_service.process_inbound(IncomingMessage(
             channel="whatsapp", chat_key="51999111222", text="ataque"))
 
-    assert reply == "No puedo generar una respuesta apropiada en este momento."
+    assert reply == SALIDA_BLOQUEADA
     assert calls["append"][-1][2] == reply
 
 

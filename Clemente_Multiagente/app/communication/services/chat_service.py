@@ -26,6 +26,7 @@ from ...db.repositories import chats_repository, customers_repository, messages_
 from ...observabilidad.trazas import registrar
 from ...orquestador import responder as responder_orquestador
 from ...orquestador.grafo import olvidar_sesion
+from ...orquestador.turnos_bloqueados import SALIDA_BLOQUEADA
 from ...reservas.validaciones import mensaje_nombre_invalido
 from ...seguridad.pii import pii_prohibida, redactar_pii
 from . import bandeja_webchat
@@ -260,7 +261,7 @@ def handle_incoming_message(
         respuesta.texto, entrante.sesion_id, _configuracion(),
     )
     if not salida.permitido:
-        respuesta.texto = "No puedo generar una respuesta apropiada en este momento."
+        respuesta.texto = SALIDA_BLOQUEADA
         respuesta.agente = "seguridad"
         respuesta.motivo_ruta = "salida bloqueada por toxicidad"
     else:

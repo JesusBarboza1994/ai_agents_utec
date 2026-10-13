@@ -46,9 +46,8 @@ DENEGADO = ("No puedo acceder a esa reserva desde esta conversación, por tu seg
             "el restaurante puede verificar tu identidad y ayudarte.")
 # No confirma que exista otra reserva ni da su codigo: quien escribe podria no ser su dueno.
 RESERVA_REPETIDA_DE_OTRA_CONVERSACION = (
-    "No pude registrar esa reserva con esos datos. Si ya habías reservado ese turno desde otra conversación, "
-    "el restaurante puede verificar tu identidad y ayudarte a recuperarla; si no, prueba con otro horario y "
-    "con gusto lo intento de nuevo."
+    "Lo siento, no pude registrar esa reserva. Si ya la habías hecho desde otra conversación, el restaurante "
+    "puede verificar tu identidad y ayudarte a recuperarla; si no, dime otro horario y con gusto lo intento de nuevo."
 )
 # Un emoji por texto, al final de una frase, como pide la voz de Clemente (VOZ_CLEMENTE). Solo en lo positivo o neutro:
 # nunca en un rechazo, un error ni un aviso de seguridad.
@@ -60,8 +59,8 @@ CIERRE_DE_LA_OPERACION = {
 }
 # Tres motivos distintos por los que un CONFIRMO no se acepta; antes los tres decian "no es valida o vencio".
 SIN_RESUMEN_PENDIENTE = (
-    "No encuentro un resumen pendiente de confirmar: si escribiste otro mensaje después del resumen, se anuló. "
-    "No se hizo ninguna operación; dime qué necesitas y te preparo uno nuevo."
+    "Uy, no tengo un resumen pendiente para confirmar: si escribiste otro mensaje después del resumen, ese se anuló. "
+    "No se hizo ninguna operación; cuéntame qué necesitas y te preparo uno nuevo al toque."
 )
 CODIGO_NO_COINCIDE = (
     "Ese código no coincide con el último resumen. Para confirmarlo basta con escribir CONFIRMO; "
@@ -386,7 +385,7 @@ def proponer(contexto, accion, datos, servicio):
                 return motivo
         if accion == "crear" and not servicio.consultar_disponibilidad(fecha, hora, personas, datos.get("zona") or None):
             return "No hay disponibilidad para ese pedido. No se registró ninguna reserva."
-        resumen = (f"{'Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
+        resumen = (f"{'¡Perfecto! Esto es lo que voy a reservar' if accion == 'crear' else 'Voy a modificar la reserva ' + datos['reserva_id']}: "
                    f"{datos.get('nombre') or anterior.get('nombre')}, {_dia_y_fecha(fecha)} a las {hora} (hora de Lima), {personas} personas")
         if accion == "crear":
             resumen += f", contacto {datos['telefono']}, zona {_zona(datos.get('zona')) or 'según disponibilidad'}"

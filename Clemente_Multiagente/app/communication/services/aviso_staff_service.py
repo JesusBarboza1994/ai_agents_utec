@@ -17,6 +17,7 @@ from flask import current_app
 
 from ...agentes.contexto import chat_key_de
 from ...db.repositories import chats_repository, customers_repository, messages_repository
+from ...orquestador.turnos_bloqueados import SALIDA_BLOQUEADA
 from ...observabilidad.trazas import registrar
 from ...seguridad.guardrails_ai import validar_salida
 from ...seguridad.pii import redactar_pii
@@ -32,7 +33,7 @@ MOTIVO_VENTANA = ("fuera de la ventana de 24 horas de WhatsApp: el cliente tiene
 MOTIVO_SIN_CREDENCIALES = "las credenciales de Twilio no estan configuradas en este servidor"
 MOTIVO_RECHAZO = "Twilio rechazo el mensaje"
 MOTIVO_ERROR = "error inesperado al enviar el mensaje"
-TEXTO_SALIDA_BLOQUEADA = "No puedo generar una respuesta apropiada en este momento."
+TEXTO_SALIDA_BLOQUEADA = SALIDA_BLOQUEADA
 
 
 def _motivo_del_fallo(error: Exception) -> str:

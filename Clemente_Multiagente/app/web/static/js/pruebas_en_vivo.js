@@ -221,7 +221,7 @@
        antes: 'Antes daba el mismo error interno. Ahora dice que no pudo registrarla y no revela el código de una reserva ajena.',
        instruccion: 'En la ventana de incógnito escribe esto y luego CONFIRMO:',
        texto: () => `Quiero reservar ${memoria.ultimaReserva.cuando} a las ${memoria.ultimaReserva.hora}:00 para 2 personas a nombre de John Smith, mi teléfono es ${memoria.ultimaReserva.telefono}`,
-       debe: '«No pude registrar esa reserva con esos datos. Si ya habías reservado ese turno desde otra conversación, solicita al restaurante que verifique tu identidad…», sin mostrar el código.'},
+       debe: '«Lo siento, no pude registrar esa reserva. Si ya la habías hecho desde otra conversación, el restaurante puede verificar tu identidad…», sin mostrar el código.'},
       {titulo: 'Tengo una mascota', estado: 'arreglado',
        antes: 'Antes lo atendía el agente de Información, que no puede guardar nada, y contestaba «tomo nota» sin anotar.',
        debe: 'Pregunta «¿es perro o gato?». Al contestar, confirma que lo anotó.',
