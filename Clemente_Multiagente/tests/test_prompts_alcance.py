@@ -3,9 +3,9 @@
 Que el modelo las cumpla se mide con el estres contra el modelo real (material_local/estres_completo.py)
 y con el banco de ruteo (tests/eval/evaluar.py): aqui solo se protege que sigan escritas.
 """
-import pytest
+import os
 
-from pathlib import Path
+import pytest
 
 from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR, PROMPT_RESERVAS
 from app.agentes.tools.reservas_tools import LIMITE_GRUPO_AUTONOMO
@@ -47,8 +47,19 @@ def test_el_planificador_no_convierte_lo_ajeno_al_restaurante_en_un_paso():
 
 
 def test_el_limite_de_grupos_que_se_le_dice_al_cliente_es_el_que_de_verdad_se_aplica():
-    """El prompt y los documentos del RAG hablan de "mas de N personas" con el N que aplican las herramientas (la mesa mas grande)."""
+    """El prompt habla de "mas de N personas" con el N que aplican las herramientas (la mesa mas grande)."""
     assert f"mas de {LIMITE_GRUPO_AUTONOMO} personas" in _plano(PROMPT_RESERVAS)
-    documentos = Path(__file__).resolve().parent.parent / "app" / "agentes" / "rag" / "documentos"
+
+
+def test_el_catalogo_del_blob_dice_el_mismo_limite_de_grupos():
+    """Los documentos del catalogo (en el Blob) dicen "mas de N personas" con el mismo N que el codigo.
+
+    El catalogo ya no vive en el repo: se lee del contenedor `catalogo`. Sin acceso al
+    Blob configurado (AZURE_STORAGE_ACCOUNT_URL con az login, o connection string) se omite."""
+    if not (os.getenv("AZURE_STORAGE_ACCOUNT_URL") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")):
+        pytest.skip("sin acceso al Blob configurado: no se puede leer el catalogo")
+    from app.agentes.rag.blob import leer_contenedor
+
+    documentos = dict(leer_contenedor(os.getenv("AZURE_STORAGE_CONTAINER_CATALOGO", "catalogo"), {".md"}))
     for nombre in ("02_carta_y_servicios.md", "03_politicas.md"):
-        assert f"más de {LIMITE_GRUPO_AUTONOMO} personas" in (documentos / nombre).read_text(encoding="utf-8").replace("**", "")
+        assert f"más de {LIMITE_GRUPO_AUTONOMO} personas" in documentos[nombre].decode("utf-8").replace("**", "")

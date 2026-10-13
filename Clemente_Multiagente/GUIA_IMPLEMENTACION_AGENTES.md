@@ -186,7 +186,7 @@ agente. Aunque el prompt fallara, el modelo no tiene con qué cerrar un caso ni 
 
 | Tool | Envuelve | Nota |
 |---|---|---|
-| `buscar_en_catalogo(pregunta)` | búsqueda semántica en Chroma (`rag/indice_catalogo.py`) | Solo `app/agentes/rag/documentos/*.md`. |
+| `buscar_en_catalogo(pregunta)` | búsqueda semántica en Chroma (`rag/indice_catalogo.py`) | Solo los `.md` del contenedor `catalogo` (Blob `stclmt01`). |
 | `consultar_politica(pregunta)` | misma búsqueda, acotada a `03_politicas.md` (o el mismo índice completo, según la decisión #2) | Expuesta también aparte para que Reservas/Incidencias la llamen con un nombre semánticamente claro. |
 
 **Guardrail**: si la búsqueda no devuelve nada por encima de un umbral de similitud, el agente
@@ -199,7 +199,7 @@ que no esté en el fragmento recuperado.
 python -m app.agentes.rag.indice_catalogo --reindexar
 ```
 
-- Carga `rag/documentos/*.md`, los divide (decisión #4 de §0) con `langchain-text-splitters`.
+- Carga los `.md` del contenedor `catalogo` del Blob, los divide (decisión #4 de §0) con `langchain-text-splitters`.
 - Embeddings con `llm.resolver_embeddings()` — nunca instanciar `OllamaEmbeddings`/`OpenAIEmbeddings` aparte.
 - Persiste en `rag/chroma_index/` (ya en `.gitignore`) con el nombre de colección incluyendo
   `llm.nombre_embeddings()`, para no mezclar vectores de dos modelos distintos.

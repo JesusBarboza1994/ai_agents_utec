@@ -10,7 +10,7 @@ tres prompts de openevals:
   - CONCISENESS_PROMPT: que responda sin relleno.
 
 Por eso `referencia` aqui es LA RESPUESTA CORRECTA, sacada textual del
-catalogo validado (app/agentes/rag/documentos/*.md) o de FICHA_DEL_RESTAURANTE
+catalogo validado (contenedor `catalogo` del Blob) o de FICHA_DEL_RESTAURANTE
 (app/agentes/prompts.py); si el catalogo cambia, hay que actualizarla.
 
 Cada caso incluye:

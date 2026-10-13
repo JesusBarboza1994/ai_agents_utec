@@ -264,7 +264,7 @@ modelo entendió de más, no que el cliente pidió más. Lo garantiza `_limpiar_
 no el *prompt*.
 
 **RAG** (*Retrieval-Augmented Generation*, generación aumentada por recuperación): el catálogo
-del restaurante vive en `app/agentes/rag/documentos/` y se indexa en **Chroma**. Es la **fuente
+del restaurante vive en el contenedor `catalogo` de Blob Storage (`stclmt01`) y se indexa en Azure AI Search (o en **Chroma**, local). Es la **fuente
 única de verdad**: Reservas e Incidencias consultan las políticas ahí con `consultar_politica`
 en lugar de llevar su propia copia en el *prompt*.
 
@@ -589,7 +589,8 @@ pytest -q                         # 126 casos (113 funciones), no llaman al mode
 `.env` está incompleto — arrancar sin clave es visible, no un misterio. Sin clave el chat no se
 cae: responde con un mensaje de escalamiento y `escalado: true`.
 
-Los documentos del RAG viven en Azure Blob Storage (`AZURE_STORAGE_CONNECTION_STRING`):
+Los documentos del RAG viven en Azure Blob Storage (`AZURE_STORAGE_ACCOUNT_URL`, con `az login`;
+la identidad necesita el rol *Storage Blob Data Reader* sobre la cuenta):
 el catálogo en el contenedor `catalogo` y los casos de incidencias en `incidencias`. Con
 Chroma (local), el índice del catálogo se construye solo en la primera consulta. Tras
 editar documentos en el Blob, o tras cambiar `EMBEDDINGS_BACKEND`:
@@ -937,7 +938,7 @@ dentro sin romper el de nadie.
 | Mesas y zonas | `app/reservas/datos/mesas.json` | declarado por la operación; el agente **no** inventa mesas |
 | Reservas | `app/reservas/datos/reservas.json` | generado, en `.gitignore` |
 | Incidencias | `app/incidencias/datos/incidencias.json` + **tarjeta en Trello** | el JSON es generado y está en `.gitignore`; Trello es donde el *staff* trabaja el ticket |
-| Catálogo (horarios, carta, políticas) | `app/agentes/rag/documentos/*.md` | versionado en git: es la fuente de verdad |
+| Catálogo (horarios, carta, políticas) | contenedor `catalogo` de Blob Storage (`stclmt01`) | fuera del repo: es la fuente de verdad; se reindexa con el workflow `reindex-rag` |
 | Índice vectorial | `app/agentes/rag/chroma_index/` | generado, en `.gitignore` |
 
 Reglas codificadas, no sugeridas al modelo: turnos válidos `12:00 13:00 14:00 19:00 20:00 21:00
@@ -1601,7 +1602,7 @@ problemas de medición, no de arquitectura.
 |---|---|
 | **Los *prompts*** (orquestador y los dos agentes) | `app/agentes/prompts.py` |
 | **Los datos fijos del restaurante** que el orquestador sabe de memoria | `FICHA_DEL_RESTAURANTE` en `app/agentes/prompts.py` |
-| **El catálogo del restaurante** (horarios, carta, políticas) | `app/agentes/rag/documentos/*.md` — **3 archivos, versionados en git** |
+| **El catálogo del restaurante** (horarios, carta, políticas) | contenedor `catalogo` de Blob Storage (`stclmt01`) — **3 archivos `.md`** |
 | **Las herramientas de cada agente** | `app/agentes/tools/{reservas,incidencias,catalogo}_tools.py` |
 | **El orquestador respondiendo por sí mismo** (*proxy*) | `app/orquestador/informacion.py` |
 | **El plan de resolución** (grafo y *prompt* del planificador) | `app/orquestador/grafo.py` |
@@ -1698,14 +1699,6 @@ clemente/
                                   recursivo 1200/120, indexado y búsqueda vectorial
         indice_incidencias.py     incidencias-clemente: 1 caso = 1 chunk, analizador
                                   en español, búsqueda híbrida
-        documentos/               copia del catálogo validado; la fuente que se
-                                  indexa es el contenedor `catalogo` del Blob
-          01_horarios_y_ubicacion.md   horarios, dirección, estacionamiento,
-                                       accesibilidad, zonas del local
-          02_carta_y_servicios.md      carta, opciones vegetarianas y veganas,
-                                       alergias, servicios
-          03_politicas.md              reservas, cancelaciones, reclamos y
-                                       compensaciones, datos personales
         chroma_index/             índice vectorial                (generado)
 
     reservas/                     ── MIGUEL ─────────────────────────────────
@@ -1790,9 +1783,9 @@ es la fuente de verdad del restaurante y su historial de cambios importa.
 | [`docs/ETICA_Y_PRINCIPIOS_OPERATIVOS.md`](docs/ETICA_Y_PRINCIPIOS_OPERATIVOS.md) | 4 principios operativos (Sesión 24), clasificación bajo el D.S. N.º 115-2025-PCM y brechas declaradas (transparencia frente al cliente, equidad) |
 | [`docs/TAREA_SESION_24_ETICA_CLEMENTE.md`](docs/TAREA_SESION_24_ETICA_CLEMENTE.md) | entregable académico de la tarea grupal: evaluación ética, 5 principios operativos, perfil del agente y brechas priorizadas |
 | [`docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md`](docs/REVISION_Y_CORRECCIONES_PASOS_1_3_2026-09-09.md) | registro histórico de la integración y las correcciones iniciales |
-| [`app/agentes/rag/documentos/01_horarios_y_ubicacion.md`](app/agentes/rag/documentos/01_horarios_y_ubicacion.md) | fuente de conocimiento del RAG sobre horarios, dirección y zonas del restaurante |
-| [`app/agentes/rag/documentos/02_carta_y_servicios.md`](app/agentes/rag/documentos/02_carta_y_servicios.md) | fuente de conocimiento del RAG sobre carta, opciones alimentarias y servicios |
-| [`app/agentes/rag/documentos/03_politicas.md`](app/agentes/rag/documentos/03_politicas.md) | fuente de conocimiento del RAG sobre reservas, cancelaciones, reclamos y datos personales |
+| Blob `stclmt01` / `catalogo/01_horarios_y_ubicacion.md` | fuente de conocimiento del RAG sobre horarios, dirección y zonas del restaurante |
+| Blob `stclmt01` / `catalogo/02_carta_y_servicios.md` | fuente de conocimiento del RAG sobre carta, opciones alimentarias y servicios |
+| Blob `stclmt01` / `catalogo/03_politicas.md` | fuente de conocimiento del RAG sobre reservas, cancelaciones, reclamos y datos personales |
 
 **Documentos de contexto conservados fuera de este repositorio**
 

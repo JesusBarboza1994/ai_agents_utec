@@ -28,7 +28,7 @@ ZONAS_VALIDAS = {"", "salon", "terraza", "barra"}
 
 PERSONAS_MIN = 1
 PERSONAS_MAX = 10
-# Lo que dice la politica del restaurante (app/agentes/rag/documentos/03_politicas.md): hasta 30 dias de
+# Lo que dice la politica del restaurante (03_politicas.md, contenedor `catalogo` del Blob): hasta 30 dias de
 # anticipacion y minimo 2 horas antes del turno. El agente se lo dice al cliente, asi que el codigo lo cumple.
 DIAS_MAX_A_FUTURO = 30
 HORAS_MIN_DE_ANTICIPACION = 2

@@ -19,7 +19,7 @@ Se evaluan con los tres prompts RAG de openevals:
 Cada caso incluye:
   - input: pregunta del cliente
   - riesgo: que parte del catalogo o del historico de incidencias pone a prueba
-  - referencia: dato correcto del catalogo (app/agentes/rag/documentos/*.md) o el
+  - referencia: dato correcto del catalogo (contenedor `catalogo` del Blob) o el
     caso del historico que deberia recuperarse; documenta el caso, los prompts RAG
     no la usan
 """

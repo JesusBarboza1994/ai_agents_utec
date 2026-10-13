@@ -103,46 +103,48 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../app/agentes/rag/__init__.py#L1) | RAG de Clemente: indice_catalogo (catalogo-clemente) e indice_incidencias |
+| [modulo](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/__init__.py#L1) | RAG de Clemente: indice_catalogo (catalogo-clemente) e indice_incidencias |
 
 ## app/agentes/rag/blob.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../app/agentes/rag/blob.py#L1) | Lectura de los documentos fuente del RAG desde Azure Blob Storage. |
-| [leer_contenedor](../app/agentes/rag/blob.py#L14) | (nombre, bytes) de cada blob del contenedor con una de las extensiones, ordenados por nombre. |
+| [modulo](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/blob.py#L1) | Lectura de los documentos fuente del RAG desde Azure Blob Storage. |
+| [_cliente_contenedor](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/blob.py#L21) | ContainerClient con connection string o, si no hay, con Entra ID sobre la URL de la cuenta. |
+| [leer_contenedor](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/blob.py#L39) | (nombre, bytes) de cada blob del contenedor con una de las extensiones, ordenados por nombre. |
 
 ## app/agentes/rag/indice_catalogo.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../app/agentes/rag/indice_catalogo.py#L1) | Indice `catalogo-clemente`: RAG del catalogo validado del restaurante -- Sesion 13. |
-| [_leer_documentos_blob](../app/agentes/rag/indice_catalogo.py#L50) | (nombre, bytes) de los documentos del catalogo en su contenedor de Blob. |
-| [_extraer_texto](../app/agentes/rag/indice_catalogo.py#L57) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension del nombre. |
-| [_cargar_documentos](../app/agentes/rag/indice_catalogo.py#L82) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
-| [construir_o_cargar_indice](../app/agentes/rag/indice_catalogo.py#L146) | Devuelve la coleccion Chroma, construyendola la primera vez. |
-| [_id_seguro](../app/agentes/rag/indice_catalogo.py#L173) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
-| [_cliente_azure_search](../app/agentes/rag/indice_catalogo.py#L178) | SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
-| [_empujar_a_azure_search](../app/agentes/rag/indice_catalogo.py#L190) | Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. |
-| [indexar_en_azure_search](../app/agentes/rag/indice_catalogo.py#L213) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
-| [_borrar_obsoletos_azure_search](../app/agentes/rag/indice_catalogo.py#L232) | Borra del indice los chunks cuyo id ya no existe en el catalogo; devuelve cuantos borro. |
-| [_buscar_azure_search](../app/agentes/rag/indice_catalogo.py#L251) | Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador. |
-| [buscar](../app/agentes/rag/indice_catalogo.py#L276) | Busqueda semantica sobre el catalogo validado del restaurante. |
+| [modulo](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L1) | Indice `catalogo-clemente`: RAG del catalogo validado del restaurante -- Sesion 13. |
+| [_leer_documentos_blob](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L50) | (nombre, bytes) de los documentos del catalogo en su contenedor de Blob. |
+| [_extraer_texto](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L57) | Lee texto de TXT, Markdown, DOCX o PDF segun la extension del nombre. |
+| [_cargar_documentos](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L82) | Devuelve los documentos fragmentados y sus identificadores para el indice RAG. |
+| [construir_o_cargar_indice](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L146) | Devuelve la coleccion Chroma, construyendola la primera vez. |
+| [_id_seguro](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L173) | Azure Search solo acepta letras/digitos/_/-/= en la key -- se codifica el id legible. |
+| [_cliente_azure_search](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L178) | SearchClient con AZURE_SEARCH_ENDPOINT/API_KEY/INDEX; sin endpoint o clave lanza KeyError. |
+| [_empujar_a_azure_search](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L190) | Vectoriza los chunks y los sube con mergeOrUpload; devuelve cuantos acepto Azure. |
+| [indexar_en_azure_search](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L213) | Reconstruye (o completa) el indice de Azure AI Search. Idempotente: usa |
+| [_borrar_obsoletos_azure_search](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L232) | Borra del indice los chunks cuyo id ya no existe en el catalogo; devuelve cuantos borro. |
+| [_buscar_azure_search](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L251) | Busqueda vectorial en Azure AI Search; los errores del SDK se propagan al llamador. |
+| [buscar](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_catalogo.py#L276) | Busqueda semantica sobre el catalogo validado del restaurante. |
 
 ## app/agentes/rag/indice_incidencias.py
 
 | Elemento | Descripcion |
 |---|---|
-| [modulo](../app/agentes/rag/indice_incidencias.py#L1) | Indice `incidencias-clemente`: casos de incidencias resueltos -- segundo indice |
-| [_nombre_indice](../app/agentes/rag/indice_incidencias.py#L57) | Nombre del indice de casos (AZURE_SEARCH_INDEX_INCIDENCIAS). |
-| [_ficha](../app/agentes/rag/indice_incidencias.py#L62) | Valor de una linea de la ficha del caso, p. ej. '- **Tipo:** espera'. |
-| [_leer_casos_blob](../app/agentes/rag/indice_incidencias.py#L68) | (nombre, texto) de cada .md del contenedor de casos; sin connection string lanza KeyError. |
-| [_cargar_casos](../app/agentes/rag/indice_incidencias.py#L74) | Un chunk por caso: el .md completo, con su titulo y su ficha como metadata. |
-| [_definir_indice](../app/agentes/rag/indice_incidencias.py#L104) | Esquema del indice: texto con el analizador en espanol, ficha filtrable y vector HNSW. |
-| [_clientes](../app/agentes/rag/indice_incidencias.py#L153) | Clientes de indices y de documentos de Azure AI Search; sin endpoint o clave lanza KeyError. |
-| [_vectorizar](../app/agentes/rag/indice_incidencias.py#L167) | Embeddings por lotes de LOTE_EMBEDDINGS; ante un 429 espera y reintenta el mismo lote. |
-| [indexar_casos](../app/agentes/rag/indice_incidencias.py#L187) | Crea el indice si falta y sube todos los casos; devuelve cuantos acepto Azure. |
-| [buscar_casos](../app/agentes/rag/indice_incidencias.py#L228) | Casos resueltos parecidos al reclamo descrito, del mas al menos cercano. |
+| [modulo](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L1) | Indice `incidencias-clemente`: casos de incidencias resueltos -- segundo indice |
+| [_nombre_indice](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L69) | Nombre del indice de casos (AZURE_SEARCH_INDEX_INCIDENCIAS). |
+| [_ficha](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L74) | Valor de una linea de la ficha del caso, p. ej. '- **Tipo:** espera'. |
+| [_sin_secciones_excluidas](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L80) | El caso completo sin las secciones `##` excluidas: es lo que recibe el agente (el padre). |
+| [_leer_casos_blob](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L89) | (nombre, texto) de cada .md del contenedor de casos. |
+| [_cargar_casos](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L95) | Chunks por seccion de cada caso, con su ficha como metadata y el caso completo como padre. |
+| [_definir_indice](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L139) | Esquema del indice: texto con el analizador en espanol, ficha filtrable, caso padre y vector HNSW. |
+| [_clientes](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L189) | Clientes de indices y de documentos de Azure AI Search; sin endpoint o clave lanza KeyError. |
+| [_vectorizar](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L203) | Embeddings por lotes de LOTE_EMBEDDINGS; ante un 429 espera y reintenta el mismo lote. |
+| [indexar_casos](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L223) | Crea el indice si falta y sube los chunks de todos los casos; devuelve cuantos acepto Azure. |
+| [buscar_casos](../../../../../../Users/abastidasc/workspace/personal/projects/utec/proyecto_final/ai_agents_utec/Clemente_Multiagente/app/agentes/rag/indice_incidencias.py#L267) | Casos resueltos parecidos al reclamo descrito, del mas al menos cercano. |
 
 ## app/agentes/reservas.py
 

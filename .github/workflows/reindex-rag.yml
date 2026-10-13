@@ -1,15 +1,16 @@
 name: Reindexar RAG en Azure AI Search
 
 # Push manual de los dos indices RAG de Clemente a Azure AI Search. La fuente de
-# ambos es Azure Blob Storage (cuenta del secreto AZURE_STORAGE_CONNECTION_STRING):
+# ambos es Azure Blob Storage (cuenta stclmt01):
 #   - catalogo     contenedor "catalogo"     -> app/agentes/rag/indice_catalogo.py    -> indice catalogo-clemente
 #   - incidencias  contenedor "incidencias"  -> app/agentes/rag/indice_incidencias.py -> indice incidencias-clemente
 # No hay cron ni deteccion automatica de cambios: correr esto a mano (pestana
 # Actions -> Run workflow) despues de subir o editar documentos en el Blob.
 #
 # Los scripts hacen el chunking, piden los embeddings a Azure OpenAI y suben los
-# chunks con API keys -- no usan "az" CLI, asi que este workflow no necesita el
-# login OIDC que si usa deploy-azure.yml.
+# chunks a AI Search con API keys. El Blob se lee sin clave: el mismo login OIDC
+# que usa deploy-azure.yml (service principal clemente-github-actions), que
+# necesita el rol "Storage Blob Data Reader" sobre stclmt01.
 
 on:
   workflow_dispatch:
@@ -25,6 +26,7 @@ on:
         default: main
 
 permissions:
+  id-token: write   # login OIDC en Azure, sin secreto de cliente
   contents: read
 
 defaults:
@@ -38,7 +40,7 @@ jobs:
     environment: production
     env:
       RAG_BACKEND: azure_search
-      AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+      AZURE_STORAGE_ACCOUNT_URL: ${{ vars.AZURE_STORAGE_ACCOUNT_URL || 'https://stclmt01.blob.core.windows.net' }}
       AZURE_SEARCH_ENDPOINT: ${{ vars.AZURE_SEARCH_ENDPOINT }}
       AZURE_SEARCH_API_KEY: ${{ secrets.AZURE_SEARCH_API_KEY }}
       EMBEDDINGS_BACKEND: azure
@@ -51,6 +53,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.ref }}
+
+      - name: Login en Azure (OIDC) para leer el Blob
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Configurar Python
         uses: actions/setup-python@v5
