@@ -3,7 +3,6 @@
 Caso real (2026-10-11): Clemente respondio "puedes consultar al equipo al +51 940070695 o [REDACTED_EMAIL]". Las dos
 capas de PII (el middleware del agente y la redaccion final del canal) tapaban tambien el correo publico del restaurante.
 """
-from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -12,7 +11,6 @@ from app.seguridad import pii
 
 PUBLICO = prompts.CORREO_RESTAURANTE
 PRIVADO = "ana.perez@gmail.com"
-DOC_CONTACTO = Path(__file__).resolve().parents[1] / "app" / "agentes" / "rag" / "documentos" / "01_horarios_y_ubicacion.md"
 
 
 def test_la_redaccion_final_deja_el_correo_del_restaurante_y_tapa_el_de_una_persona():
@@ -62,4 +60,8 @@ def test_el_correo_publico_es_el_mismo_en_el_prompt_el_catalogo_y_la_seguridad()
     """Si alguien cambia el correo en un solo lugar, el nuevo volveria a salir tapado."""
     assert PUBLICO in pii.CORREOS_PUBLICOS
     assert PUBLICO in prompts.FICHA_DEL_RESTAURANTE
-    assert PUBLICO in DOC_CONTACTO.read_text(encoding="utf-8")
+
+
+def test_el_catalogo_del_blob_tiene_el_mismo_correo_publico(catalogo_blob):
+    """El documento de contacto del catalogo (en el Blob) dice el mismo correo que el prompt y la seguridad."""
+    assert PUBLICO in catalogo_blob["01_horarios_y_ubicacion.md"]

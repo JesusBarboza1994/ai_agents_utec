@@ -116,3 +116,18 @@ def servicio_incidencias(tmp_path):
     from app.incidencias.servicio_json import ServicioIncidenciasJSON
 
     return ServicioIncidenciasJSON(archivo=tmp_path / "incidencias.json")
+
+
+@pytest.fixture
+def catalogo_blob():
+    """Documentos del catalogo (nombre -> texto) leidos de su contenedor del Blob.
+
+    El catalogo ya no vive en el repo. Sin acceso al Blob configurado
+    (AZURE_STORAGE_ACCOUNT_URL con az login, o AZURE_STORAGE_CONNECTION_STRING)
+    el test que lo pide se omite en vez de fallar."""
+    if not (os.getenv("AZURE_STORAGE_ACCOUNT_URL") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")):
+        pytest.skip("sin acceso al Blob configurado: no se puede leer el catalogo")
+    from app.agentes.rag.blob import leer_contenedor
+
+    contenedor = os.getenv("AZURE_STORAGE_CONTAINER_CATALOGO", "catalogo")
+    return {nombre: contenido.decode("utf-8") for nombre, contenido in leer_contenedor(contenedor, {".md"})}

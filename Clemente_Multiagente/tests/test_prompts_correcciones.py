@@ -34,15 +34,19 @@ def test_el_telefono_del_restaurante_es_el_acordado():
     assert "555-0142" not in FICHA_DEL_RESTAURANTE
 
 
-def test_el_panel_del_chat_y_el_catalogo_dan_el_mismo_telefono():
-    """El panel lateral de la pagina y el documento del catalogo no pueden contradecir al telefono que da el agente."""
+def test_el_panel_del_chat_da_el_mismo_telefono():
+    """El panel lateral de la pagina no puede contradecir al telefono que da el agente."""
     from pathlib import Path
 
     app = Path(__file__).resolve().parent.parent / "app"
     panel = (app / "web" / "templates" / "chat.html").read_text(encoding="utf-8")
-    catalogo = (app / "agentes" / "rag" / "documentos" / "01_horarios_y_ubicacion.md").read_text(encoding="utf-8")
-    for texto in (panel, catalogo):
-        assert TELEFONO_RESTAURANTE in texto and "555-0142" not in texto
+    assert TELEFONO_RESTAURANTE in panel and "555-0142" not in panel
+
+
+def test_el_catalogo_del_blob_da_el_mismo_telefono(catalogo_blob):
+    """El documento de contacto del catalogo (en el Blob) no puede contradecir al telefono que da el agente."""
+    catalogo = catalogo_blob["01_horarios_y_ubicacion.md"]
+    assert TELEFONO_RESTAURANTE in catalogo and "555-0142" not in catalogo
 
 
 def test_la_confirmacion_es_solo_confirmo():

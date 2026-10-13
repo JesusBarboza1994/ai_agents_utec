@@ -3,8 +3,6 @@
 Que el modelo las cumpla se mide con el estres contra el modelo real (material_local/estres_completo.py)
 y con el banco de ruteo (tests/eval/evaluar.py): aqui solo se protege que sigan escritas.
 """
-import os
-
 import pytest
 
 from app.agentes.prompts import PROMPT_INCIDENCIAS, PROMPT_ORQUESTADOR, PROMPT_RESERVAS
@@ -51,15 +49,7 @@ def test_el_limite_de_grupos_que_se_le_dice_al_cliente_es_el_que_de_verdad_se_ap
     assert f"mas de {LIMITE_GRUPO_AUTONOMO} personas" in _plano(PROMPT_RESERVAS)
 
 
-def test_el_catalogo_del_blob_dice_el_mismo_limite_de_grupos():
-    """Los documentos del catalogo (en el Blob) dicen "mas de N personas" con el mismo N que el codigo.
-
-    El catalogo ya no vive en el repo: se lee del contenedor `catalogo`. Sin acceso al
-    Blob configurado (AZURE_STORAGE_ACCOUNT_URL con az login, o connection string) se omite."""
-    if not (os.getenv("AZURE_STORAGE_ACCOUNT_URL") or os.getenv("AZURE_STORAGE_CONNECTION_STRING")):
-        pytest.skip("sin acceso al Blob configurado: no se puede leer el catalogo")
-    from app.agentes.rag.blob import leer_contenedor
-
-    documentos = dict(leer_contenedor(os.getenv("AZURE_STORAGE_CONTAINER_CATALOGO", "catalogo"), {".md"}))
+def test_el_catalogo_del_blob_dice_el_mismo_limite_de_grupos(catalogo_blob):
+    """Los documentos del catalogo (en el Blob) dicen "mas de N personas" con el mismo N que el codigo."""
     for nombre in ("02_carta_y_servicios.md", "03_politicas.md"):
-        assert f"más de {LIMITE_GRUPO_AUTONOMO} personas" in documentos[nombre].decode("utf-8").replace("**", "")
+        assert f"más de {LIMITE_GRUPO_AUTONOMO} personas" in catalogo_blob[nombre].replace("**", "")
