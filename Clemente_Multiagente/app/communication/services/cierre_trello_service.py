@@ -34,8 +34,7 @@ from . import aviso_staff_service
 
 LISTA_RESUELTO = "resuelto"
 ARCHIVO_AVISOS = carpeta_de_datos(Path(__file__).resolve().parents[2] / "incidencias" / "datos") / "avisos_cierre.json"
-TEXTO_CIERRE = ("¡Listo! Tu caso {codigo} ya fue resuelto por el equipo del restaurante ✅ "
-                "Si necesitas algo más, aquí estamos.")
+TEXTO_CIERRE = ("¡Hola! Me confirman que tu caso con codigo {codigo} ya fue cerrado por el equipo del restaurante. ¿Podrías confirmarme ello?")
 # Con lo que el equipo escribio para el cliente, segun el tipo de caso.
 CIERRE_RECLAMO = "¡Listo! Revisamos tu caso {codigo}{sobre}. Lo que hicimos: {resolucion}. Gracias por avisarnos ✅"
 CIERRE_PEDIDO_DE_PERSONA = ("¡Listo! El equipo atendió tu pedido {codigo}: {resolucion}. ¿Quedó resuelta tu consulta? "
