@@ -264,6 +264,11 @@ def _zona(zona) -> str:
     return {"salon": "salón"}.get(zona, zona)
 
 
+def _mesa(reserva) -> str:
+    """", mesa M02" para el texto del cliente: dos reservas del mismo turno no parecen tener la misma mesa."""
+    return f", mesa {reserva.mesa_id}" if getattr(reserva, "mesa_id", "") else ""
+
+
 def _dia_y_fecha(fecha) -> str:
     """Devuelve el dia y la fecha (sabado 2026-10-10); el dia lo calcula el servidor, para que el cliente vea si coincide con lo que quiso."""
     try:
@@ -473,7 +478,7 @@ def confirmar(sesion, texto, servicio):
                     # personas) y esa ya tiene dueno. A quien la hizo se le dice cual es; a otra conversacion no.
                     if es_propietario(sesion, r.id):
                         return (f"Ya tenías esta reserva, así que no creé otra: {r.id}, {r.nombre}, {r.fecha} a las {r.hora} "
-                                f"(hora de Lima), {r.personas} personas, zona {_zona(r.zona)}.",
+                                f"(hora de Lima), {r.personas} personas, zona {_zona(r.zona)}{_mesa(r)}.",
                                 {"reserva": r.__dict__, "operacion": "ya_existia"})
                     return RESERVA_REPETIDA_DE_OTRA_CONVERSACION, {}
             elif accion == "modificar":
@@ -488,5 +493,6 @@ def confirmar(sesion, texto, servicio):
             return "No pude completar la operación porque la disponibilidad o los datos cambiaron. Pídeme un nuevo resumen y lo vemos.", {}
         estado = {"crear": "confirmada", "modificar": "actualizada", "cancelar": "cancelada"}[accion]
         return (f"Listo, tu reserva {r.id} quedó {estado}: {r.nombre}, {r.fecha} a las {r.hora} (hora de Lima), "
-                f"{r.personas} personas, zona {_zona(r.zona)}.{CIERRE_DE_LA_OPERACION[accion]}",
+                f"{r.personas} personas, zona {_zona(r.zona)}{_mesa(r) if accion != 'cancelar' else ''}."
+                f"{CIERRE_DE_LA_OPERACION[accion]}",
                 {"reserva": r.__dict__, "operacion": accion})
