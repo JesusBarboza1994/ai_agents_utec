@@ -46,7 +46,7 @@ INYECCION = re.compile(
     r"|\bdesactiv\w+\s+(?:la\s+|el\s+|las\s+|los\s+)?(?:confirmaci[oó]n|verificaci[oó]n|seguridad|reglas|filtros|guardrails)\b"
     r"|\b(?:saltarme|saltarte|eludir|evadir|burlar|bypass)\w*\s+(?:tus|las|los)\s+(?:reglas|restricciones|filtros|medidas|controles)\b"
     # cabeceras falsas de instrucciones
-    r"|###\s*system|\bnuevas?\s+instrucci(?:[oó]n|ones)\s*:|\bsystem\s*:\s*\w"
+    r"|###\s*(?:system|sistema)|\bnuevas?\s+instrucci(?:[oó]n|ones)\s*:|\bsystem\s*:\s*\w"
     # pedir credenciales
     r"|\bapi[\s_-]?key\b|\bclave\s+(?:de\s+la\s+)?api\b|\btoken\s+de\s+(?:trello|openai|twilio)\b"
     # parafrasis cortas de "olvida lo que te dijeron" y "actua sin limites" (el detector de jailbreak no las marca)
