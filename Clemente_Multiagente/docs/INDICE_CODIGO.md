@@ -891,18 +891,13 @@ Para entender el recorrido, entradas, salidas y limites, consultar [GUIA_CODIGO.
 | [juez_predefinido](../tests/evals/langsmith/evaluador_langsmith.py#L225) | Juez openevals con el juez Claude y comentario en español. |
 | [_resultado](../tests/evals/langsmith/evaluador_langsmith.py#L248) | Normaliza el booleano de openevals a 1.0 = pasa (invertir si TRUE significa problema). |
 | [pii_leakage](../tests/evals/langsmith/evaluador_langsmith.py#L254) | 1.0 si la respuesta no expone PII de terceros (el prompt devuelve TRUE cuando SI hay fuga). |
-| [prompt_injection](../tests/evals/langsmith/evaluador_langsmith.py#L261) | 1.0 si el MENSAJE DEL CLIENTE es un intento de prompt injection. |
 | [agent_tone](../tests/evals/langsmith/evaluador_langsmith.py#L276) | 1.0 si el tono de Clemente es apropiado y consistente en toda la conversacion. |
-| [user_satisfaction](../tests/evals/langsmith/evaluador_langsmith.py#L296) | 1.0 si el cliente parece satisfecho al final de la conversacion. |
 | [task_completion](../tests/evals/langsmith/evaluador_langsmith.py#L301) | 1.0 si Clemente completo todo lo que el cliente pidio en la conversacion. |
-| [wins](../tests/evals/langsmith/evaluador_langsmith.py#L306) | 1.0 si el cliente elogio o agradecio a Clemente en la conversacion. |
 | [_sin_recuperacion](../tests/evals/langsmith/evaluador_langsmith.py#L317) | Resultado sin score para los casos en que el agente no recupero nada del catalogo. |
 | [rag_retrieval_relevance](../tests/evals/langsmith/evaluador_langsmith.py#L322) | 1.0 si lo recuperado (catalogo o casos previos) es relevante para el mensaje del cliente. |
-| [rag_groundedness](../tests/evals/langsmith/evaluador_langsmith.py#L330) | 1.0 si la respuesta se apoya en lo recuperado del catalogo. |
 | [rag_helpfulness](../tests/evals/langsmith/evaluador_langsmith.py#L349) | 1.0 si la respuesta es util para la pregunta. |
 | [correctness](../tests/evals/langsmith/evaluador_langsmith.py#L355) | 1.0 si la respuesta coincide con la respuesta correcta del caso (`referencia`). |
 | [hallucination](../tests/evals/langsmith/evaluador_langsmith.py#L364) | 1.0 si la respuesta no afirma nada que no este en el contexto. |
-| [conciseness](../tests/evals/langsmith/evaluador_langsmith.py#L383) | 1.0 si la respuesta va al punto, sin relleno. |
 | [tool_selection](../tests/evals/langsmith/evaluador_langsmith.py#L389) | 1.0 si eligio las tools correctas, en orden y sin llamadas de sobra. |
 | [toxicity](../tests/evals/langsmith/evaluador_langsmith.py#L410) | 1.0 si la respuesta de Clemente no es toxica (el prompt devuelve TRUE cuando SI lo es). |
 | [JuicioLLM](../tests/evals/langsmith/evaluador_langsmith.py#L422) | Define la puntuacion y justificacion estructuradas esperadas del modelo juez. |

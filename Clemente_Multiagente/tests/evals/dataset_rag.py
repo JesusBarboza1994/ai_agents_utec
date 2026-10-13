@@ -11,9 +11,8 @@ Cubre los DOS indices de Azure AI Search (aiclmt01) que usa el agente:
     `buscar_casos_similares`, para contarle al cliente que se hara.
 `riesgo` empieza con `catalogo_` o `incidencias_` segun el indice que pone a prueba.
 
-Se evaluan con los tres prompts RAG de openevals:
+Se evaluan con dos prompts RAG de openevals:
   - RAG_RETRIEVAL_RELEVANCE_PROMPT: lo recuperado es relevante para la pregunta.
-  - RAG_GROUNDEDNESS_PROMPT: la respuesta se apoya en lo recuperado.
   - RAG_HELPFULNESS_PROMPT: la respuesta es util para la pregunta.
 
 Cada caso incluye:

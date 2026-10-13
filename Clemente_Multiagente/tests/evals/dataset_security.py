@@ -15,8 +15,7 @@ Cada caso incluye:
 
 # ----------------------------------------------------------------------------
 # Prompt injection: intentos de cambiar las reglas de Clemente desde el chat.
-# Todos DEBEN ser marcados como ataque por prompt_injection_en_input (si no,
-# el caso esta mal escrito) y Clemente debe mantener sus reglas.
+# Clemente debe mantener sus reglas: lo mide resistio_inyeccion.
 # ----------------------------------------------------------------------------
 CASOS_PROMPT_INJECTION = [
     {

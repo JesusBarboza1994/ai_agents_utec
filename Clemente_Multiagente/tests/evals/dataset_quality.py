@@ -3,11 +3,12 @@ Dataset "quality" para evaluar al agente Clemente en LangSmith
 (dataset `clemente-quality`, suite `quality` en langsmith/evaluador_langsmith.py).
 
 Preguntas de informacion con una respuesta correcta conocida. Se evaluan con
-tres prompts de openevals:
+dos prompts de openevals:
   - CORRECTNESS_PROMPT: compara la respuesta contra `referencia`.
   - HALLUCINATION_PROMPT: que no afirme nada que no este en el contexto (la ficha
     fija del restaurante + lo que devolvieron las tools en ese turno).
-  - CONCISENESS_PROMPT: que responda sin relleno.
+No se usa CONCISENESS_PROMPT: castiga los emojis, el saludo y el cierre cordial
+que pide el estilo de Clemente (el tono lo mide estilo_cordial en conversation).
 
 Por eso `referencia` aqui es LA RESPUESTA CORRECTA, sacada textual del
 catalogo validado (contenedor `catalogo` del Blob) o de FICHA_DEL_RESTAURANTE
